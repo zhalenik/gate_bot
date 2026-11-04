@@ -1,0 +1,36 @@
+services:
+  gatebot:
+    build: .
+    image: gatebot:local
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    user: "568:568"
+    env_file:
+      - .env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "5000"
+      GATEBOT_DATA_DIR: /state
+      GATEBOT_LOG_DIR: /state/logs
+    ports:
+      - "127.0.0.1:30550:5000"
+    volumes:
+      - ./data:/state
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Add the actual persistent host device only after hardware acceptance:
+    # devices:
+    #   - /dev/serial/by-id/ACTUAL_DEVICE:/dev/ttyGATE
+    # group_add:
+    #   - "ACTUAL_HOST_SERIAL_GID"

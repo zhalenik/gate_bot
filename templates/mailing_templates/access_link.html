@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Доступ на парковку - GateBot</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #272b2e;
+            background-color: #f5f6f9;
+            margin: 0;
+            padding: 0;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .email-header {
+            background-color: #454a4c;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .logo {
+            max-width: 150px;
+            height: auto;
+            margin-bottom: 15px;
+        }
+        .email-header h1 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .email-body {
+            padding: 30px 20px;
+        }
+        .greeting {
+            font-size: 18px;
+            font-weight: 600;
+            color: #272b2e;
+            margin-bottom: 20px;
+        }
+        .info-block {
+            background-color: #f8f9fa;
+            border-left: 4px solid #454a4c;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-block p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #272b2e;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #454a4c;
+        }
+        .link-button {
+            display: inline-block;
+            background-color: #f7cd45;
+            color: #272b2e !important;
+            text-decoration: none;
+            padding: 15px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 25px 0;
+            text-align: center;
+            transition: opacity 0.3s;
+        }
+        .link-button:hover {
+            opacity: 0.9;
+        }
+        .link-container {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .link-text {
+            font-size: 14px;
+            color: #6c757d;
+            margin-top: 15px;
+            word-break: break-all;
+        }
+        .email-content {
+            font-size: 16px;
+            line-height: 1.8;
+            color: #272b2e;
+        }
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            border-top: 1px solid #ebebeb;
+        }
+        .email-footer p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        .email-footer a {
+            color: #454a4c;
+            text-decoration: none;
+        }
+        .email-footer a:hover {
+            text-decoration: underline;
+            color: #007bff;
+        }
+        .divider {
+            height: 1px;
+            background-color: #ebebeb;
+            margin: 20px 0;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .warning p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="email-header">
+            <h1>GateBot</h1>
+            <p style="color: #ffffff; margin: 5px 0 0 0; font-size: 14px;">Управление доступом на парковку</p>
+        </div>
+        <div class="email-body">
+            <div class="greeting">
+                Здравствуйте, {name}!
+            </div>
+            
+            <div class="email-content">
+                <p>Вам предоставлен доступ на парковку филиала <strong>{branch_name}</strong>.</p>
+                
+                <div class="info-block">
+                    <p><span class="info-label">Филиал:</span> {branch_name}</p>
+                    <p><span class="info-label">Срок действия доступа:</span> {expires_at}</p>
+                </div>
+                
+                <p>Для открытия ворот используйте ссылку ниже:</p>
+                
+                <div class="link-container">
+                    <a href="{link}" class="link-button">Открыть ворота</a>
+                    <div class="link-text">Или скопируйте ссылку: {link}</div>
+                </div>
+                
+                <div class="warning">
+                    <p><strong>Важно:</strong></p>
+                    <p>• Ссылка действительна до указанной даты и времени</p>
+                    <p>• Сохраните это письмо для быстрого доступа</p>
+                    <p>• При возникновении проблем обратитесь к администратору филиала</p>
+                </div>
+            </div>
+        </div>
+        <div class="email-footer">
+            <div class="divider"></div>
+            <p><strong>GateBot</strong> - Система автоматизированного управления доступом</p>
+            <p>Это автоматическое сообщение, пожалуйста, не отвечайте на него.</p>
+            <p>Если у вас возникли вопросы, обратитесь к администратору филиала.</p>
+        </div>
+    </div>
+</body>
+</html>
+

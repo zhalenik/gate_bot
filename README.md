@@ -12,6 +12,7 @@
 4. [Результаты аудита исходников](docs/AUDIT.md).
 5. [План этапов и критерии готовности](docs/ROADMAP.md).
 6. [Логи, диагностика и поддержка](docs/OPERATIONS.md).
+7. [Проведённые проверки и следующая приёмка](docs/ACCEPTANCE.md).
 
 Отдельно: [MAX](docs/MAX.md), [SIM800C/SMS](docs/SIM800C.md), [YCLIENTS только на чтение](docs/YCLIENTS.md), [контейнер и TrueNAS](docs/DEPLOYMENT.md), [правила разработки](CONTRIBUTING.md).
 

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Страница не найдена</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="error-container">
+            <span class="error-emoji">😵</span>
+            <div class="error-code">404</div>
+            <h1 class="error-title">Страница не найдена</h1>
+            <p class="error-message">
+                Упс! Похоже, вы забрели не туда.<br>
+                Эта страница существует только в ваших мечтах.
+            </p>
+            <a href="/" class="back-home">Вернуться на главную</a>
+        </div>
+    </div>
+</body>
+</html>
+

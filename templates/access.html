@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{{ branch_name }} — доступ на парковку</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="access-container">
+        <div class="access-card">
+            <div class="header">
+                {% if branch_logo %}<img src="{{ branch_logo }}" alt="{{ branch_name }}" class="branch-logo">{% endif %}
+                <h1>{{ branch_name }}</h1>
+                <p class="user-info">Клиент: {{ user_name }}</p>
+            </div>
+            <div class="buttons-container">
+                {% for button in buttons %}
+                    {% if button.type == 'gate' %}
+                    <button class="button button-gate" type="button" data-button-id="{{ button.id }}">{{ button.label }}</button>
+                    {% elif button.type == 'admin' %}
+                    <a class="button button-admin" href="tel:{{ button.phone }}">{{ button.label }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if telegram_url %}<a class="button" href="{{ telegram_url }}" rel="noreferrer">Открыть Telegram</a>{% endif %}
+                {% if max_url %}<a class="button" href="{{ max_url }}" rel="noreferrer">Открыть MAX</a>{% endif %}
+            </div>
+            <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
+        </div>
+    </div>
+    <script>
+        const accessToken = {{ token | tojson }};
+        const cooldownSeconds = {{ timeout | tojson }};
+        const gateButtons = Array.from(document.querySelectorAll('[data-button-id]'));
+        const statusMessage = document.getElementById('statusMessage');
+        let releaseTimer;
+        const setDisabled = (disabled) => gateButtons.forEach(button => { button.disabled = disabled; });
+        function releaseAfter(seconds) {
+            window.clearTimeout(releaseTimer);
+            if (seconds > 0) {
+                releaseTimer = window.setTimeout(() => setDisabled(false), seconds * 1000);
+            } else {
+                setDisabled(false);
+            }
+        }
+        async function openGate(buttonId) {
+            setDisabled(true);
+            statusMessage.textContent = 'Отправляем команду…';
+            statusMessage.className = 'status-message loading';
+            try {
+                const response = await fetch('/open-gate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify({ token: accessToken, button_id: buttonId })
+                });
+                const result = await response.json();
+                const ok = response.ok && result.status === 'success';
+                statusMessage.textContent = result.message || (ok ? 'Команда принята' : 'Не удалось отправить команду');
+                statusMessage.className = 'status-message ' + (ok ? 'success' : 'error');
+                releaseAfter(ok ? cooldownSeconds : (Number(result.retry_after) || 0));
+            } catch (error) {
+                statusMessage.textContent = 'Нет ответа сервера. Если команда была принята, ворота могут сработать; подождите перед повтором.';
+                statusMessage.className = 'status-message error';
+                releaseAfter(cooldownSeconds);
+            }
+        }
+        gateButtons.forEach(button => button.addEventListener('click', () => openGate(button.dataset.buttonId)));
+    </script>
+</body>
+</html>

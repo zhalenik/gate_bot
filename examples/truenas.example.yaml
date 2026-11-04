@@ -1,0 +1,41 @@
+# Preparation template only. An image has NOT been published by this commit.
+# Replace the image with a tested immutable tag before Install via YAML.
+services:
+  gatebot:
+    image: ghcr.io/zhalenik/gate_bot:REPLACE_WITH_TESTED_VERSION
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    user: "568:568"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "5000"
+      GATEBOT_DATA_DIR: /state
+      GATEBOT_LOG_DIR: /state/logs
+      GATEBOT_ENV: production
+      # Supply secrets via a private file, not a public YAML or repository.
+    env_file:
+      - /mnt/POOL/apps-data/gatebot/gatebot.env
+    volumes:
+      - /mnt/POOL/apps-data/gatebot/state:/state
+    ports:
+      - "30550:5000"
+    # Configure Nginx Proxy Manager to proxy HTTPS to the internal server:30550.
+    # Do not expose 30550 directly to the Internet.
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # devices:
+    #   - /dev/serial/by-id/ACTUAL_DEVICE:/dev/ttyGATE
+    # group_add:
+    #   - "ACTUAL_HOST_SERIAL_GID"

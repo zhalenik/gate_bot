@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админка - Добавить пользователя</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+    <header class="admin-header">
+        <nav class="admin-nav">
+            <button class="burger-menu" onclick="toggleBurgerMenu()">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <img src="/static/images/logo.svg" alt="logo" class="admin-logo">
+            <div class="nav-items-wrapper" id="navItems">
+                <a href="/admin/users" class="nav-item">Пользователи</a>
+                <a href="/admin/add-user" class="nav-item active">Добавить пользователя</a>
+                <a href="/admin/temp-link" class="nav-item">Разовый пропуск</a>
+                <a href="/admin/change-password" class="nav-item">Сменить пароль</a>
+                <a href="/admin/logs" class="nav-item">Логи</a>
+                <a href="/admin/settings" class="nav-item">Филиал</a>
+                <form method="POST" action="/admin/logout" style="display:contents">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="nav-item logout mobile-logout" title="Выход" style="border:0;cursor:pointer">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                </form>
+            </div>
+            <form method="POST" action="/admin/logout" style="display:contents">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="nav-item logout desktop-logout" title="Выход" style="border:0;cursor:pointer">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+                </form>
+        </nav>
+    </header>
+    
+    <div class="admin-container">
+        <div class="admin-content">
+            <h1>Добавить нового пользователя</h1>
+            
+            <div class="add-user-wrapper">
+                <form id="createLinkForm" class="admin-form">
+                    <div class="form-group">
+                        <label for="userName">Имя пользователя *</label>
+                        <input type="text" id="userName" name="userName" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="phone" id="phoneLabel">Номер телефона</label>
+                        <input type="tel" id="phone" name="phone" placeholder="+79123456789">
+                    </div>
+                    
+                    {% if is_super %}
+                    <div class="form-group">
+                        <label for="branchId">Филиал *</label>
+                        <select id="branchId" name="branchId" required>
+                            <!-- Заполняется через JavaScript -->
+                        </select>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="form-group">
+                        <span id="permanentText">Бессрочный пропуск</span>
+                        <label>
+                            <input type="checkbox" name="hasExpiry" id="hasExpiry">
+                            Установить срок действия пропуска
+                        </label>
+                        <input type="number" name="expiresDays" id="expiresDays" placeholder="количество дней" min="1" max="365" disabled style="display: none;">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="sendLink" id="sendLink">
+                            Отправить ссылку
+                        </label>
+                        <small class="form-hint">(Пользователю будет отправлена ссылка через сервис рассылки, если он подключен)</small>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary">Добавить пользователя</button>
+                </form>
+                
+                <div id="linkResult" class="link-result-sidebar" style="display:none;">
+                    <h3>Ссылка создана!</h3>
+                    <div class="link-box">
+                        <input type="text" id="generatedLink" readonly>
+                        <button class="btn-icon" onclick="copyLink()" title="Копировать">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke="#272b2e" stroke-width="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="#272b2e" stroke-width="2"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="qrCodeContainerSidebar" style="display:flex; justify-content:center; margin-top:20px;">
+                        <!-- QR-код будет добавлен через JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        window.DEFAULT_BRANCH_ID = {{ admin_branch_id | tojson }};
+        window.IS_SUPER = {{ 'true' if is_super else 'false' }};
+        window.BASE_URL = {{ (BASE_URL or "") | tojson }};
+    </script>
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>

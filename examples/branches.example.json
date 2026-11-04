@@ -1,0 +1,15 @@
+{
+  "1001": {
+    "branch_id": 1001,
+    "name": "Демонстрационный филиал",
+    "logo": "/static/images/logo.svg",
+    "timezone": "Europe/Moscow",
+    "enabled": true,
+    "yclients_user_token_env": "YC_USER_TOKEN_1001",
+    "buttons": [
+      {"type": "gate", "label": "Въезд", "phone": "+70000000001"},
+      {"type": "gate", "label": "Выезд", "phone": "+70000000002"},
+      {"type": "admin", "label": "Администратор", "phone": "+70000000003"}
+    ]
+  }
+}

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Настройки филиала — GateBot</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+<header class="admin-header">
+        <nav class="admin-nav">
+            <button class="burger-menu" onclick="toggleBurgerMenu()">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <img src="/static/images/logo.svg" alt="logo" class="admin-logo">
+            <div class="nav-items-wrapper" id="navItems">
+                <a href="/admin/users" class="nav-item">Пользователи</a>
+                <a href="/admin/add-user" class="nav-item">Добавить пользователя</a>
+                <a href="/admin/temp-link" class="nav-item">Разовый пропуск</a>
+                <a href="/admin/change-password" class="nav-item">Сменить пароль</a>
+                <a href="/admin/logs" class="nav-item">Логи</a>
+                <a href="/admin/settings" class="nav-item active">Филиал</a>
+                <form method="POST" action="/admin/logout" style="display:contents">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="nav-item logout mobile-logout" title="Выход" style="border:0;cursor:pointer">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                </form>
+            </div>
+            <form method="POST" action="/admin/logout" style="display:contents">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="nav-item logout desktop-logout" title="Выход" style="border:0;cursor:pointer">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+                </form>
+        </nav>
+    </header>
+    <div class="admin-container">
+        <div class="admin-content">
+            <h1>Настройки филиала</h1>
+            {% if is_super %}
+            <div class="filter-section">
+                <label for="settingsBranch">Филиал</label>
+                <select id="settingsBranch"></select>
+                <button type="button" id="newBranchBtn" class="btn-primary">Добавить филиал</button>
+            </div>
+            {% else %}
+            <p class="sub-title">{{ admin_branch_name }}</p>
+            {% endif %}
+            <form id="branchSettingsForm">
+                <div style="max-width:640px">
+                    <div class="form-group">
+                        <label for="settingsBranchId">ID филиала в YCLIENTS</label>
+                        <input id="settingsBranchId" type="number" min="1" step="1" required readonly>
+                    </div>
+                    <div class="form-group">
+                        <label for="settingsName">Название филиала</label>
+                        <input id="settingsName" type="text" maxlength="200" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="settingsTimezone">Часовой пояс филиала</label>
+                        <input id="settingsTimezone" type="text" maxlength="80" list="timezoneSuggestions" required>
+                        <datalist id="timezoneSuggestions">
+                            <option value="Europe/Moscow"></option><option value="Europe/Kaliningrad"></option>
+                            <option value="Europe/Samara"></option><option value="Asia/Yekaterinburg"></option>
+                            <option value="Asia/Novosibirsk"></option><option value="Asia/Irkutsk"></option>
+                            <option value="Asia/Vladivostok"></option><option value="UTC"></option>
+                        </datalist>
+                    </div>
+                    <div class="form-group">
+                        <label for="settingsLogo">Логотип: HTTPS-ссылка или путь /static/</label>
+                        <input id="settingsLogo" type="text" maxlength="2048">
+                    </div>
+                    <div class="form-group">
+                        <label><input id="settingsEnabled" type="checkbox"> Разрешить доступ по пропускам филиала</label>
+                        <small class="form-hint">Выключение блокирует открытие ворот этого филиала во всех интерфейсах.</small>
+                    </div>
+                </div>
+                <h2 style="font-size:18px;margin:24px 0 12px">Кнопки ворот и контакты</h2>
+                <div class="users-table-container">
+                    <table class="users-table">
+                        <thead><tr><th>Действие</th><th>Название кнопки</th><th>Телефон</th><th></th></tr></thead>
+                        <tbody id="settingsButtons"></tbody>
+                    </table>
+                </div>
+                <p class="form-hint">Номер ворот доступен администраторам. Клиенту показывается кнопка открытия без этого номера.</p>
+                <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap">
+                    <button type="button" id="addSettingsButton" class="btn-action">Добавить кнопку</button>
+                    <button type="submit" id="saveSettingsButton" class="btn-primary">Сохранить настройки</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        window.DEFAULT_BRANCH_ID = {{ admin_branch_id | tojson }};
+        window.IS_SUPER = {{ 'true' if is_super else 'false' }};
+        window.BASE_URL = {{ (BASE_URL or "") | tojson }};
+    </script>
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>

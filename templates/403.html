@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Доступ недоступен</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="error-container">
+            <span class="error-emoji">🚫</span>
+            <h1 class="error-title">Доступ недоступен</h1>
+            <p class="error-message">Ссылка недействительна, срок пропуска истёк или действие не разрешено. Обновите страницу; если проблема сохраняется, обратитесь к администратору своего филиала.</p>
+            {% if admin_contacts %}
+            <p class="user-info">{{ branch_name }}</p>
+            <div class="buttons-container">
+                {% for contact in admin_contacts %}
+                <a class="button button-admin" href="tel:{{ contact.phone }}">{{ contact.label }}</a>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <a href="/" class="back-home">На главную</a>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отписка от рассылки</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="error-container">
+            <span class="error-emoji">📧</span>
+            <h1 class="error-title">Отписка от рассылки</h1>
+            <p class="error-message">
+                {{ user_name }}, вы отключаете уведомления о пропусках на стоянку. Сам доступ определяется действующим пропуском.
+            </p>
+            <form method="POST" action="{{ url_for('unsubscribe', token=token) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-admin">Подтвердить отписку</button>
+                <a href="/" class="back-home">Отмена</a>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

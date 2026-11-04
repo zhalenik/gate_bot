@@ -7,13 +7,19 @@ import sqlite3
 import time
 import uuid
 
+from filelock import FileLock
+
 
 class RuntimeState:
     def __init__(self, path):
         self.path = str(path)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as db:
-            db.execute('PRAGMA journal_mode=WAL')
+        # Serialize first-time WAL/bootstrap across threads and processes.
+        # Existing WAL databases must not request another mode transition
+        # while another runtime instance is already reading or writing.
+        with FileLock(self.path + '.init.lock', timeout=30), self.connect() as db:
+            if db.execute('PRAGMA journal_mode').fetchone()[0].lower() != 'wal':
+                db.execute('PRAGMA journal_mode=WAL')
             db.execute('CREATE TABLE IF NOT EXISTS cooldown (key TEXT PRIMARY KEY, expires REAL NOT NULL, claim TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, channel TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT "pending", created REAL NOT NULL, updated REAL NOT NULL, error TEXT)')
 

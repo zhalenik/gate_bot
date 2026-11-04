@@ -14,13 +14,20 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from filelock import FileLock
+
 
 class BotStateStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
-            db.execute("PRAGMA journal_mode=WAL")
+        # SQLite's busy timeout does not serialize simultaneous WAL mode
+        # transitions on a newly created database, notably on Windows. Lock
+        # bootstrap before opening a connection; normal operations retain
+        # SQLite's own transactional concurrency after initialization.
+        with FileLock(str(self.path) + ".init.lock", timeout=30), self._connect() as db:
+            if db.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+                db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS bot_claims (
                     namespace TEXT NOT NULL,

@@ -334,9 +334,10 @@ def test_polling_lock_keeps_providers_separate_and_filename_private(tmp_path, mo
     monkeypatch.setattr(polling_lock.tempfile, "gettempdir", lambda: str(tmp_path))
     with polling_lock.polling_lease("max", TOKEN):
         with polling_lock.polling_lease("telegram", TOKEN):
-            pass
-    names = [path.name for path in (tmp_path / "gatebot-polling").iterdir()]
-    assert len(names) == 2 and all(TOKEN not in name for name in names)
+            # Windows removes FileLock files on release. Their persistence
+            # after release is not part of the provider-isolation guarantee.
+            names = [path.name for path in (tmp_path / "gatebot-polling").iterdir()]
+            assert len(names) == 2 and all(TOKEN not in name for name in names)
 
 
 def test_blocked_user_does_not_stall_next_update(bot):

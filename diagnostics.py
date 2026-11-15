@@ -2,13 +2,45 @@
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 import json
+import os
 import platform
+import re
+import sqlite3
 import zipfile
 from storage import config
+from storage.json_store import JsonStore
 from branch_manager import BranchManager
 from link_manager import LinkManager
 from runtime_state import RuntimeState
 import logger
+
+
+def _crm_credential_presence(branches):
+    """Match YClientsClient._credentials without constructing headers or making I/O.
+
+    Only active branches matter for readiness. Never return reference names,
+    branch identifiers or credential values: this report enters support bundles.
+    """
+    active = [branch for branch in branches.values() if branch.get('enabled', True) is True]
+    invalid_refs = missing_tokens = 0
+    for branch in active:
+        branch_id = branch['branch_id']
+        env_name = branch.get('yclients_user_token_env', f'YC_USER_TOKEN_{branch_id}')
+        if not re.fullmatch(r'[A-Z][A-Z0-9_]*', str(env_name)):
+            invalid_refs += 1
+            continue
+        user_token = os.getenv(env_name, '')
+        if not user_token and str(config.YC_COMPANY_ID) == str(branch_id):
+            user_token = config.YC_USER_TOKEN
+        if not user_token:
+            missing_tokens += 1
+    return {
+        'yclients_partner_token_present': bool(config.YC_PARTNER_TOKEN),
+        'yclients_active_branch_references_valid': invalid_refs == 0,
+        'yclients_active_branch_tokens_present': bool(active) and not invalid_refs and not missing_tokens,
+        'yclients_invalid_reference_branch_count': invalid_refs,
+        'yclients_missing_token_branch_count': missing_tokens,
+    }
 
 
 def doctor():
@@ -18,27 +50,89 @@ def doctor():
             packages[name] = version(name)
         except PackageNotFoundError:
             packages[name] = 'missing'
-    problems = []
+    problems, warnings = [], []
+    branch_data, branches, users, admins = {}, [], {}, {}
     try:
-        branches = BranchManager().get_all_branches()
+        manager = BranchManager()
+        # Keep validation and credential references in the same local snapshot.
+        with manager.store.lock:
+            branch_data = manager.load_branches()
+            branches = manager.get_all_branches()
+    except (ValueError, OSError, TypeError, AttributeError):
+        branch_data, branches = {}, []
+        problems.append('invalid_or_unreadable_branches')
+    try:
         users = LinkManager().load_links()
     except (ValueError, OSError):
-        branches, users = [], {}
-        problems.append('invalid_or_unreadable_local_state')
+        problems.append('invalid_or_unreadable_users')
+    try:
+        admins = JsonStore(Path(config.DATA_DIR) / 'admins.json').read()
+    except (ValueError, OSError):
+        problems.append('invalid_or_unreadable_admins')
+    enabled_branch_count = sum(branch.enabled for branch in branches)
+    if not admins:
+        problems.append('admins_missing')
+    if not enabled_branch_count:
+        problems.append('enabled_branches_missing')
+    try:
+        env_file_present = Path(config.ENV_FILE).is_file()
+    except OSError:
+        env_file_present = False
+    if not env_file_present:
+        warnings.append('env_file_missing')
+
+    credentials = {
+        'telegram_token_present': bool(config.BOT_TOKEN),
+        'max_token_present': bool(config.MAX_BOT_TOKEN),
+        **_crm_credential_presence(branch_data),
+    }
     if config.BOT_ENABLED and not config.BOT_TOKEN:
         problems.append('telegram_token_missing')
+    if config.BOT_ENABLED and config.BOT_MODE != 'polling':
+        problems.append('telegram_polling_mode_required')
+    if config.BOT_ENABLED and not config.BOT_USERNAME:
+        warnings.append('telegram_username_missing')
     if config.MAX_BOT_ENABLED and not config.MAX_BOT_TOKEN:
         problems.append('max_token_missing')
-    if config.SIM800_ENABLED and not config.GATE_DRY_RUN and not config.SIM800_PORT:
+    if config.MAX_BOT_ENABLED and config.MAX_BOT_MODE != 'polling':
+        problems.append('max_polling_mode_required')
+    if config.MAX_BOT_ENABLED and not config.MAX_BOT_USERNAME:
+        warnings.append('max_username_missing')
+    if config.MAX_BOT_ENABLED and config.MAX_CA_BUNDLE:
+        try:
+            ca_file_present = Path(config.MAX_CA_BUNDLE).is_file()
+        except OSError:
+            ca_file_present = False
+        if not ca_file_present:
+            problems.append('max_ca_bundle_missing')
+    if config.YCLIENTS_ENABLED:
+        if not credentials['yclients_partner_token_present']:
+            problems.append('yclients_partner_token_missing')
+        if credentials['yclients_invalid_reference_branch_count']:
+            problems.append('yclients_branch_credential_reference_invalid')
+        if credentials['yclients_missing_token_branch_count']:
+            problems.append('yclients_active_branch_token_missing')
+    if config.SIM800_ENABLED and not config.SIM800_PORT:
         problems.append('serial_port_missing')
+    if not config.GATE_DRY_RUN and not config.SIM800_ENABLED:
+        problems.append('sim800_disabled_for_hardware_mode')
+    try:
+        notifications = RuntimeState(Path(config.DATA_DIR) / 'runtime.sqlite3').notification_counts()
+    except (OSError, sqlite3.Error):
+        notifications = {}
+        problems.append('invalid_or_unreadable_notification_state')
     return {
         'version': '0.1.0-alpha.1', 'python': platform.python_version(),
         'os': platform.system(), 'packages': packages,
-        'branch_count': len(branches), 'user_count': len(users),
+        'env_file_present': env_file_present,
+        'admin_count': len(admins), 'branch_count': len(branches),
+        'enabled_branch_count': enabled_branch_count, 'user_count': len(users),
+        'credentials': credentials,
         'mode': {'telegram_enabled': config.BOT_ENABLED, 'max_enabled': config.MAX_BOT_ENABLED, 'yclients_enabled': config.YCLIENTS_ENABLED, 'yclients_read_only': True, 'scheduler_enabled': config.SCHEDULER_ENABLED, 'gate_dry_run': config.GATE_DRY_RUN, 'sim800_enabled': config.SIM800_ENABLED, 'notifications_enabled': config.OUTBOUND_ENABLED},
-        'checks': {'network': 'not_run', 'physical_modem': 'not_run', 'local_config': 'error' if problems else 'ok'},
+        'checks': {'network': 'not_run', 'physical_modem': 'not_run', 'credentials': 'presence_only', 'local_config': 'error' if problems else ('warning' if warnings else 'ok')},
         'problems': problems,
-        'notifications': RuntimeState(Path(config.DATA_DIR) / 'runtime.sqlite3').notification_counts(),
+        'warnings': warnings,
+        'notifications': notifications,
     }
 
 

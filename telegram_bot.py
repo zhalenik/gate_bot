@@ -288,20 +288,21 @@ async def _run(stop_event: threading.Event, service: Any = None) -> None:
 
     global _RUNTIME, _LOOP
     initialized = False
+    stage = 'initialize'
     _READY.clear()
     try:
         await application.initialize()
         initialized = True
+        stage = 'webhook_info'
         webhook = await application.bot.get_webhook_info()
         if webhook.url:
             _audit("BOT_START_REFUSED", level="ERROR", reason="active_webhook")
-            raise RuntimeError(
-                "Telegram polling не запущен: у бота настроен webhook. "
-                "Используйте тестового бота или явно отключите старый webhook."
-            )
+            from bot_diagnostics import BotCheckError
+            raise BotCheckError('active_webhook', stage=stage)
         _RUNTIME, _LOOP = runtime, asyncio.get_running_loop()
         await application.start()
         _RUNNING.set()
+        stage = 'polling'
         # Only after confirming there is no active webhook. Pending remote
         # commands are dropped so old gate taps are not executed on startup.
         await application.updater.start_polling(
@@ -311,6 +312,9 @@ async def _run(stop_event: threading.Event, service: Any = None) -> None:
         _audit("BOT_POLLING_STARTED")
         while not stop_event.is_set():
             await asyncio.sleep(0.25)
+    except Exception as error:
+        error.diagnostic_stage = stage
+        raise
     finally:
         _READY.clear()
         _RUNNING.clear()
@@ -321,6 +325,15 @@ async def _run(stop_event: threading.Event, service: Any = None) -> None:
             await application.stop()
         if initialized:
             await application.shutdown()
+        else:
+            # getMe can time out after PTB has opened its HTTP clients but
+            # before Application.initialize succeeds. Application.shutdown is
+            # then a no-op; close the bot resources before asyncio closes the
+            # Windows event loop. Keep the original startup error actionable.
+            try:
+                await application.bot.shutdown()
+            except Exception as error:
+                _audit('BOT_SHUTDOWN_ERROR', level='WARNING', error_type=type(error).__name__)
         _audit("BOT_POLLING_STOPPED")
 
 

@@ -9,6 +9,8 @@ def main():
     parser = argparse.ArgumentParser(description='GateBot local maintenance')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('doctor', help='Inspect local state/configuration without network or modem I/O')
+    bots = sub.add_parser('check-bots', help='Read bot identity/webhook metadata; no polling, messages, CRM or modem I/O')
+    bots.add_argument('--platform', choices=('max', 'telegram', 'all'), default='all')
     sub.add_parser('init-demo', help='Create a fictional branch and pass for dry-run testing')
     support = sub.add_parser('support-bundle')
     support.add_argument('--output', default='support-bundle.zip')
@@ -20,6 +22,12 @@ def main():
     if args.command == 'doctor':
         from diagnostics import doctor
         print(json.dumps(doctor(), ensure_ascii=False, indent=2))
+    elif args.command == 'check-bots':
+        from bot_diagnostics import check_bots
+        report = check_bots(args.platform)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if any(bot['status'] == 'error' for bot in report['bots'].values()):
+            raise SystemExit(1)
     elif args.command == 'support-bundle':
         from diagnostics import support_bundle
         print(support_bundle(args.output, args.branch))

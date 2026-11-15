@@ -154,7 +154,7 @@ def test_notification_uses_telegram_recipient_and_current_menu(bot):
 
 def fake_application(webhook_url=""):
     app = SimpleNamespace(
-        running=False, bot=SimpleNamespace(get_webhook_info=AsyncMock(return_value=SimpleNamespace(url=webhook_url)), send_message=AsyncMock()),
+        running=False, bot=SimpleNamespace(get_webhook_info=AsyncMock(return_value=SimpleNamespace(url=webhook_url)), send_message=AsyncMock(), shutdown=AsyncMock()),
         initialize=AsyncMock(), shutdown=AsyncMock(), add_handler=lambda _: None, add_error_handler=lambda _: None,
     )
     app.updater = SimpleNamespace(running=False, start_polling=AsyncMock(), stop=AsyncMock())
@@ -219,6 +219,20 @@ def test_polling_refuses_existing_webhook_without_deleting_it(tmp_path, monkeypa
         run_polling(threading.Event(), service=Service())
     app.updater.start_polling.assert_not_awaited()
     app.shutdown.assert_awaited_once()
+
+
+def test_initialization_timeout_closes_partial_http_clients_and_retains_cause(tmp_path, monkeypatch):
+    from telegram.error import TimedOut
+    from telegram_bot import run_polling, status
+    app = fake_application()
+    app.initialize.side_effect = TimedOut('synthetic-private-request-url')
+    patch_runtime(monkeypatch, tmp_path, app)
+    with pytest.raises(TimedOut) as error:
+        run_polling(threading.Event(), service=Service())
+    assert error.value.diagnostic_stage == 'initialize'
+    app.bot.shutdown.assert_awaited_once()
+    app.updater.start_polling.assert_not_awaited()
+    assert status()['ready'] is False and status()['running'] is False
 
 
 def test_sync_notification_bridge_runs_coroutine_on_bot_loop(bot, monkeypatch):

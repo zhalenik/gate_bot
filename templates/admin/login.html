@@ -27,8 +27,9 @@
             <form method="POST" action="/admin/login">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
-                    <label for="username">Имя пользователя</label>
-                    <input type="text" id="username" name="username" autocomplete="username" maxlength="200" required>
+                    <label for="username">Логин</label>
+                    <input type="text" id="username" name="username" autocomplete="username" aria-describedby="username-help" maxlength="200" required>
+                    <small id="username-help">Укажите логин учётной записи, а не отображаемое имя.</small>
                 </div>
                 
                 <div class="form-group">

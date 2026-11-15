@@ -1,11 +1,11 @@
-"""Small MAX HTTP adapter, based on the official API (verified 2026-11-04 UTC).
+"""Small MAX HTTP adapter, based on the official API (verified 2026-11-16).
 
 Nothing connects at import time. The transport is injectable for offline tests.
 See docs/MAX.md for the wire contract and the required certificate trust setup.
 """
 from __future__ import annotations
 
-import re
+import socket
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -18,6 +18,58 @@ import requests
 
 DEFAULT_API_BASE_URL = "https://platform-api2.max.ru"
 UPDATE_TYPES = ("bot_started", "message_created", "message_callback")
+# Never copy arbitrary response text into diagnostics, even if it resembles an
+# identifier. Unknown provider codes retain the HTTP status and become api_error.
+REMOTE_ERROR_CODES = frozenset({
+    "not.found", "chat.denied", "proto.payload", "attachment.not.ready",
+    "access.denied",
+})
+LOCAL_ERROR_CODES = frozenset({
+    "api_error", "tls_trust_failed", "ca_bundle_invalid", "connect_timeout",
+    "read_timeout", "timeout", "proxy_error", "dns_error", "connection_error",
+    "network_error", "token_invalid_format", "invalid_json", "invalid_response",
+    "invalid_subscriptions", "invalid_updates", "retry_exhausted", "active_webhook",
+})
+REQUEST_STAGES = {
+    "/me": "get_me", "/subscriptions": "subscriptions", "/updates": "polling",
+    "/messages": "send_message", "/answers": "answer_callback",
+}
+
+
+def _contains_exception(error: BaseException, expected: type[BaseException]) -> bool:
+    """Inspect wrapped urllib3/socket causes without rendering private messages."""
+    pending = [error]
+    seen: set[int] = set()
+    while pending and len(seen) < 32:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, expected):
+            return True
+        nested = [current.__cause__, current.__context__, getattr(current, "reason", None), *current.args]
+        pending.extend(item for item in nested if isinstance(item, BaseException))
+    return False
+
+
+def _request_error_code(error: requests.exceptions.RequestException) -> str:
+    if isinstance(error, requests.exceptions.SSLError):
+        return "tls_trust_failed"
+    if isinstance(error, requests.exceptions.ConnectTimeout):
+        return "connect_timeout"
+    if isinstance(error, requests.exceptions.ReadTimeout):
+        return "read_timeout"
+    if isinstance(error, requests.exceptions.Timeout):
+        return "timeout"
+    if isinstance(error, requests.exceptions.ProxyError):
+        return "proxy_error"
+    if isinstance(error, requests.exceptions.InvalidHeader):
+        return "token_invalid_format"
+    if _contains_exception(error, socket.gaierror):
+        return "dns_error"
+    if isinstance(error, requests.exceptions.ConnectionError):
+        return "connection_error"
+    return "network_error"
 
 
 class MaxApiError(RuntimeError):
@@ -26,13 +78,19 @@ class MaxApiError(RuntimeError):
     def __init__(
         self, code: str, *, status_code: int | None = None,
         retryable: bool = False, retry_after: float | None = None,
+        stage: str | None = None,
     ) -> None:
-        self.code = code if re.fullmatch(r"[a-z][a-z0-9_.]{0,79}", code) else "api_error"
-        self.status_code = status_code
+        self.code = code if isinstance(code, str) and code in LOCAL_ERROR_CODES | REMOTE_ERROR_CODES else "api_error"
+        self.status_code = status_code if type(status_code) is int and 100 <= status_code <= 599 else None
+        self.stage = stage if stage in REQUEST_STAGES.values() else None
         self.retryable = retryable
         self.retry_after = retry_after
-        status = f" (HTTP {status_code})" if status_code is not None else ""
+        status = f" (HTTP {self.status_code})" if self.status_code is not None else ""
         super().__init__(f"MAX API: {self.code}{status}")
+
+    def diagnostic(self) -> dict[str, Any]:
+        return {"code": self.code, "http_status": self.status_code,
+                "stage": self.stage, "retryable": bool(self.retryable)}
 
 
 class MaxApiClient:
@@ -94,6 +152,7 @@ class MaxApiClient:
         answer_key: str | None = None, retry_limit: int | None = None,
     ) -> dict[str, Any]:
         retries = self._retries if retry_limit is None else retry_limit
+        stage = REQUEST_STAGES.get(endpoint)
         for attempt in range(retries + 1):
             self._wait_for_slot(answer_key=answer_key)
             try:
@@ -104,15 +163,20 @@ class MaxApiClient:
                     timeout=(5.0, read_timeout or self.timeout),
                     verify=self._verify, allow_redirects=False,
                 )
-            except requests.exceptions.SSLError:
-                raise MaxApiError("tls_trust_failed") from None
-            except requests.exceptions.RequestException:
-                if method == "GET" and attempt < retries:
+            except requests.exceptions.RequestException as error:
+                code = _request_error_code(error)
+                retryable = method == "GET" and code not in {"tls_trust_failed", "token_invalid_format"}
+                if retryable and attempt < retries:
                     self._sleep(min(2 ** attempt, 10))
                     continue
                 # A timed-out POST may already have been delivered. Do not retry
                 # it automatically; that could send the same message twice.
-                raise MaxApiError("network_error", retryable=method == "GET") from None
+                raise MaxApiError(code, retryable=retryable, stage=stage) from None
+            except OSError:
+                # requests raises OSError before TLS if the configured bundle
+                # path is missing/unreadable. Never expose its local path.
+                code = "ca_bundle_invalid" if self._verify is not True else "network_error"
+                raise MaxApiError(code, stage=stage) from None
 
             status = response.status_code
             if 200 <= status < 300:
@@ -121,9 +185,9 @@ class MaxApiClient:
                 try:
                     result = response.json()
                 except (ValueError, TypeError):
-                    raise MaxApiError("invalid_json", status_code=status) from None
+                    raise MaxApiError("invalid_json", status_code=status, stage=stage) from None
                 if not isinstance(result, dict):
-                    raise MaxApiError("invalid_response", status_code=status)
+                    raise MaxApiError("invalid_response", status_code=status, stage=stage)
                 return result
 
             try:
@@ -131,7 +195,7 @@ class MaxApiClient:
                 code = error.get("code", "api_error") if isinstance(error, dict) else "api_error"
             except (ValueError, TypeError):
                 code = "api_error"
-            if not isinstance(code, str):
+            if not isinstance(code, str) or code not in REMOTE_ERROR_CODES:
                 code = "api_error"
             retry_after = self._retry_after(response)
             # MAX rejected rate-limited requests; reads are safe to retry after
@@ -141,9 +205,9 @@ class MaxApiClient:
                 self._sleep(retry_after if retry_after is not None else min(2 ** attempt, 10))
                 continue
             raise MaxApiError(
-                code, status_code=status, retryable=can_retry, retry_after=retry_after,
+                code, status_code=status, retryable=can_retry, retry_after=retry_after, stage=stage,
             )
-        raise MaxApiError("retry_exhausted", retryable=True)
+        raise MaxApiError("retry_exhausted", retryable=True, stage=stage)
 
     def get_me(self) -> dict[str, Any]:
         return self._request("GET", "/me")
@@ -152,7 +216,7 @@ class MaxApiClient:
         result = self._request("GET", "/subscriptions")
         subscriptions = result.get("subscriptions")
         if not isinstance(subscriptions, list):
-            raise MaxApiError("invalid_subscriptions")
+            raise MaxApiError("invalid_subscriptions", stage="subscriptions")
         return subscriptions
 
     def get_updates(
@@ -175,7 +239,7 @@ class MaxApiClient:
         next_marker = result.get("marker")
         if (not isinstance(result.get("updates"), list)
                 or (next_marker is not None and (not isinstance(next_marker, int) or isinstance(next_marker, bool)))):
-            raise MaxApiError("invalid_updates")
+            raise MaxApiError("invalid_updates", stage="polling")
         return result
 
     def send_message(

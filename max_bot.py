@@ -406,15 +406,22 @@ class MaxBot:
     def run(self, stop_event: threading.Event) -> None:
         if stop_event.is_set():
             return
-        if self.api.get_subscriptions():
-            _audit("BOT_START_REFUSED", level="ERROR", reason="active_webhook")
-            raise RuntimeError(
-                "MAX polling не запущен: у бота есть webhook-подписка. "
-                "Используйте отдельного тестового бота или явно отключите старый webhook."
-            )
-        self.api.get_me()
-        _RUNNING.set()
+        _RUNNING.clear()
         _READY.clear()
+        try:
+            subscriptions = self.api.get_subscriptions()
+        except MaxApiError as exc:
+            exc.stage = "subscriptions"
+            raise
+        if subscriptions:
+            _audit("BOT_START_REFUSED", level="ERROR", reason="active_webhook")
+            raise MaxApiError("active_webhook", stage="subscriptions")
+        try:
+            self.api.get_me()
+        except MaxApiError as exc:
+            exc.stage = "get_me"
+            raise
+        _RUNNING.set()
         _audit("BOT_POLLING_STARTED")
         failures = 0
         try:
@@ -429,10 +436,13 @@ class MaxBot:
                         _READY.set()
                 except MaxApiError as exc:
                     _READY.clear()
-                    if exc.status_code in {401, 403} or exc.code == "tls_trust_failed":
+                    if exc.status_code in {401, 403} or exc.code in {
+                        "tls_trust_failed", "ca_bundle_invalid", "token_invalid_format",
+                    }:
                         raise
                     failures += 1
-                    _audit("BOT_POLL_ERROR", level="WARNING", api_code=exc.code, http_status=exc.status_code)
+                    _audit("BOT_POLL_ERROR", level="WARNING", api_code=exc.code,
+                           http_status=exc.status_code, stage=exc.stage)
                     stop_event.wait(min(2 ** min(failures, 5), 30))
                 except Exception as exc:
                     _READY.clear()
@@ -477,7 +487,8 @@ def run_polling(stop_event: threading.Event | None = None, *, service: Any = Non
             try:
                 runtime.run(stop_event)
             except MaxApiError as exc:
-                _audit("BOT_RUNTIME_ERROR", level="ERROR", api_code=exc.code, http_status=exc.status_code)
+                _audit("BOT_RUNTIME_ERROR", level="ERROR", api_code=exc.code,
+                       http_status=exc.status_code, stage=exc.stage)
                 raise
             finally:
                 _READY.clear()

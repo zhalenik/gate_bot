@@ -1,6 +1,6 @@
 # MAX и Telegram: боты GateBot
 
-Состояние реализации: **4 ноября 2026 года (UTC), первая тестовая сборка**. Оба бота используют один `AccessService`. Windows polling подготовлен и проверен офлайн; проверка в настоящих мессенджерах и на физическом шлагбауме выполняется отдельно. Из этой среды реальные сообщения и команды ворот не отправлялись.
+Состояние реализации: **16 ноября 2026 года, тестовая сборка**. Оба бота используют один `AccessService`. Windows polling подготовлен и проверен офлайн; проверка в настоящих мессенджерах и на физическом шлагбауме выполняется отдельно. Из этой среды реальные сообщения и команды ворот не отправлялись.
 
 ## 1. Что умеют боты
 
@@ -134,6 +134,49 @@ OUTBOUND_ENABLED=false
 
 Для дополнительного сертификата используйте проверенный PEM bundle с обычными доверенными корнями и требуемым корнем. Не отключайте проверку TLS. Путь Windows может выглядеть как `C:/GateBot/certs/max-ca-bundle.pem`. Конкретный сертификат и его отпечаток проверяются по [официальной инструкции MAX по TLS](https://github.com/max-messenger/max-agents-skill/blob/main/references/tls-trust.md). Эта настройка относится к исходящему API и не заменяет сертификат домена будущего webhook.
 
+Если `manage.py check-bots --platform max` вернул `tls_trust_failed`, выполните из
+корня проекта следующие команды PowerShell. Они скачивают только публичный
+корневой сертификат с официального адреса; токен в командную строку не передаётся:
+
+```powershell
+New-Item -ItemType Directory -Force .\private | Out-Null
+Invoke-WebRequest -Uri "https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt" -OutFile .\private\max-root.crt -TimeoutSec 30
+```
+
+Сверьте SHA-256 отпечаток **сертификата**, а затем создайте отдельный bundle для MAX.
+Следующий блок делает это целиком. Отпечаток взят из официального TLS-руководства
+MAX, проверенного 16.11.2026. При несовпадении файл не принимается; проверьте актуальное
+руководство вместо отключения сравнения. Это не SHA-256 текстового PEM-файла:
+
+```powershell
+@'
+from pathlib import Path
+import hashlib
+import ssl
+import certifi
+
+root = Path('private/max-root.crt').read_text(encoding='ascii').strip()
+actual = hashlib.sha256(ssl.PEM_cert_to_DER_cert(root)).hexdigest()
+expected = 'd26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31'
+if actual != expected:
+    raise SystemExit('Certificate fingerprint mismatch: check the official MAX TLS guide.')
+bundle = Path('private/max-ca-bundle.pem')
+bundle.write_bytes(Path(certifi.where()).read_bytes() + b'\n' + root.encode('ascii') + b'\n')
+ssl.create_default_context(cafile=str(bundle))
+print('Verified MAX CA bundle created: private/max-ca-bundle.pem')
+'@ | .\.venv\Scripts\python.exe -
+```
+
+Только после успешного сообщения добавьте или измените в `.env`:
+
+```dotenv
+MAX_CA_BUNDLE=private/max-ca-bundle.pem
+```
+
+Повторите `manage.py check-bots --platform max`. Эта настройка применяется только
+к HTTP-клиенту MAX и сохраняет проверку TLS. Системное хранилище Windows, Telegram
+и YCLIENTS она не меняет. Корневой сертификат не требуется публиковать в Git.
+
 ## 5. Состояние, повторы и остановка
 
 `data/bot_state.sqlite3` содержит отдельные checkpoints и обработанные события ботов. Файл создаётся только при запуске/создании runtime, использует WAL и атомарные операции SQLite. Пространство данных зависит и от платформы, и от отпечатка токена, поэтому смена тестового бота не переиспользует чужой cursor. Событие получает состояние `claimed`, затем `handled`, `failed`, `unknown` или `cancelled`. `handled` означает завершение обработчика; подтверждением физического открытия оно не является. В записи сохраняются только отпечаток события, время и безопасный код ошибки.
@@ -154,9 +197,32 @@ MAX-команда старше двух минут отклоняется. Во
 
 ## 6. Диагностика
 
+`manage.py doctor` проверяет только локальную конфигурацию. Для реального соединения:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py check-bots --platform max
+.\.venv\Scripts\python.exe manage.py check-bots --platform telegram
+```
+
+Проверка читает профиль бота и метаданные webhook, не потребляет updates, не отправляет
+сообщения и не обращается к CRM/COM. `status=ok` — успешная предварительная проверка,
+а не подтверждение запуска polling. Ошибка содержит безопасные поля `error_code`,
+`http_status`, `stage`, `action`; их можно прислать для разбора. Боди ответа API,
+значения токенов, URL webhook и профиль бота не выводятся. При ошибке код завершения 1.
+`run.py` теперь показывает эти код/этап/HTTP-статус прямо в консоли.
+
+`max_username_missing` не означает неверный токен: это отсутствие `MAX_BOT_USERNAME`
+для формирования ссылок. Авторизация MAX выполняется токеном. При успешном запросе
+проверка показывает булево `configured_username_matches`, чтобы обнаружить опечатку
+или никнейм другого бота. Указание отображаемого названия вместо никнейма не подходит.
+
 | Симптом | Что проверить |
 |---|---|
 | `tls_trust_failed` | Корректность `MAX_CA_BUNDLE`, цепочку доверия нового API-хоста |
+| `ca_bundle_invalid` | Путь к существующему читаемому PEM-файлу из раздела выше |
+| `token_invalid_format` | Только токен в `MAX_BOT_TOKEN`, без `Bearer`, заголовка и перевода строки |
+| `connect_timeout`, `read_timeout`, `timeout` | Сеть/VPN, доступ к API; сервер не дал ответ в срок |
+| `dns_error`, `proxy_error`, `connection_error` | DNS, прокси, соединение или разрыв соединения |
 | HTTP 401 MAX | Локальный MAX-токен, правильный тип токена и его актуальность |
 | Polling отказался запускаться с `active_webhook` | У бота есть зарегистрированный webhook; используйте отдельного тестового бота или явно переключите его режим |
 | `polling_already_running` | Другой локальный процесс уже удерживает polling этого токена; проверьте отдельный запуск бота и `run.py` |

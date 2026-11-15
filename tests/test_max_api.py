@@ -1,5 +1,6 @@
 import pytest
 import requests
+import socket
 
 from max_api import MaxApiClient, MaxApiError
 
@@ -93,7 +94,7 @@ def test_error_never_contains_body_token_or_original_network_exception():
 
 def test_ambiguous_post_timeout_is_not_retried():
     transport = Transport(requests.Timeout("private request details"), Response())
-    with pytest.raises(MaxApiError, match="network_error"):
+    with pytest.raises(MaxApiError, match="timeout"):
         client(transport, retries=3).send_message(user_id=12, text="Test")
     assert len(transport.calls) == 1
 
@@ -131,3 +132,80 @@ def test_message_limits_and_ambiguous_recipient_fail_before_http():
         api.send_message(chat_id=1, user_id=2, text="Test")
     with pytest.raises(ValueError):
         api.send_message(user_id=2, text="я" * 4001)
+
+
+@pytest.mark.parametrize("error,code", [
+    (requests.exceptions.ConnectTimeout("private request URL"), "connect_timeout"),
+    (requests.exceptions.ReadTimeout("private request URL"), "read_timeout"),
+    (requests.exceptions.Timeout("private request URL"), "timeout"),
+    (requests.exceptions.ProxyError("private proxy credentials"), "proxy_error"),
+    (requests.exceptions.ConnectionError("private request URL"), "connection_error"),
+    (requests.exceptions.InvalidHeader("private token value"), "token_invalid_format"),
+])
+def test_network_errors_have_safe_distinct_codes_and_request_stage(error, code):
+    transport = Transport(error)
+    with pytest.raises(MaxApiError) as caught:
+        client(transport, retries=0).get_me()
+    assert caught.value.code == code
+    assert caught.value.stage == "get_me"
+    assert caught.value.status_code is None
+    assert "private" not in str(caught.value.diagnostic())
+    assert "private" not in str(caught.value)
+
+
+def test_dns_error_in_nested_cause_is_classified_without_exception_text():
+    inner = socket.gaierror(-2, "private host name")
+    outer = requests.exceptions.ConnectionError("private request URL")
+    outer.__cause__ = inner
+    with pytest.raises(MaxApiError) as caught:
+        client(Transport(outer), retries=0).get_subscriptions()
+    assert caught.value.diagnostic() == {
+        "code": "dns_error", "stage": "subscriptions", "http_status": None, "retryable": True,
+    }
+
+
+def test_invalid_ca_bundle_path_is_private_and_not_retried():
+    transport = Transport(OSError("private/path.pem"), Response())
+    with pytest.raises(MaxApiError) as caught:
+        client(transport, ca_bundle="private/path.pem").get_subscriptions()
+    assert caught.value.code == "ca_bundle_invalid"
+    assert caught.value.stage == "subscriptions"
+    assert not caught.value.retryable
+    assert "private" not in str(caught.value)
+    assert len(transport.calls) == 1
+
+
+def test_unknown_provider_code_is_not_copied_to_diagnostics():
+    # A syntactically valid identifier could still be a leaked credential.
+    transport = Transport(Response({"code": "private.value", "message": "private value"}, 401))
+    with pytest.raises(MaxApiError) as caught:
+        client(transport).get_me()
+    assert caught.value.diagnostic() == {
+        "code": "api_error", "stage": "get_me", "http_status": 401, "retryable": False,
+    }
+    assert "private" not in str(caught.value)
+
+
+def test_remote_error_cannot_impersonate_local_transport_diagnostic():
+    transport = Transport(Response({"code": "tls_trust_failed"}, 400))
+    with pytest.raises(MaxApiError) as caught:
+        client(transport).get_me()
+    assert caught.value.code == "api_error"
+    assert caught.value.status_code == 400
+
+
+def test_safe_read_retries_keep_the_final_specific_failure():
+    transport = Transport(requests.ConnectionError("first"), requests.ReadTimeout("last"))
+    with pytest.raises(MaxApiError) as caught:
+        client(transport, retries=1).get_me()
+    assert caught.value.code == "read_timeout"
+    assert len(transport.calls) == 2
+
+
+def test_polling_timeout_does_not_add_internal_retry_or_send_messages():
+    transport = Transport(requests.ReadTimeout("private request"), Response())
+    with pytest.raises(MaxApiError) as caught:
+        client(transport, retries=3).get_updates()
+    assert caught.value.stage == "polling"
+    assert len(transport.calls) == 1
+    assert transport.calls[0][0] == "GET"

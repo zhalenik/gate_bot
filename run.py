@@ -38,11 +38,15 @@ def main():
             module.run_polling(stop_event=stop, service=service)
         except Exception as error:
             # Never loop-restart a bot that may own an external delivery cursor.
+            from bot_diagnostics import error_details
+            diagnosis = error_details(name, error)
             logger.event('BOT_STOPPED', level='ERROR', details={
                 'platform': name, 'error_type': type(error).__name__,
-                'error_code': getattr(error, 'code', None),
-                'http_status': getattr(error, 'status_code', None)})
-            print(f'{name}: stopped ({type(error).__name__}); inspect local diagnostics.')
+                **diagnosis})
+            print(f"{name}: stopped; code={diagnosis['error_code']}; "
+                  f"stage={diagnosis['stage']}; HTTP={diagnosis['http_status'] or '-'}.", flush=True)
+            print(diagnosis['action'], flush=True)
+            print(f'Check: python manage.py check-bots --platform {name}', flush=True)
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, on_signal)

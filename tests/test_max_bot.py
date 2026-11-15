@@ -360,8 +360,28 @@ def test_atomic_claim_does_not_share_identity_between_messengers(tmp_path):
 def test_existing_webhook_is_not_removed(bot):
     bot.api.get_subscriptions = lambda: [{"url": "https://example.invalid/webhook"}]
     bot.api.get_me = lambda: pytest.fail("Must refuse before starting")
-    with pytest.raises(RuntimeError, match="webhook"):
+    with pytest.raises(MaxApiError, match="active_webhook") as caught:
         bot.run(threading.Event())
+    assert caught.value.stage == "subscriptions"
+
+
+@pytest.mark.parametrize("failed_stage", ["subscriptions", "get_me"])
+def test_startup_error_identifies_check_and_does_not_poll(bot, failed_stage, monkeypatch):
+    import max_bot
+    ready, running = threading.Event(), threading.Event()
+    ready.set()
+    running.set()
+    monkeypatch.setattr(max_bot, "_READY", ready)
+    monkeypatch.setattr(max_bot, "_RUNNING", running)
+    def failure():
+        raise MaxApiError("read_timeout")
+    bot.api.get_subscriptions = failure if failed_stage == "subscriptions" else lambda: []
+    bot.api.get_me = failure if failed_stage == "get_me" else lambda: {}
+    bot.poll_once = lambda **_: pytest.fail("Must not poll before successful checks")
+    with pytest.raises(MaxApiError) as caught:
+        bot.run(threading.Event())
+    assert caught.value.stage == failed_stage
+    assert not ready.is_set() and not running.is_set()
 
 
 def test_max_readiness_tracks_success_error_and_shutdown(bot, monkeypatch):

@@ -5,7 +5,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_DIR / ".env", override=False)
+ENV_FILE = PROJECT_DIR / ".env"
+load_dotenv(ENV_FILE, override=False, encoding="utf-8-sig")
+
+def _project_path(value):
+    """Keep local state and certificates stable when Cursor changes the cwd."""
+    path = Path(value)
+    return str((path if path.is_absolute() else PROJECT_DIR / path).resolve())
 
 def env_bool(name, default=False):
     value = os.getenv(name, str(default)).strip().lower()
@@ -19,8 +25,8 @@ def env_int(name, default, minimum=1, maximum=100000):
         raise ValueError(f"{name} is out of range")
     return value
 
-DATA_DIR = str(Path(os.getenv("GATEBOT_DATA_DIR", PROJECT_DIR / "data")).resolve())
-LOG_DIR = str(Path(os.getenv("GATEBOT_LOG_DIR", Path(DATA_DIR) / "logs")).resolve())
+DATA_DIR = _project_path(os.getenv("GATEBOT_DATA_DIR", PROJECT_DIR / "data"))
+LOG_DIR = _project_path(os.getenv("GATEBOT_LOG_DIR", Path(DATA_DIR) / "logs"))
 ENVIRONMENT = os.getenv("GATEBOT_ENV", "development")
 TIMEZONE = os.getenv("GATEBOT_TIMEZONE", "Europe/Moscow")
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:5000").rstrip("/")
@@ -77,6 +83,8 @@ MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 MAX_BOT_USERNAME = os.getenv("MAX_BOT_USERNAME", "")
 MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api2.max.ru")
 MAX_CA_BUNDLE = os.getenv("MAX_CA_BUNDLE", "")
+if MAX_CA_BUNDLE:
+    MAX_CA_BUNDLE = _project_path(MAX_CA_BUNDLE)
 MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
 
 YCLIENTS_ENABLED = env_bool("YCLIENTS_ENABLED")

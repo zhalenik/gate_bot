@@ -1,29 +1,43 @@
-# Preparation template only. An image has NOT been published by this commit.
-# Replace the image with a tested immutable tag before Install via YAML.
+# TrueNAS SCALE 24.10+ > Apps > Discover Apps > ... > Install via YAML
+# Application name in the TrueNAS UI: gatebot
+#
+# This is HTTP inside the NAS. Nginx Proxy Manager terminates TLS (Let's Encrypt).
+# NPM Proxy Host: bot.zhvakin.space -> http://<TRUENAS-LAN-IP>:31500
+# NPM: use its existing Let's Encrypt certificate and enable Force SSL.
+#
+# TrueNAS Apps pool: choose ssd-pool if Docker images/layers should also live on SSD.
+# App data on SSD via the bind mounts below (UID/GID 568 must have write access).
+# Before installing, create gatebot.env privately from examples/server.env.example.
+# First deploy: keep real outbound sends / modem disabled until acceptance.
 services:
   gatebot:
-    image: ghcr.io/zhalenik/gate_bot:REPLACE_WITH_TESTED_VERSION
+    image: ghcr.io/zhalenik/gate_bot:0.2.0-alpha.14
     pull_policy: always
     restart: unless-stopped
     init: true
     stop_grace_period: 120s
     user: "568:568"
+
+    env_file:
+      - /mnt/ssd-pool/apps-data/gatebot/gatebot.env
+
     environment:
       HOST: "0.0.0.0"
       PORT: "5000"
       GATEBOT_DATA_DIR: /state
       GATEBOT_LOG_DIR: /state/logs
-      GATEBOT_ENV: production
-      # Supply secrets via a private file, not a public YAML or repository.
-    env_file:
-      - /mnt/POOL/apps-data/gatebot/gatebot.env
-    volumes:
-      - /mnt/POOL/apps-data/gatebot/state:/state
-      - /mnt/POOL/apps-data/gatebot/system-config:/app/private/system-config
+      BASE_URL: "https://bot.zhvakin.space"
+      SESSION_COOKIE_SECURE: "true"
+      # For first acceptance: development; switch to production after review.
+      GATEBOT_ENV: "development"
+
     ports:
-      - "30550:5000"
-    # Configure Nginx Proxy Manager to proxy HTTPS to the internal server:30550.
-    # Do not expose 30550 directly to the Internet.
+      - "31500:5000"
+
+    volumes:
+      - /mnt/ssd-pool/apps-data/gatebot/state:/state
+      - /mnt/ssd-pool/apps-data/gatebot/system-config:/app/private/system-config
+
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -31,11 +45,14 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+    # Add only after a separate hardware test:
     # devices:
     #   - /dev/serial/by-id/ACTUAL_DEVICE:/dev/ttyGATE
     # group_add:

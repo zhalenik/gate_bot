@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% set admin_page = true %}
+{% block title %}Email — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container"><section class="admin-content">
+  <div class="page-heading"><div><div class="page-eyebrow">GateBot · Настройки сервиса</div><h1>Отправка email</h1><p class="page-description">Общий почтовый сервер для приглашений и уведомлений всех филиалов.</p></div></div>
+  {% include 'components/smtp-form.html' %}
+</section></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/smtp.js"></script>{% endblock %}

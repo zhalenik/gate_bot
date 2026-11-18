@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% set admin_page = true %}
+{% block title %}Уведомления — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container" id="notificationPage"><section class="admin-content">
+  <div class="page-heading"><div><p class="page-eyebrow">События</p><h1>Уведомления <span id="notificationCount" class="badge" hidden></span></h1></div><a class="btn-action" href="/admin/notification-settings">Настроить каналы</a></div>
+  <div class="notification-toolbar"><div class="segmented-control" aria-label="Показать уведомления"><button type="button" id="showAllNotifications" aria-pressed="true">Все</button><button type="button" id="showUnreadNotifications" aria-pressed="false">Непрочитанные</button></div><button type="button" id="refreshNotifications" class="icon-button" aria-label="Обновить уведомления" title="Обновить"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5.5 7a8 8 0 0 1 13-1L20 9M4 15l1.5 3a8 8 0 0 0 13-1"/></svg></button></div>
+  <div id="notificationError" class="alert alert-error" role="status" hidden></div>
+  <div id="notificationList" aria-busy="true"><div class="empty-state"><p>Загружаем события…</p></div></div>
+</section></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/notifications.js"></script>{% endblock %}

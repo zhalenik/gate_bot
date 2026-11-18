@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% set admin_page = true %}
+{% block title %}{{ 'Тарифы филиалов' if is_super else 'Подписка' }} — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container" id="subscriptionPage"><section class="admin-content">
+  <div class="page-heading"><div><div class="page-eyebrow">GateBot · {{ 'Управление филиалами' if is_super else 'Подписка' }}</div><h1>{{ 'Тарифы филиалов' if is_super else 'Подписка филиала' }}</h1><p class="page-description">Срок доступа, расход команд и история подписки.</p></div></div>
+  <div id="productNotice" role="status"></div>
+  <section class="panel"><div class="filter-section"><label {% if not is_super %}hidden{% endif %}>Филиал <select id="billingBranch" aria-label="Филиал"></select></label><button class="btn-action" id="billingRefresh" type="button">Обновить</button><a class="btn-action" href="/admin/api/subscriptions/export">Скачать CSV</a></div>
+    <div id="subscriptionSummary" class="stat-grid"></div><p id="subscriptionPeriod" class="page-description"></p>
+  </section>
+  <section class="panel" id="branchOverview" hidden><h2>Все филиалы</h2><label>Поиск <input id="billingSearch" type="search" placeholder="Название или статус"></label><div style="overflow:auto"><table class="users-table"><thead><tr><th>Филиал</th><th>Статус</th><th>План</th><th>Действует до</th><th>Израсходовано</th><th>Резерв</th><th>Квота</th></tr></thead><tbody id="billingBranches"></tbody></table></div></section>
+  {% if not is_super %}<section class="panel"><h2>Выберите тариф</h2><p class="page-description">Пробный период — два календарных месяца без ограничения количества команд. Квоты тарифов обновляются ежемесячно.</p><div id="planCards" class="stat-grid"></div></section>{% endif %}
+  {% if is_super %}<section class="panel"><h2>Подарить подписку</h2><form id="giftForm" class="admin-form"><div class="form-group"><label>Срок в днях<input name="days" type="number" min="1" max="36500" value="30" required></label></div><div class="form-group"><label>Команд в месяц<input name="quota" type="number" min="0" max="10000000" value="1000" required></label></div><div class="form-group"><label>Начало<select name="mode"><option value="extend">После текущего срока</option><option value="replace">Сейчас, сохранить текущий расход</option></select></label></div><div class="form-group"><label>Основание<input name="reason" maxlength="1000" placeholder="Комментарий для истории"></label></div><details><summary>Точные даты</summary><div class="form-group"><label>Начало<input name="starts_at" type="datetime-local"></label><label>Окончание вместо срока в днях<input name="ends_at" type="datetime-local"></label><small>По времени вашего устройства. Пустые поля используют выбранный режим и срок.</small></div></details><button type="submit" class="btn-primary">Предпросмотр подарка</button></form>
+    <form id="creditForm" class="filter-section"><label>Дополнительные команды до конца периода<input name="amount" type="number" min="1" max="10000000" value="100" required></label><label>Основание<input name="reason" required maxlength="1000"></label><button type="submit" class="btn-action">Добавить квоту</button></form>
+    <button id="suspendBilling" class="btn-deny" type="button">Приостановить доступ</button>
+  </section>{% endif %}
+  <section class="panel"><h2>История</h2><div style="overflow:auto"><table class="users-table"><thead><tr><th>Дата</th><th>Операция</th><th>Тариф / квота</th><th>Сумма</th><th>Статус / срок</th></tr></thead><tbody id="billingHistory"></tbody></table></div></section>
+</section></main>
+{% if not is_super %}<dialog id="purchaseDialog"><h2>Проверка заказа</h2><p id="purchaseDetails"></p><p>Приём платежей пока не подключён. Заказ сохранится без изменения подписки.</p><div class="filter-section"><button id="purchaseCancel" class="btn-action" type="button">Отмена</button><button id="purchaseConfirm" class="btn-primary" type="button">Создать заказ</button></div></dialog>{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/js/product.js"></script>{% endblock %}

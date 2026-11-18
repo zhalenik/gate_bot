@@ -16,29 +16,37 @@ import logger
 
 
 def _crm_credential_presence(branches):
-    """Match YClientsClient._credentials without constructing headers or making I/O.
-
-    Only active branches matter for readiness. Never return reference names,
-    branch identifiers or credential values: this report enters support bundles.
-    """
-    active = [branch for branch in branches.values() if branch.get('enabled', True) is True]
-    invalid_refs = missing_tokens = 0
+    """Read saved branch credential presence locally; never use env user tokens."""
+    from cryptography.fernet import Fernet, InvalidToken
+    active = [branch for branch in branches.values() if branch.get('enabled', True) is True and branch.get('yclients_enabled',True) is not False]
+    stored = {}
+    database = Path(config.DATA_DIR) / 'application.sqlite3'
+    key = Path(config.DATA_DIR) / 'integration.key'
+    if database.exists() and key.exists():
+        try:
+            cipher = Fernet(key.read_bytes())
+            with sqlite3.connect(database.resolve().as_uri()+'?mode=ro', uri=True) as db:
+                for branch_id, encrypted in db.execute('SELECT branch_id,ciphertext FROM identity_integrations WHERE kind="yclients"'):
+                    try:
+                        value = json.loads(cipher.decrypt(encrypted.encode()))
+                        if isinstance(value,dict): stored[str(branch_id)] = value
+                    except (InvalidToken, ValueError, TypeError, AttributeError):
+                        pass
+        except (OSError, sqlite3.Error, ValueError):
+            pass
+    missing_tokens = 0
+    partner_present = bool(config.YC_PARTNER_TOKEN)
     for branch in active:
-        branch_id = branch['branch_id']
-        env_name = branch.get('yclients_user_token_env', f'YC_USER_TOKEN_{branch_id}')
-        if not re.fullmatch(r'[A-Z][A-Z0-9_]*', str(env_name)):
-            invalid_refs += 1
-            continue
-        user_token = os.getenv(env_name, '')
-        if not user_token and str(config.YC_COMPANY_ID) == str(branch_id):
-            user_token = config.YC_USER_TOKEN
-        if not user_token:
+        credentials = stored.get(str(branch['branch_id']), {})
+        if not credentials.get('user_token') or branch.get('yclients_marketplace_state') in {'frozen','uninstalled'}:
             missing_tokens += 1
+    if active and not partner_present:
+        partner_present = all(bool(stored.get(str(branch['branch_id']),{}).get('partner_token')) for branch in active)
     return {
-        'yclients_partner_token_present': bool(config.YC_PARTNER_TOKEN),
-        'yclients_active_branch_references_valid': invalid_refs == 0,
-        'yclients_active_branch_tokens_present': bool(active) and not invalid_refs and not missing_tokens,
-        'yclients_invalid_reference_branch_count': invalid_refs,
+        'yclients_partner_token_present': partner_present,
+        'yclients_active_branch_references_valid': True,
+        'yclients_active_branch_tokens_present': bool(active) and not missing_tokens,
+        'yclients_invalid_reference_branch_count': 0,
         'yclients_missing_token_branch_count': missing_tokens,
     }
 
@@ -122,7 +130,7 @@ def doctor():
         notifications = {}
         problems.append('invalid_or_unreadable_notification_state')
     return {
-        'version': '0.1.0-alpha.1', 'python': platform.python_version(),
+        'version': '0.2.0-alpha.11', 'python': platform.python_version(),
         'os': platform.system(), 'packages': packages,
         'env_file_present': env_file_present,
         'admin_count': len(admins), 'branch_count': len(branches),

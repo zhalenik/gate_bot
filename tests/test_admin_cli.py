@@ -113,12 +113,21 @@ def test_recovery_adds_owner_to_valid_state_without_erasing_malformed_other_entr
 
 
 def test_recovery_never_promotes_existing_branch_admin(local_admins):
-    admin.add_admin('branch-admin', PASSWORD, 'Branch admin', branch_id=12)
+    local_admins.auth.save_admins({'branch-admin':admin._admin_record(AdminAuth.hash_password(PASSWORD),'Branch admin',12,False)})
     original = local_admins.path.read_bytes()
     with pytest.raises(ValueError, match='different role or branch'):
         admin.recover_admin('branch-admin', NEW_PASSWORD, 'Owner', is_super=True)
     assert local_admins.path.read_bytes() == original
     assert backups(local_admins) == []
+
+
+def test_new_branch_admin_uses_normalized_email(local_admins):
+    with pytest.raises(ValueError):admin.add_admin('new-branch',PASSWORD,'New',branch_id=12)
+    admin.add_admin('New+Admin@Example.Invalid',PASSWORD,'New',branch_id=12)
+    assert local_admins.auth.verify_admin('NEW+ADMIN@EXAMPLE.INVALID',PASSWORD)
+    assert 'new+admin@example.invalid' in local_admins.auth.load_admins()
+    admin.reset_password('NEW+ADMIN@EXAMPLE.INVALID',NEW_PASSWORD)
+    assert local_admins.auth.verify_admin('new+admin@example.invalid',NEW_PASSWORD)
 
 
 def test_weak_recovery_password_keeps_damaged_original(local_admins):
@@ -152,7 +161,7 @@ def test_failed_replacement_leaves_original_and_completed_backup(local_admins, m
 
 
 def test_password_reset_preserves_role_status_and_name(local_admins):
-    admin.add_admin('branch-admin', PASSWORD, 'Branch admin', branch_id=12)
+    local_admins.auth.save_admins({'branch-admin':admin._admin_record(AdminAuth.hash_password(PASSWORD),'Branch admin',12,False)})
     with local_admins.auth.store.transaction() as admins:
         admins['branch-admin']['disabled'] = True
     before = local_admins.auth.load_admins()['branch-admin']

@@ -1,0 +1,23 @@
+.client-preferences{max-width:760px;margin-inline:auto}
+.client-preferences .preference-state{font-size:14px;line-height:1.6;margin:18px 0 24px;color:var(--ink)}
+.preference-channels{display:grid;gap:12px;margin-bottom:26px}
+.preference-channel{border:1px solid var(--line);border-radius:20px;padding:19px;background:var(--surface);min-width:0}
+.preference-channel-row{display:flex;align-items:center;gap:15px}
+.preference-channel-icon{display:grid;place-items:center;width:42px;height:42px;flex:0 0 42px;border-radius:13px;background:var(--milk);font-weight:700;font-size:15px;color:var(--ink)}
+.preference-channel-copy{flex:1;min-width:0}
+.preference-channel-label{font-size:15px;font-weight:600;line-height:1.5;cursor:pointer;color:var(--ink)}
+.preference-channel-status{margin:4px 0 0;font-size:12px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.client-preferences input.preference-switch{appearance:none;position:relative;flex:0 0 48px;width:48px;height:28px;min-height:0;border:0;border-radius:16px;padding:0;background:var(--line);cursor:pointer}
+.client-preferences input.preference-switch:before{content:'';position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:var(--surface);transition:transform .15s ease}
+.client-preferences input.preference-switch:checked{background:var(--green)}
+.client-preferences input.preference-switch:checked:before{transform:translateX(20px)}
+.client-preferences input.preference-switch:focus-visible{outline:2px solid var(--blue);outline-offset:4px}
+.client-preferences input.preference-switch:disabled{cursor:not-allowed;opacity:.45}
+.preference-connection{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.preference-connection h2{font-size:16px;line-height:1.5;margin-bottom:12px}
+.preference-connection .admin-form{max-width:none}
+.preference-connection>.btn-action{margin:12px 8px 0 0}
+.preference-dialog-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:22px}
+.client-preferences>.preference-unsubscribe{padding:13px 17px;font-size:13px;margin-bottom:20px}
+@media(max-width:600px){.client-preferences{padding:14px}.preference-channel{padding:14px;border-radius:16px}.preference-channel-row{gap:10px}.preference-channel-icon{width:34px;height:34px;flex-basis:34px;font-size:12px}.preference-channel-label{font-size:14px}.preference-dialog-actions>*{width:100%}}
+@media(prefers-reduced-motion:reduce){.client-preferences input.preference-switch:before{transition:none}}

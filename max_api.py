@@ -256,6 +256,15 @@ class MaxApiClient:
         params = {"chat_id": chat_id} if chat_id is not None else {"user_id": user_id}
         return self._request("POST", "/messages", params=params, body=body)
 
+    def edit_message(self, message_id, *, text, attachments=None):
+        if not isinstance(message_id, str) or not message_id or not isinstance(text, str) or len(text) > 4000:
+            raise ValueError('Invalid MAX message edit')
+        body = {'text': text, 'notify': False}
+        if attachments is not None:
+            body['attachments'] = attachments
+        return self._request('PUT', '/messages', params={'message_id': message_id}, body=body,
+                             answer_key='menu:' + message_id)
+
     def answer_callback(
         self, callback_id: str, *, notification: str | None = None,
         message: dict[str, Any] | None = None, chat_id: int | str | None = None,

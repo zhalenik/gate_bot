@@ -55,6 +55,7 @@ class IncomingUpdate:
     callback_payload: str = ""
     forwarded: bool = False
     has_message: bool = True
+    message_id: str = ''
 
 
 def normalize_update(raw: Any) -> IncomingUpdate | None:
@@ -69,6 +70,7 @@ def normalize_update(raw: Any) -> IncomingUpdate | None:
     attachments: tuple[dict[str, Any], ...] = ()
     forwarded = False
     has_message = True
+    message_id = ''
 
     if kind == "bot_started":
         actor = raw.get("user")
@@ -96,6 +98,7 @@ def normalize_update(raw: Any) -> IncomingUpdate | None:
         body = message.get("body") or {}
         if not isinstance(body, dict):
             return None
+        message_id = body.get('mid') if isinstance(body.get('mid'), str) else ''
         if isinstance(body.get("text"), str):
             text = body["text"]
         raw_attachments = body.get("attachments") or []
@@ -142,7 +145,7 @@ def normalize_update(raw: Any) -> IncomingUpdate | None:
         timestamp_ms=stamp, text=text, start_payload=start_payload,
         attachments=attachments, callback_id=callback_id,
         callback_payload=callback_payload, forwarded=forwarded,
-        has_message=has_message,
+        has_message=has_message, message_id=message_id,
     )
 
 
@@ -212,6 +215,10 @@ class MaxBot:
         self.api, self.service, self.state = api, service, state
         self._token, self._clock = token, clock
         self.namespace = "max:" + hashlib.sha256(token.encode()).hexdigest()[:16]
+        self.workflows = None
+        if getattr(service, 'identity', None) is not None:
+            from bot_workflows import BotWorkflows
+            self.workflows = BotWorkflows(service, state)
 
     def menu(self, user_id: str, *, page: int = 0, prefix: str = "") -> dict[str, Any]:
         sections = self.service.menu_for_identity("max", user_id)
@@ -225,6 +232,9 @@ class MaxBot:
         rows: list[list[dict[str, str]]] = []
         for section, button in actions[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
             label = f"{section['branch_name']} · {button['label']}"[:128]
+            if button['type'] == 'gate' and section.get('retry_after'):
+                rows.append([{'type': 'callback', 'text': f"Подождите {section['retry_after']} с", 'payload': 'm:0'}])
+                continue
             rows.append([{
                 "type": "callback", "text": label,
                 "payload": _action("g" if button["type"] == "gate" else "a", section["branch_id"], button["id"]),
@@ -237,6 +247,10 @@ class MaxBot:
                 nav.append({"type": "callback", "text": "Далее →", "payload": f"m:{page + 1}"})
             rows.append(nav)
         rows.append([{"type": "callback", "text": "Обновить доступ", "payload": f"m:{page}"}])
+        if self.workflows:
+            for action in self.workflows.actions('max', user_id)[:20]:
+                rows.append([{'type': 'link', 'text': action['label'][:128], 'url': action['url']} if action.get('url') else
+                             {'type': 'callback', 'text': action['label'][:128], 'payload': action['callback']}])
         if not sections:
             rows.append([{"type": "request_contact", "text": "Поделиться номером"}])
             explanation = (
@@ -258,7 +272,55 @@ class MaxBot:
         self.api.send_message(text=text[:4000], attachments=attachments, **target)
 
     def _send_menu(self, update: IncomingUpdate, *, prefix: str = "") -> None:
-        self._send(update, **self.menu(update.user_id, prefix=prefix))
+        menu = self.menu(update.user_id, prefix=prefix)
+        previous = self.state.get_checkpoint(self.namespace, 'menu:' + update.user_id, {})
+        if previous.get('message_id') and hasattr(self.api, 'edit_message'):
+            try:
+                self.api.edit_message(previous['message_id'], **menu)
+                self._remember_menu(update.user_id, previous['message_id'], menu)
+                return
+            except MaxApiError as error:
+                if error.status_code != 404:
+                    raise
+        target = {'chat_id': update.chat_id} if update.chat_id is not None else {'user_id': int(update.user_id)}
+        response = self.api.send_message(**menu, **target)
+        mid = response.get('message', {}).get('body', {}).get('mid') if isinstance(response, dict) else None
+        if isinstance(mid, str) and mid:
+            self._remember_menu(update.user_id, mid, menu)
+
+    def _remember_menu(self, user_id, message_id, menu):
+        from bot_menu import fingerprint, next_refresh
+        self.state.set_checkpoint(self.namespace, 'menu:' + user_id, {
+            'message_id': message_id, 'fingerprint': fingerprint(menu['text'], menu.get('attachments')),
+            'refresh_at': next_refresh(self.service, 'max', user_id)})
+
+    @staticmethod
+    def _workflow_menu(view):
+        rows = [[{'type': 'link', 'text': a['label'], 'url': a['url']} if a.get('url') else
+                 {'type': 'callback', 'text': a['label'], 'payload': a['callback']}] for a in view.get('actions', [])]
+        rows.append([{'type': 'callback', 'text': 'Главное меню', 'payload': 'm:0'}])
+        return {'text': view['text'][:4000], 'attachments': _keyboard(rows)}
+
+    def refresh_menus(self):
+        from bot_menu import fingerprint
+        count = 0
+        for key, previous in self.state.checkpoints(self.namespace, 'menu:'):
+            if not previous.get('message_id') or previous.get('refresh_at', 0) > time.time():
+                continue
+            user_id = key[5:]
+            menu = self.menu(user_id)
+            try:
+                if fingerprint(menu['text'], menu.get('attachments')) != previous.get('fingerprint'):
+                    self.api.edit_message(previous['message_id'], **menu)
+                self._remember_menu(user_id, previous['message_id'], menu)
+            except MaxApiError as error:
+                if error.status_code == 404:
+                    self.state.set_checkpoint(self.namespace, key, {})
+                else:
+                    raise
+            count += 1
+            if count >= 10:
+                break
 
     def _cancel_gate_update(self, raw: Any) -> None:
         update = normalize_update(raw)
@@ -324,6 +386,19 @@ class MaxBot:
                 self._send_menu(update, prefix=result.get("message", ""))
         else:
             prefix = ""
+            if self.workflows:
+                try:
+                    view = self.workflows.message('max', update.user_id, update.text)
+                except (ValueError, PermissionError) as error:
+                    view = {'text': str(error), 'actions': []}
+                if view:
+                    menu = self._workflow_menu(view)
+                    previous = self.state.get_checkpoint(self.namespace, 'menu:' + update.user_id, {})
+                    if previous.get('message_id'):
+                        self.api.edit_message(previous['message_id'], **menu)
+                    else:
+                        self._send(update, **menu)
+                    return
             if update.text.strip().lower() not in {"/menu", "/help", "меню", "помощь", ""}:
                 prefix = "Для управления используйте кнопки. Введённый вручную номер телефона не подтверждает владельца."
             self._send_menu(update, prefix=prefix)
@@ -331,6 +406,17 @@ class MaxBot:
     def _handle_callback(self, update: IncomingUpdate, *, stop_event: threading.Event | None = None) -> None:
         answer = {"chat_id": update.chat_id or update.user_id}
         value = update.callback_payload
+        if value.startswith('x:') and self.workflows:
+            try:
+                view = self.workflows.action('max', update.user_id, value)
+            except (ValueError, PermissionError) as error:
+                view = {'text': str(error), 'actions': []}
+            self.api.answer_callback(update.callback_id, message=self._workflow_menu(view), **answer)
+            previous = self.state.get_checkpoint(self.namespace, 'menu:' + update.user_id, {})
+            if previous:
+                previous['refresh_at'] = time.time() + 300
+                self.state.set_checkpoint(self.namespace, 'menu:' + update.user_id, previous)
+            return
         if re.fullmatch(r"m:\d{1,6}", value):
             menu = self.menu(update.user_id, page=int(value[2:]))
             if update.has_message:
@@ -349,6 +435,8 @@ class MaxBot:
                 if str(section["branch_id"]) == branch_id:
                     for button in section.get("buttons", []):
                         if str(button["id"]) == button_id and button.get("type") == "admin":
+                            if hasattr(self.service, '_emit'):
+                                self.service._emit('admin_contact_requested', branch_id, event_id=update.event_key)
                             self.api.answer_callback(update.callback_id, **answer)
                             self._send(update, f"{section['branch_name']}\n{button['label']}: {button['phone']}")
                             return
@@ -358,12 +446,18 @@ class MaxBot:
         if age is None or age > CALLBACK_MAX_AGE_SECONDS or age < -30:
             self.api.answer_callback(update.callback_id, notification="Команда устарела. Нажмите кнопку ещё раз.", **answer)
             return
-        self.api.answer_callback(update.callback_id, notification="Проверяю доступ…", **answer)
+        self.api.answer_callback(update.callback_id, notification='Проверяю доступ…', **answer)
         if stop_event is not None and stop_event.is_set():
             raise _Stopping()
         result = self.service.open_for_identity("max", update.user_id, branch_id, button_id)
         _audit("BOT_GATE_RESULT", branch_id=branch_id, status=result.get("status", "unknown"), command_id=result.get("command_id"))
-        self._send_menu(update, prefix=result.get("message") or "Команда обработана. Проверьте состояние ворот.")
+        menu = self.menu(update.user_id, prefix=result.get('message') or 'Команда обработана')
+        if update.message_id and hasattr(self.api, 'edit_message'):
+            self.api.edit_message(update.message_id, **menu)
+        else:
+            self._send(update, **menu)
+        if update.message_id:
+            self._remember_menu(update.user_id, update.message_id, menu)
 
     def notify_access(self, payload: dict[str, Any]) -> bool:
         """Called by the durable outbox; failures propagate as delivery evidence."""
@@ -510,6 +604,25 @@ def notify_access(payload: dict[str, Any]) -> bool:
         _audit("BOT_NOTIFICATION_ERROR", level="ERROR", branch_id=payload.get("branch_id"),
                api_code=exc.code, http_status=exc.status_code)
         raise
+
+
+def notify_text(user_id, text):
+    if _RUNTIME is None or not _READY.is_set():
+        return False
+    try:
+        for start in range(0, len(text), 3500):
+            _RUNTIME.api.send_message(user_id=int(user_id), text=text[start:start+3500])
+    except MaxApiError as exc:
+        # Recipient IDs and message bodies never belong in operational logs.
+        _audit("BOT_NOTIFICATION_ERROR", level="ERROR", api_code=exc.code,
+               http_status=exc.status_code)
+        raise
+    return True
+
+
+def refresh_menus():
+    if _RUNTIME is not None and _READY.is_set():
+        _RUNTIME.refresh_menus()
 
 
 def status() -> dict[str, Any]:

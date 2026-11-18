@@ -24,6 +24,7 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from access_service import AccessService
+from branch_hours import access_hours_state
 from admin_auth import AdminAuth
 from branch_manager import BranchManager
 from link_manager import LinkManager, access_is_active, normalize_phone
@@ -48,6 +49,21 @@ admin_auth = AdminAuth(ADMINS_FILE, branch_exists=lambda branch_id: branch_manag
 access_service = AccessService(link_manager, branch_manager)
 _login_attempts = {}
 _login_lock = threading.Lock()
+_product_cache = {}
+_product_lock = threading.RLock()
+
+
+def product_services():
+    from application_services import ApplicationServices
+    key = (str(link_manager.links_file), id(link_manager), id(branch_manager))
+    with _product_lock:
+        if key not in _product_cache:
+            _product_cache[key] = ApplicationServices(link_manager, branch_manager)
+        return _product_cache[key]
+
+
+def product_provider():
+    return product_services().provider(admin_auth, access_service)
 
 
 def _csrf_token():
@@ -60,7 +76,15 @@ def _csrf_token():
 
 @app.context_processor
 def inject_context():
-    return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token}
+    admin = admin_auth.get_current_admin()
+    branch_ids = {str(v) for v in (admin or {}).get('branch_ids', [])}
+    choices = [{'id': str(b.branch_id), 'name': b.name} for b in branch_manager.get_all_branches()
+               if str(b.branch_id) in branch_ids] if len(branch_ids) > 1 else []
+    active_branch = branch_manager.get_branch((admin or {}).get('branch_id'))
+    return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token,
+            'client_page': request.path.startswith(('/opn/', '/gate/', '/preferences/', '/verify-email/', '/unsubscribe')),
+            'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
+            'admin_branch_choices': choices, 'active_branch_id': str((admin or {}).get('branch_id') or '')}
 
 
 @app.before_request
@@ -79,6 +103,10 @@ def protect_request():
         supplied = request.form.get("csrf_token")
     expected = session.get("csrf_token")
     if not isinstance(supplied, str) or not isinstance(expected, str) or not hmac.compare_digest(supplied, expected):
+        if request.is_json:
+            return jsonify(status="error", code="csrf_expired",
+                           message="Сессия формы истекла. Обновите страницу и повторите действие",
+                           correlation_id=g.correlation_id), 403
         abort(403, description="Сессия формы истекла. Обновите страницу и повторите действие")
 
 
@@ -88,7 +116,7 @@ def security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Request-ID"] = getattr(g, "correlation_id", "")
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = "no-cache" if request.endpoint == 'palette.public_styles' else "no-store"
     return response
 
 
@@ -171,7 +199,7 @@ def _days(value):
 def _phone(value):
     if value in (None, ""):
         return None
-    if not isinstance(value, str) or len(value) > 40:
+    if not isinstance(value, str) or not re.fullmatch(r'[+0-9\s().-]{7,64}', value):
         abort(400, description="Некорректный номер телефона")
     normalized = normalize_phone(value)
     if not re.fullmatch(r"\+[1-9][0-9]{6,14}", normalized):
@@ -188,6 +216,17 @@ def _text(value, name, required=False, max_length=200):
     if len(value) > max_length or (required and not value) or any(ord(ch) < 32 for ch in value):
         abort(400, description=f"Некорректное поле «{name}»")
     return value or None
+
+
+def _client_email(value):
+    """Validate contact data without granting account/email verification."""
+    from identity_service import valid_email
+    if not isinstance(value, str):
+        abort(400, description="Введите корректный email")
+    try:
+        return valid_email(value.strip())
+    except ValueError as exc:
+        abort(400, description=str(exc))
 
 
 def _external_id(value, name):
@@ -219,9 +258,27 @@ def _send_link(phone, token, user):
     if not config.OUTBOUND_ENABLED:
         return {"status": "disabled", "message": "Отправка уведомлений отключена"}
     try:
-        import chatpush
-        result = chatpush.send_link(phone, _full_link(token), user.get("user_name"))
-        if isinstance(result, dict) and result.get("status") == "success":
+        branch = branch_manager.get_branch(user.get('branch_id'))
+        if branch is not None and not branch.yclients_enabled:
+            result = product_services().notifications.send('sms', phone,
+                'Ваш пропуск GateBot: ' + _full_link(token),
+                {'branch_id': str(branch.branch_id), 'event': 'manual_pass',
+                 'idempotency_key': secrets.token_hex(16)})
+            if result.get('status') in {'success', 'accepted', 'sent'} and result.get('delivery') != 'simulated':
+                return {'status': 'sent', 'message': 'SMS принята в очередь отправки'}
+            return {'status': 'failed', 'message': 'SMS не отправлена: проверьте модем и разрешение исходящих сообщений'}
+        from messenger_service import MessengerService
+        services = product_services()
+        with services.store.connect() as db:
+            plan = MessengerService(services.identity).plan(db, user.get('branch_id'), token)
+        if not plan['connected']:
+            reason = ('Клиент не связан с YCLIENTS. Для отправки по номеру телефона выберите подключённый ChatPush.'
+                      if plan['reason'] == 'yclients_client_missing' else 'Подключите выбранный сервис рассылки в настройках филиала.')
+            return {'status': 'unavailable', 'message': reason}
+        result = services.notifications.send(plan['provider'], plan['target'], 'Ваш пропуск GateBot: ' + _full_link(token),
+            {'branch_id': str(user['branch_id']), 'client_token': token, 'preference_channel': 'messengers',
+             'event': 'manual_pass', 'idempotency_key': secrets.token_hex(16)})
+        if isinstance(result, dict) and result.get("status") in {"success", "accepted"}:
             return {"status": "sent", "message": "Сообщение принято сервисом отправки"}
     except Exception:
         logger.log_error("LINK_DELIVERY_FAILED", "Notification transport failed", {"branch_id": user.get("branch_id")})
@@ -254,30 +311,39 @@ def open_barrier(token):
                 phone = normalize_phone(button.phone)
                 if re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
                     contacts.append({"label": button.label, "phone": phone})
-            return render_template("403.html", branch_name=branch.name, admin_contacts=contacts), 403
+            return render_template("403.html", branch_name=branch.name, admin_contacts=contacts,
+                                   access_hours=access_hours_state(branch_manager,branch.branch_id),
+                                   preferences_url=None if known_user.get('is_temporary') else '/preferences/' + token,
+                                   is_temporary=bool(known_user.get('is_temporary')),
+                                   client_page=True), 403
         abort(403)
     branch = branch_manager.get_branch(user.get("branch_id"))
     if branch is None or not branch.enabled:
         abort(403)
     buttons = []
+    available = not getattr(access_service, 'billing', None) or access_service.billing.subscription_view(branch.branch_id)['available']
     for button in branch.buttons:
-        if button.type == "gate":
+        if button.type == "gate" and available:
             buttons.append({"id": button.id, "type": "gate", "label": button.label})
         elif button.type == "admin":
             phone = normalize_phone(button.phone)
             if re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
-                buttons.append({"type": "admin", "label": button.label, "phone": phone})
+                buttons.append({"id": button.id, "type": "admin", "label": button.label, "phone": phone})
     def bot_url(platform, username):
         username = (username or "").lstrip("@")
         if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", username):
             return None
         return f"https://{platform}/{username}?start={quote(token, safe='')}"
     logo = branch.logo or ""
-    if logo and not (logo.startswith("/static/") or urlsplit(logo).scheme == "https"):
+    if logo and not (logo.startswith(("/static/", "/media/branch-logos/")) or urlsplit(logo).scheme == "https"):
         logo = ""
     return render_template("access.html", user_name=user.get("user_name", "Клиент"),
                            branch_name=branch.name, branch_logo=logo, buttons=buttons,
+                           access_hours=access_hours_state(branch_manager,branch.branch_id),
                            token=token, timeout=config.timeout,
+                           expires_at=None if user.get('admin_role_active') else user.get('access_expires'),
+                           is_temporary=bool(user.get('is_temporary')),
+                           preferences_url=None if user.get('is_temporary') else '/preferences/' + token,
                            telegram_url=bot_url("t.me", config.BOT_USERNAME),
                            max_url=bot_url("max.ru", config.MAX_BOT_USERNAME))
 
@@ -289,10 +355,88 @@ def open_gate():
     button_id = data.get("button_id")
     if not isinstance(button_id, str) or not button_id or len(button_id) > 128 or "phone" in data:
         abort(400, description="Выберите настроенные ворота филиала")
-    result = dict(access_service.open_for_token(token, button_id))
+    request_id = data.get('request_id')
+    if request_id is not None and (not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,80}', request_id)):
+        abort(400, description='Некорректный идентификатор запроса')
+    result = dict(access_service.open_for_token(token, button_id, request_id=request_id)) if request_id else dict(access_service.open_for_token(token, button_id))
     status_code = result.pop("http_status", 200 if result.get("status") == "success" else 403)
     result.setdefault("confirmed", False)
     return jsonify(result), status_code
+
+
+@app.post('/api/access/status')
+def access_status():
+    token = _token(_json_body().get('token'))
+    user = link_manager.load_links().get(token)
+    branch = branch_manager.get_branch(user.get('branch_id')) if user else None
+    if not user or not branch:
+        abort(404)
+    active = access_is_active(user) and branch.enabled
+    if getattr(access_service, 'billing', None):
+        active = active and access_service.billing.subscription_view(branch.branch_id)['available']
+    remaining = access_service.cooldown_remaining(user)
+    buttons = [{'id': b.id, 'type': b.type, 'label': b.label,
+                **({'phone': b.phone} if b.type == 'admin' else {})}
+               for b in branch.buttons if b.type == 'admin' or active]
+    return jsonify(active=active, buttons=buttons, expires_at=None if user.get('admin_role_active') else user.get('access_expires'),
+                   access_hours=access_hours_state(branch_manager,branch.branch_id),
+                   server_time=now().isoformat(), retry_after=remaining,
+                   cooldown_until=(now()+timedelta(seconds=remaining)).isoformat(),
+                   is_temporary=bool(user.get('is_temporary')),
+                   preferences_url=None if user.get('is_temporary') else '/preferences/' + token)
+
+
+@app.get('/admin/notifications')
+@admin_auth.require_auth
+def notifications_page():
+    return _admin_template('admin/notifications.html')
+
+
+@app.get('/admin/api/notification-inbox')
+@admin_auth.require_auth
+def notification_inbox():
+    services = product_services()
+    admin = services.identity.web_admin(session['admin_username'])
+    if not admin.get('person_id'):
+        return jsonify(items=[])
+    with services.store.connect() as db:
+        rows = db.execute('SELECT * FROM notification_inbox WHERE person_id=? ORDER BY created DESC LIMIT 100', (admin['person_id'],)).fetchall()
+    items = []
+    for row in rows:
+        if not admin.get('is_super') and (row['event'] in {'sms_received','call_received'} or str(row['branch_id']) not in admin['branch_ids']):
+            continue
+        items.append({'id': row['id'], 'event': row['event'], 'created': row['created'], 'read': bool(row['read_at']),
+                      **services.notifications._decrypt(row['payload'])})
+    return jsonify(items=items)
+
+
+@app.post('/api/access/contact')
+def access_contact():
+    payload = _json_body()
+    token = _token(payload.get('token'))
+    user = link_manager.load_links().get(token)
+    branch = branch_manager.get_branch(user.get('branch_id')) if user else None
+    button = next((b for b in branch.buttons if b.type == 'admin' and b.id == payload.get('button_id')), None) if branch else None
+    if not button:
+        abort(404)
+    access_service._emit('admin_contact_requested', branch.branch_id, client_name=user.get('user_name'),
+                         event_id=logger.reference(token + ':' + str(int(time.time() // 60))))
+    return jsonify(status='success')
+
+
+@app.post('/admin/api/notification-inbox/<identifier>/read')
+@admin_auth.require_auth
+def read_notification(identifier):
+    services = product_services()
+    admin = services.identity.web_admin(session['admin_username'])
+    with services.store.connect() as db:
+        row = db.execute('SELECT branch_id,event FROM notification_inbox WHERE id=? AND person_id=?',
+                         (identifier, admin.get('person_id'))).fetchone()
+        if not row or (not admin.get('is_super') and (row['event'] in {'sms_received','call_received'} or
+                       str(row['branch_id']) not in admin['branch_ids'])):
+            abort(404)
+        db.execute('UPDATE notification_inbox SET read_at=? WHERE id=? AND person_id=?', (time.time(), identifier, admin.get('person_id')))
+    return jsonify(status='success')
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -313,11 +457,14 @@ def admin_login():
         if blocked:
             flash("Слишком много попыток. Повторите вход через несколько минут", "error")
             return render_template("admin/login.html"), 429
+        from yclients_marketplace_web import SESSION_KEYS
+        marketplace_session = {key: session[key] for key in SESSION_KEYS if key in session}
         if admin_auth.login_admin(username, request.form.get("password")):
+            session.update(marketplace_session)
             with _login_lock:
                 _login_attempts.pop(key, None)
             _audit("LOGIN", _scope())
-            return redirect(url_for("admin_users"))
+            return redirect('/yclients/marketplace' if session.get('yc_marketplace_intent') else url_for("admin_users"))
         with _login_lock:
             _login_attempts.setdefault(key, deque(maxlen=10)).append(moment)
         flash("Неверное имя пользователя или пароль", "error")
@@ -364,7 +511,7 @@ def admin_change_password():
 
 
 @app.route("/admin/logs")
-@admin_auth.require_auth
+@admin_auth.require_super_admin
 def admin_logs():
     return _admin_template("admin/logs.html")
 
@@ -375,11 +522,167 @@ def admin_settings():
     return _admin_template("admin/settings.html")
 
 
+@app.route("/admin/telephony")
+@admin_auth.require_super_admin
+def admin_telephony():
+    return _admin_template("admin/telephony.html")
+
+
+def _telephony_contacts():
+    from telephony_contacts import contact_names
+    return contact_names(link_manager.load_links())
+
+
+@app.route("/admin/api/telephony/contacts/resolve", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_resolve_contact():
+    from telephony_store import chat_key
+    phone = _phone(_json_body().get('phone'))
+    if not re.fullmatch(r'\+[1-9][0-9]{6,14}', phone or ''):
+        abort(400)
+    key = chat_key(phone)
+    return jsonify(status='success', id=key, phone=phone, contact_name=_telephony_contacts().get(key, ''))
+
+
+@app.route("/admin/api/telephony/records", methods=["GET", "POST"])
+@admin_auth.require_super_admin
+def telephony_records():
+    from telephony_store import TelephonyStore
+    data = _json_body() if request.method == 'POST' else request.args
+    try:
+        page = max(1, int(data.get('page', 1)))
+    except (ValueError, TypeError):
+        abort(400)
+    kind, direction = data.get('kind', 'all'), data.get('direction', 'all')
+    search = data.get('search', '')
+    if kind not in {'all', 'call', 'sms'} or direction not in {'all', 'incoming', 'outgoing'} or not isinstance(search, str) or len(search) > 200:
+        abort(400)
+    return jsonify(status='success', **TelephonyStore().list_records(page, kind, direction, search, _telephony_contacts()))
+
+
+@app.route("/admin/api/telephony/sms/chats", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_chats():
+    from telephony_store import TelephonyStore
+    data = _json_body()
+    search = data.get('search', '')
+    if not isinstance(search, str) or len(search) > 200:
+        abort(400)
+    try:
+        page = max(1, int(data.get('page', 1)))
+    except (ValueError, TypeError):
+        abort(400)
+    return jsonify(status='success', **TelephonyStore().chats(search, page, _telephony_contacts()))
+
+
+def _chat_key(value):
+    if not re.fullmatch(r'[a-f0-9]{64}', value):
+        abort(400)
+    return value
+
+
+@app.route("/admin/api/telephony/sms/chats/<chat_id>", methods=["GET"])
+@admin_auth.require_super_admin
+def telephony_chat_messages(chat_id):
+    from telephony_store import TelephonyStore
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        abort(400)
+    return jsonify(status='success', **TelephonyStore().messages(_chat_key(chat_id), page, _telephony_contacts()))
+
+
+@app.route("/admin/api/telephony/sms/messages/<record_id>/delete", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_delete_message(record_id):
+    from telephony_store import TelephonyStore
+    if not re.fullmatch(r'[a-f0-9]{32}|[a-f0-9]{64}', record_id):
+        abort(400)
+    try:
+        if not TelephonyStore().delete_message(record_id):
+            abort(404)
+    except ValueError as error:
+        return jsonify(status='error', message=str(error)), 409
+    logger.event('TELEPHONY_SMS_DELETED', actor=session['admin_username'], details={'record_id': record_id})
+    return jsonify(status='success')
+
+
+@app.route("/admin/api/telephony/sms/chats/<chat_id>/read", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_chat_read(chat_id):
+    from telephony_store import TelephonyStore
+    TelephonyStore().read_chat(_chat_key(chat_id))
+    return jsonify(status='success')
+
+
+@app.route("/admin/api/telephony/sms/clear", methods=["POST"])
+@app.route("/admin/api/telephony/sms/chats/<chat_id>/clear", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_clear_sms(chat_id=None):
+    from telephony_store import TelephonyStore
+    try:
+        deleted = TelephonyStore().clear_sms(_chat_key(chat_id) if chat_id else None)
+    except ValueError as error:
+        return jsonify(status='error', message=str(error)), 409
+    logger.event('TELEPHONY_SMS_CLEARED', actor=session['admin_username'], details={'count': deleted})
+    return jsonify(status='success', deleted=deleted)
+
+
+@app.route("/admin/api/telephony/status")
+@admin_auth.require_super_admin
+def telephony_status():
+    from sim800c import get_call_queue_status
+    status = get_call_queue_status()
+    return jsonify({key: status[key] for key in ('enabled', 'dry_run', 'queue_length', 'stopping', 'modem')})
+
+
+@app.route("/admin/api/telephony/preview", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_preview():
+    from sms_submit import encode_submit
+    data = _json_body()
+    phone = _phone(data.get('phone'))
+    try:
+        count = len(encode_submit(phone, data.get('text')))
+    except ValueError as error:
+        return jsonify(status='error', message=str(error)), 400
+    return jsonify(status='success', parts=count, encoding='UTF-16BE')
+
+
+@app.route("/admin/api/telephony/commands", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_command():
+    from telephony_service import TelephonyService
+    try:
+        result = TelephonyService().submit(_admin(), session['admin_username'], _json_body())
+    except ValueError as error:
+        return jsonify(status='error', message=str(error)), 400
+    except PermissionError:
+        abort(403)
+    logger.event('TELEPHONY_MANUAL_COMMAND', actor=session['admin_username'],
+                 details={'record_id': result.get('record_id'), 'delivery': result.get('delivery'),
+                          'error_code': result.get('code')})
+    return jsonify(result), 202 if result.get('status') == 'success' else 503
+
+
+@app.route("/admin/api/telephony/records/<record_id>/read", methods=["POST"])
+@admin_auth.require_super_admin
+def telephony_mark_read(record_id):
+    from telephony_store import TelephonyStore
+    if not TelephonyStore().update(record_id, read=True):
+        abort(404)
+    return jsonify(status='success')
+
+
 def _public_branch_settings(branch):
+    raw = branch_manager.load_branches().get(str(branch.branch_id), {})
     return {
         "branch_id": branch.branch_id, "name": branch.name, "timezone": branch.timezone,
         "enabled": branch.enabled, "logo": branch.logo,
-        "buttons": [{"type": button.type, "label": button.label, "phone": button.phone}
+        "yclients_enabled": branch.yclients_enabled, "id_origin": branch.id_origin,
+        "hardware_routes_verified": raw.get('hardware_routes_verified', True),
+        "buttons": [{"type": button.type, "label": button.label, "phone": button.phone,
+                     "stable_id": button.stable_id}
                     for button in branch.buttons],
     }
 
@@ -390,6 +693,7 @@ def _logo_url(value):
         return ""
     parsed = urlsplit(value)
     local = value.startswith("/static/") and ".." not in parsed.path.split("/") and not parsed.netloc
+    local = local or bool(re.fullmatch(r'/media/branch-logos/[a-f0-9]{32}\.png', value))
     remote = parsed.scheme == "https" and bool(parsed.netloc) and not parsed.username and not parsed.password
     if not (local or remote) or "\\" in value:
         abort(400, description="Логотип должен быть локальным /static/ файлом или HTTPS-ссылкой без учетных данных")
@@ -407,14 +711,27 @@ def api_branch_settings():
         branch = _choose_branch(value)
         return jsonify(settings=_public_branch_settings(branch))
     data = _json_body()
-    allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons"}
+    allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons", "yclients_enabled"}
     if set(data) - allowed:
         abort(400, description="Недопустимые поля настроек филиала")
-    branch_id = _branch_id(data.get("branch_id", scope))
     create = _boolean(data.get("create", False), "Создать филиал")
+    internal_create = create and data.get('yclients_enabled') is False
+    if internal_create:
+        if data.get('branch_id') not in (None, ''):
+            abort(400, description='Номер самостоятельного филиала назначается автоматически')
+        branch_id = None
+    else:
+        branch_id = _branch_id(data.get("branch_id", scope))
     if scope is not None and (create or branch_id != scope):
         abort(403, description="Нет прав на изменение этого филиала")
     existing = branch_manager.get_branch(branch_id)
+    raw_branch = branch_manager.load_branches().get(str(branch_id), {})
+    yclients_enabled = _boolean(data.get('yclients_enabled', raw_branch.get('yclients_enabled', True)), 'Использовать YCLIENTS')
+    if scope is not None and yclients_enabled != raw_branch.get('yclients_enabled', True):
+        abort(403, description='Тип филиала изменяет суперадминистратор')
+    if scope is not None and raw_branch.get('onboarding_status') == 'pending_verification':
+        if data.get('enabled'):
+            abort(403, description='Активацию нового филиала YCLIENTS подтверждает суперадминистратор')
     if create and existing:
         abort(409, description="Филиал с таким ID уже существует")
     if not create and existing is None:
@@ -429,17 +746,44 @@ def api_branch_settings():
         abort(400, description="Можно настроить до 12 кнопок")
     validated_buttons = []
     for item in buttons:
-        if not isinstance(item, dict) or set(item) != {"type", "label", "phone"} or item.get("type") not in {"gate", "admin"}:
+        if not isinstance(item, dict) or not {"type", "label", "phone"}.issubset(item) or set(item) - {"type", "label", "phone", "stable_id"} or item.get("type") not in {"gate", "admin"}:
             abort(400, description="Некорректная кнопка филиала")
         phone = _phone(item.get("phone"))
         if phone is None:
             abort(400, description="Для каждой кнопки нужен номер телефона")
         validated_buttons.append({"type": item["type"], "label": _text(item["label"], "Название кнопки", required=True, max_length=100), "phone": phone})
+        if item.get('stable_id') is not None:
+            stable = item['stable_id']
+            if not isinstance(stable, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{12,64}', stable):
+                abort(400, description='Некорректный идентификатор ворот')
+            validated_buttons[-1]['stable_id'] = stable
     settings = {"name": _text(data.get("name"), "Название филиала", required=True),
                 "timezone": zone, "enabled": _boolean(data.get("enabled"), "Филиал активен"),
-                "logo": _logo_url(data.get("logo")), "buttons": validated_buttons}
+                "logo": _logo_url(data.get("logo")), "buttons": validated_buttons,
+                "yclients_enabled": yclients_enabled}
     try:
-        updated = branch_manager.update_settings(branch_id, settings, create=create)
+        if create:
+            billing = product_services().billing
+            # In the active SQL backend the branch and its first trial commit
+            # together. Existing branches never receive another trial on edits.
+            with branch_manager.store.lock, billing.store.connect() as db:
+                if internal_create:
+                    branch_id = branch_manager.allocate_internal_id(db)
+                updated = branch_manager.update_settings(branch_id, settings, create=True)
+                if updated:
+                    billing.activate_trial(str(branch_id), timezone=zone, db=db)
+        else:
+            if existing.timezone != zone:
+                billing = product_services().billing
+                with branch_manager.store.lock, billing.store.connect() as db:
+                    updated = branch_manager.update_settings(branch_id, settings, create=False)
+                    if updated:
+                        billing.schedule_timezone(str(branch_id), zone, actor=session['admin_username'], db=db)
+            else:
+                updated = branch_manager.update_settings(branch_id, settings, create=False)
+            if updated and raw_branch.get('hardware_routes_verified') is False and any(b['type'] == 'gate' for b in validated_buttons):
+                with branch_manager.store.transaction() as stored:
+                    stored[str(branch_id)]['hardware_routes_verified'] = True
     except ValueError:
         abort(400, description="Проверьте настройки: номера кнопок одного типа не должны повторяться")
     if not updated:
@@ -458,11 +802,12 @@ def _users_in_scope():
 @admin_auth.require_auth
 def api_get_users():
     users = []
+    branch_states = branch_manager.load_branches()
     for user in _users_in_scope():
         user = dict(user)
         branch = branch_manager.get_branch(user.get("branch_id"))
-        expires = user.get("access_expires")
-        active = access_is_active(user) and branch is not None and branch.enabled
+        expires = None if user.get('admin_role_active') else user.get("access_expires")
+        active = access_is_active(user)
         days = "Бессрочная"
         if expires:
             try:
@@ -474,10 +819,30 @@ def api_get_users():
                 days, active = None, False
         user.update(branch_name=branch.name if branch else "Филиал не настроен",
                     access_expires_days=days, gate_access=active,
+                    access_available=bool(active and branch is not None and branch.enabled),
+                    branch_access_reason=('branch_missing' if branch is None else
+                        'pending_verification' if not branch.enabled and branch_states.get(str(user.get('branch_id')),{}).get('onboarding_status')=='pending_verification' else
+                        'branch_disabled' if not branch.enabled else None),
                     has_bot=bool(user.get("tg_id") or user.get("max_id")),
                     has_telegram=bool(user.get("tg_id")), has_max=bool(user.get("max_id")),
+                    yclients_enabled=bool(branch and branch.yclients_enabled),
                     has_yclients=user.get("id_ycl") not in (None, ""))
         users.append(user)
+    if is_sql_active(link_manager.store.path.parent):
+        from client_notification_admin import ClientNotificationAdmin
+        services=product_services();notifications=ClientNotificationAdmin(services.identity)
+        with services.store.connect() as db:
+            clients,accounts=services.identity._client_table_snapshot(db,session['admin_username'],[user['token'] for user in users])
+            roles=services.identity._client_admin_states(db,clients,accounts=accounts)
+            summaries=notifications._summaries(db,clients)
+            for user in users:
+                user['admin_role']=roles[user['token']]
+                user['notification_status']=summaries[user['token']]
+    else:
+        # The normal runtime migrates first. A legacy maintenance view must not
+        # create a second SQL writer just to render notification controls.
+        for user in users:
+            user['notification_status']={'available':False,'enabled':False,'effective_channels':{},'reason':'startup_required'}
     return jsonify(users=users)
 
 
@@ -485,7 +850,7 @@ def api_get_users():
 @admin_auth.require_auth
 def api_get_branches():
     scope = _scope()
-    return jsonify(branches=[{"id": b.branch_id, "name": b.name}
+    return jsonify(branches=[{"id": b.branch_id, "name": b.name, "yclients_enabled": b.yclients_enabled}
                              for b in branch_manager.get_all_branches()
                              if scope is None or str(b.branch_id) == str(scope)])
 
@@ -519,13 +884,16 @@ def api_set_expires():
 def api_create_link():
     data = _json_body()
     branch = _choose_branch(data.get("branch_id"))
+    if not branch.yclients_enabled and data.get('id_ycl') not in (None, ''):
+        abort(400, description='Этот филиал работает без YCLIENTS')
     user = {"id_ycl": _external_id(data.get("id_ycl"), "YCLIENTS ID"),
             "user_name": _text(data.get("user_name"), "Имя", required=True),
             "phone": _phone(data.get("phone")), "branch_id": branch.branch_id,
+            "email": _client_email(data.get("email", "")),
             "mailing_enabled": False, "gate_access": True, "access_source": "manual"}
     send = _boolean(data.get("send_link", False), "Отправить ссылку")
-    if send and not user["phone"]:
-        abort(400, description="Для отправки нужен номер телефона")
+    if not user["phone"]:
+        abort(400, description="Номер телефона клиента обязателен")
     days = _days(data.get("expires_days"))
     token = link_manager.create_link(user, expires_days=days)
     _audit("CREATE_LINK", branch.branch_id, expires_days=days)
@@ -541,8 +909,8 @@ def api_create_temp_link():
     branch = _choose_branch(data.get("branch_id"))
     phone = _phone(data.get("phone"))
     send = _boolean(data.get("send_link", False), "Отправить ссылку")
-    if send and not phone:
-        abort(400, description="Для отправки нужен номер телефона")
+    if not phone:
+        abort(400, description="Номер телефона клиента обязателен")
     user = {"user_name": "Гость", "phone": phone, "branch_id": branch.branch_id,
             "mailing_enabled": False, "gate_access": True, "is_temporary": True,
             "access_source": "manual"}
@@ -581,14 +949,33 @@ def api_update_user():
         updates["user_name"] = _text(data["user_name"], "Имя", required=True)
     if "phone" in data:
         updates["phone"] = _phone(data["phone"])
+    if "email" in data:
+        updates["email"] = _client_email(data["email"])
     if "tg_id" in data or "max_id" in data:
         abort(400, description="Привязка мессенджера выполняется пользователем через личную ссылку")
     for key in ("id_ycl",):
         if key in data:
+            branch = branch_manager.get_branch(user['branch_id'])
+            if branch is not None and not branch.yclients_enabled:
+                abort(400, description='Этот филиал работает без YCLIENTS')
             updates[key] = _external_id(data[key], key)
     if not updates:
         abort(400, description="Нет изменений")
-    if not link_manager.update_user(token, updates):
+    if "email" in updates and is_sql_active(link_manager.store.path.parent):
+        services = product_services()
+        try:
+            # A privileged recipient check and the contact update share the
+            # document transaction, so a role change cannot race the write.
+            with link_manager.store.lock, services.store.connect():
+                token, user = _scoped_link(data.get("token"))
+                if updates["email"] != user.get("email", ""):
+                    services.identity.assert_client_email_change(session['admin_username'], token, updates["email"])
+                updated = link_manager.update_user(token, updates)
+        except PermissionError as error:
+            abort(403, description=str(error))
+    else:
+        updated = link_manager.update_user(token, updates)
+    if not updated:
         abort(404, description="Пользователь не найден")
     _audit("UPDATE_USER", user["branch_id"], changed_fields=sorted(updates))
     return jsonify(status="success")
@@ -609,11 +996,64 @@ def api_set_mailing():
 @app.route("/admin/api/delete-user", methods=["POST"])
 @admin_auth.require_auth
 def api_delete_user():
-    token, user = _scoped_link(_json_body().get("token"))
-    if not link_manager.delete_link(token):
-        abort(404, description="Пользователь не найден")
+    data=_json_body();token, user = _scoped_link(data.get("token"))
+    if is_sql_active(link_manager.store.path.parent):
+        try:
+            product_services().identity.delete_client(session['admin_username'],token,confirm_admin=data.get('confirm_admin') is True)
+        except PermissionError as error:abort(403,description=str(error))
+        except ValueError as error:abort(409,description=str(error))
+    else:
+        if user.get('admin_role_active'):
+            abort(409,description='Перезапустите приложение для подготовки управления ролями')
+        if not link_manager.delete_link(token):abort(404, description="Пользователь не найден")
     _audit("DELETE_USER", user["branch_id"])
     return jsonify(status="success")
+
+
+@app.get('/admin/api/client-role')
+@admin_auth.require_auth
+def api_client_role():
+    token,user=_scoped_link(request.args.get('token'))
+    try:role=product_services().identity.client_admin_state(session['admin_username'],token)
+    except PermissionError as error:abort(403,description=str(error))
+    except ValueError as error:abort(404,description=str(error))
+    return jsonify(admin_role=role)
+
+
+@app.post('/admin/api/client-role/revoke')
+@admin_auth.require_auth
+def api_revoke_client_admin():
+    token,user=_scoped_link(_json_body().get('token'))
+    try:product_services().identity.revoke_client_admin(session['admin_username'],token)
+    except PermissionError as error:abort(403,description=str(error))
+    except ValueError as error:abort(409,description=str(error))
+    _audit('CLIENT_ADMIN_REVOKED',user['branch_id'])
+    return jsonify(status='success')
+
+
+@app.get('/admin/api/branches/<int:branch_id>/deletion')
+@admin_auth.require_super_admin
+def api_branch_deletion_preview(branch_id):
+    from branch_lifecycle import BranchLifecycleService
+    try:preview=BranchLifecycleService(product_services().identity).preview(session['admin_username'],branch_id)
+    except PermissionError as error:abort(403,description=str(error))
+    except ValueError as error:abort(404,description=str(error))
+    return jsonify(preview=preview)
+
+
+@app.post('/admin/api/branches/<int:branch_id>/delete')
+@admin_auth.require_super_admin
+def api_delete_branch(branch_id):
+    from branch_lifecycle import BranchLifecycleService
+    data=_json_body()
+    if set(data)-{'confirmation','revision'}:abort(400,description='Некорректное подтверждение удаления')
+    try:
+        result=BranchLifecycleService(product_services().identity).delete(session['admin_username'],branch_id,
+                    confirmation=data.get('confirmation'),revision=data.get('revision'))
+    except PermissionError as error:abort(403,description=str(error))
+    except ValueError as error:abort(409,description=str(error))
+    _audit('BRANCH_DELETED',branch_id,clients=result['clients'],admins=result['admins'])
+    return jsonify(status='success',**result)
 
 
 @app.route("/admin/api/change-password", methods=["POST"])
@@ -634,7 +1074,7 @@ def api_change_password():
 @app.route("/admin/api/export-csv")
 @admin_auth.require_auth
 def api_export_csv():
-    headers = ["token", "id_ycl", "user_name", "phone", "tg_id", "max_id", "mailing_enabled", "branch_id", "gate_access", "access_expires", "created"]
+    headers = ["token", "id_ycl", "user_name", "phone", "email", "tg_id", "max_id", "mailing_enabled", "branch_id", "gate_access", "access_expires", "created"]
     output = io.StringIO(newline="")
     output.write("\ufeffsep=;\r\n")
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_ALL)
@@ -663,7 +1103,7 @@ def _date_filter(value):
 
 
 @app.route("/admin/api/logs")
-@admin_auth.require_auth
+@admin_auth.require_super_admin
 def api_get_logs():
     log_type = request.args.get("type", "all")
     if log_type not in {"all", "admin", "user", "error", "sim800"}:
@@ -737,6 +1177,8 @@ def webhook_yclients():
 
 @app.route("/yclients/register", methods=["GET", "POST"])
 def yclients_register_branch():
+    if request.method == 'GET':
+        return redirect('/register-branch')
     return render_template("ycl_redirect_register.html", registration_enabled=False), 503
 
 
@@ -768,7 +1210,7 @@ def health():
 
 @app.errorhandler(HTTPException)
 def http_error(error):
-    if request.path.startswith(("/admin/api/", "/open-gate", "/webhook/")):
+    if request.is_json or request.path.startswith(("/admin/api/", "/api/", "/open-gate", "/webhook/")):
         return jsonify(status="error", message=error.description, correlation_id=getattr(g, "correlation_id", None)), error.code
     if error.code in {403, 404}:
         return render_template(f"{error.code}.html", error_message=error.description), error.code
@@ -780,6 +1222,40 @@ def unexpected_error(error):
     logger.log_error("HTTP_UNHANDLED", type(error).__name__, {"correlation_id": getattr(g, "correlation_id", None)})
     return jsonify(status="error", message="Не удалось выполнить действие. Сообщите администратору номер запроса",
                    correlation_id=getattr(g, "correlation_id", None)), 500
+
+
+from identity_web import create_blueprint as identity_blueprint
+from product_web import create_blueprint as billing_blueprint
+from smtp_web import create_blueprint as smtp_blueprint
+from system_settings_web import create_blueprint as system_settings_blueprint
+from messenger_web import create_blueprint as messenger_blueprint
+from client_notification_admin import create_blueprint as client_notification_blueprint
+from branch_hours_web import create_blueprint as branch_hours_blueprint
+from branch_logos import create_blueprint as logo_blueprint
+from yclients_marketplace_web import create_blueprint as marketplace_blueprint
+from gate_qr_web import create_blueprint as gate_qr_blueprint
+from password_recovery_web import create_blueprint as password_recovery_blueprint
+from help_support_web import create_blueprint as help_support_blueprint
+from palette_web import create_blueprint as palette_blueprint
+app.register_blueprint(palette_blueprint(product_provider))
+app.register_blueprint(password_recovery_blueprint(product_provider))
+app.register_blueprint(help_support_blueprint(product_provider))
+app.register_blueprint(smtp_blueprint(product_provider))
+app.register_blueprint(system_settings_blueprint(product_provider))
+app.register_blueprint(messenger_blueprint(product_provider))
+from yclients_client_sync_web import create_blueprint as yclients_client_sync_blueprint
+app.register_blueprint(yclients_client_sync_blueprint(product_provider))
+app.register_blueprint(client_notification_blueprint(product_provider))
+app.register_blueprint(branch_hours_blueprint(product_provider))
+app.register_blueprint(logo_blueprint(product_provider))
+app.register_blueprint(marketplace_blueprint(product_provider))
+app.register_blueprint(gate_qr_blueprint(product_provider))
+app.register_blueprint(identity_blueprint(product_provider))
+app.register_blueprint(billing_blueprint(provider=product_provider, render_admin=_admin_template))
+
+from storage.sql_documents import is_sql_active
+if is_sql_active(config.DATA_DIR):
+    product_services().attach(access_service)
 
 
 if __name__ == "__main__":

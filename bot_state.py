@@ -124,3 +124,8 @@ class BotStateStore:
                 "ON CONFLICT(namespace,checkpoint_key) DO UPDATE SET value=excluded.value",
                 (namespace, key, encoded),
             )
+
+    def checkpoints(self, namespace, prefix=''):
+        with self._connect() as db:
+            rows = db.execute('SELECT checkpoint_key,value FROM bot_checkpoints WHERE namespace=?', (namespace,)).fetchall()
+        return [(key, json.loads(value)) for key, value in rows if key.startswith(prefix)]

@@ -1,25 +1,17 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Страница не найдена</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <div class="error-container">
-            <span class="error-emoji">😵</span>
-            <div class="error-code">404</div>
+{% extends "base.html" %}
+{% block title %}Страница не найдена{% endblock %}
+{% block content %}
+
+    <div class="guest-container">
+        <div class="guest-card">
+            <span class="guest-symbol" aria-hidden="true">↗</span>
+
             <h1 class="error-title">Страница не найдена</h1>
-            <p class="error-message">
-                Упс! Похоже, вы забрели не туда.<br>
-                Эта страница существует только в ваших мечтах.
+            <p class="page-description">
+                {% if client_page | default(false) %}Проверьте полученную ссылку. Если она больше не работает, обратитесь к администратору своего филиала.{% else %}Проверьте адрес страницы или вернитесь на главную.{% endif %}
             </p>
-            <a href="/" class="back-home">Вернуться на главную</a>
+            {% if not client_page | default(false) %}<a href="/" class="text-link">Вернуться на главную</a>{% endif %}
         </div>
     </div>
-</body>
-</html>
 
+{% endblock %}

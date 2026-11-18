@@ -6,7 +6,7 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--gb-color-style-background-9cc39ec9a78d, #667eea) 0%, var(--gb-color-style-background-875c0487aa85, #764ba2) 100%);
     min-height: 100vh;
     display: flex;
     justify-content: center;
@@ -15,9 +15,9 @@ body {
 }
 
 .container {
-    background: white;
+    background: var(--gb-color-style-background-68bc8d749724, white);
     border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 20px 60px var(--gb-color-style-box-shadow-e6f7b1757b6c, rgba(0, 0, 0, 0.3));
     max-width: 600px;
     width: 100%;
     padding: 40px;
@@ -25,34 +25,34 @@ body {
 }
 
 h1 {
-    color: #333;
+    color: var(--gb-color-style-color-e0e0b683d22f, #333);
     margin-bottom: 20px;
     font-size: 2.5em;
 }
 
 .subtitle {
-    color: #666;
+    color: var(--gb-color-style-color-db2139c2991e, #666);
     margin-bottom: 30px;
     font-size: 1.1em;
 }
 
 .status {
-    background: #f0f0f0;
+    background: var(--gb-color-style-background-c2a24f862e74, #f0f0f0);
     padding: 15px;
     border-radius: 10px;
     margin-bottom: 30px;
-    color: #333;
+    color: var(--gb-color-style-color-6d21c24fa4ee, #333);
 }
 
 .status.active {
-    background: #d4edda;
-    color: #155724;
+    background: var(--gb-color-style-background-12c1a43ba86d, #d4edda);
+    color: var(--gb-color-style-color-3d3a50325718, #155724);
 }
 
 .button {
     display: inline-block;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--gb-color-style-background-e479b627adc6, #667eea) 0%, var(--gb-color-style-background-ad9076cb2cc6, #764ba2) 100%);
+    color: var(--gb-color-style-color-838208582fe0, white);
     padding: 15px 40px;
     border-radius: 50px;
     text-decoration: none;
@@ -63,12 +63,12 @@ h1 {
 
 .button:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 10px 20px var(--gb-color-style-box-shadow-5f19f4f8bd44, rgba(102, 126, 234, 0.4));
 }
 
 .footer {
     margin-top: 40px;
-    color: #999;
+    color: var(--gb-color-style-color-9aafa6c9145c, #999);
     font-size: 0.9em;
 }
 
@@ -79,13 +79,13 @@ h1 {
     align-items: center;
     min-height: 100vh;
     padding: 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--gb-color-style-background-487592263aa9, #667eea) 0%, var(--gb-color-style-background-939e21334538, #764ba2) 100%);
 }
 
 .access-card {
-    background: white;
+    background: var(--gb-color-style-background-dfc64b009d42, white);
     border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 20px 60px var(--gb-color-style-box-shadow-542021457497, rgba(0, 0, 0, 0.3));
     max-width: 600px;
     width: 100%;
     padding: 40px;
@@ -109,13 +109,13 @@ h1 {
     transition: all 0.3s ease;
     text-transform: uppercase;
     letter-spacing: 1px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--gb-color-style-background-db540b42816b, #667eea) 0%, var(--gb-color-style-background-65b80f6e759c, #764ba2) 100%);
+    color: var(--gb-color-style-color-2bffda76dccf, white);
 }
 
 .button-gate:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 10px 30px var(--gb-color-style-box-shadow-f6551af9deb4, rgba(102, 126, 234, 0.4));
 }
 
 .button-admin {
@@ -128,13 +128,13 @@ h1 {
     transition: all 0.3s ease;
     text-transform: uppercase;
     letter-spacing: 1px;
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--gb-color-style-background-d0d2c51bd965, #f093fb) 0%, var(--gb-color-style-background-14df75596172, #f5576c) 100%);
+    color: var(--gb-color-style-color-472e9da3a787, white);
 }
 
 .button-admin:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(245, 87, 108, 0.4);
+    box-shadow: 0 10px 30px var(--gb-color-style-box-shadow-a7feae4d93d3, rgba(245, 87, 108, 0.4));
 }
 
 .status-message {
@@ -147,18 +147,18 @@ h1 {
 }
 
 .status-message.loading {
-    background: #fff3cd;
-    color: #856404;
+    background: var(--gb-color-style-background-dc86e6dfb22c, #fff3cd);
+    color: var(--gb-color-style-color-ece26e29ca8c, #856404);
 }
 
 .status-message.success {
-    background: #d4edda;
-    color: #155724;
+    background: var(--gb-color-style-background-11be30dd4fe4, #d4edda);
+    color: var(--gb-color-style-color-e7af942f3411, #155724);
 }
 
 .status-message.error {
-    background: #f8d7da;
-    color: #721c24;
+    background: var(--gb-color-style-background-93d804f29c8e, #f8d7da);
+    color: var(--gb-color-style-color-63586723b33d, #721c24);
 }
 
 /* Стили для страницы 404 */
@@ -169,20 +169,20 @@ h1 {
 .error-code {
     font-size: 8em;
     font-weight: bold;
-    color: #667eea;
+    color: var(--gb-color-style-color-f2e93bb48437, #667eea);
     margin-bottom: 20px;
-    text-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    text-shadow: 0 5px 15px var(--gb-color-style-text-shadow-699892b8d5d5, rgba(0, 0, 0, 0.2));
 }
 
 .error-title {
     font-size: 2.5em;
-    color: #333;
+    color: var(--gb-color-style-color-bb96d5e48884, #333);
     margin-bottom: 20px;
 }
 
 .error-message {
     font-size: 1.2em;
-    color: #666;
+    color: var(--gb-color-style-color-4b6e9abf6d8f, #666);
     margin-bottom: 30px;
 }
 
@@ -195,8 +195,8 @@ h1 {
 .back-home {
     display: inline-block;
     padding: 15px 40px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--gb-color-style-background-e88ebefb42bd, #667eea) 0%, var(--gb-color-style-background-460055121307, #764ba2) 100%);
+    color: var(--gb-color-style-color-940cfecbb93f, white);
     text-decoration: none;
     border-radius: 50px;
     font-weight: bold;
@@ -205,17 +205,17 @@ h1 {
 
 .back-home:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 10px 20px var(--gb-color-style-box-shadow-aacc78296416, rgba(102, 126, 234, 0.4));
 }
 
 .user-info {
-    color: #666;
+    color: var(--gb-color-style-color-d2cf413f6a63, #666);
     margin-bottom: 30px;
     font-size: 1.1em;
 }
 
 .header h1 {
-    color: #333;
+    color: var(--gb-color-style-color-efb52605632d, #333);
     margin-bottom: 10px;
     font-size: 2.5em;
 }

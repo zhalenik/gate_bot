@@ -86,6 +86,30 @@ def test_segments_can_arrive_via_different_smscs_per_3gpp():
     assert len(assemble_messages([p1, p2], require_same_smsc=True)) == 2
 
 
+def test_identical_long_text_sent_again_with_same_reference_is_another_message():
+    first = decode_deliver(deliver('Повтор', udh=bytes.fromhex('0500037A0201')))
+    second = decode_deliver(deliver(' текста', udh=bytes.fromhex('0500037A0202')))
+    again = [replace(p, timestamp=p.timestamp + timedelta(minutes=10)) for p in (first, second)]
+    messages = assemble_messages([again[1], second, first, again[0]])
+    assert len(messages) == 2
+    assert [m.text for m in messages] == ['Повтор текста', 'Повтор текста']
+
+
+def test_repeat_does_not_complete_a_previous_partial_transmission():
+    first = decode_deliver(deliver('Начало', udh=bytes.fromhex('0500037A0201')))
+    second = decode_deliver(deliver('Конец', udh=bytes.fromhex('0500037A0202')))
+    again = [replace(p, timestamp=p.timestamp + timedelta(minutes=10)) for p in (first, second)]
+    messages = assemble_messages([first, *again])
+    assert len(messages) == 2 and messages[0].missing_parts == (2,)
+    assert messages[1].text == 'НачалоКонец'
+
+
+def test_parts_with_minute_gaps_are_still_one_message():
+    parts = [decode_deliver(deliver(str(i), udh=bytes([5,0,3,122,5,i]))) for i in range(1,6)]
+    parts = [replace(p,timestamp=p.timestamp+timedelta(minutes=i)) for i,p in enumerate(parts)]
+    assert assemble_messages(reversed(parts))[0].text == '12345'
+
+
 def test_multiple_information_elements_do_not_become_cyrillic_characters():
     # Concatenation IE plus 16-bit application port IE; UDH has 12 bytes total.
     header = bytes.fromhex("0B00037A01010504C000C001")

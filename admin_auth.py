@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Optional
 from flask import current_app, jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from storage.json_store import JsonStore
+from storage.sql_documents import DocumentStore as JsonStore, is_sql_active
 
 
 class AdminAuth:
@@ -68,17 +68,45 @@ class AdminAuth:
             return False
         if branch_id < 1:
             return False
+        if 'branch_ids' in admin and str(branch_id) not in [str(branch) for branch in admin['branch_ids']]:
+            return False
         return self.branch_exists is None or bool(self.branch_exists(branch_id))
 
     def verify_admin(self, username: Any, password: Any) -> bool:
-        if not isinstance(username, str) or not username or len(username) > 200:
+        if not isinstance(username, str) or not username or len(username) > 254:
             return False
-        admin = self.load_admins().get(username)
+        admin = self.get_admin(username)
         return self._scope_is_valid(admin) and self.verify_password(password, admin.get("password_hash"))
 
     def get_admin(self, username: str) -> Optional[Dict[str, Any]]:
-        admin = self.load_admins().get(username)
-        return admin if isinstance(admin, dict) else None
+        admins=self.load_admins()
+        admin = admins.get(self.resolve_username(admins,username))
+        return self._resolve_role(admin) if isinstance(admin, dict) else None
+
+    @staticmethod
+    def resolve_username(admins, username):
+        """Keep legacy keys intact; newly registered email logins are normalized."""
+        if not isinstance(username,str):return username
+        if username in admins:return username
+        candidate=username.strip().lower()
+        if '@' in candidate:
+            from identity_service import valid_email
+            try:candidate=valid_email(candidate)
+            except ValueError:return username
+            matches=[key for key in admins if '@' in key and key.lower()==candidate]
+            return matches[0] if len(matches)==1 else candidate
+        return username
+
+    def _resolve_role(self, admin):
+        admin = dict(admin)
+        if admin.get('person_id') and is_sql_active(self.store.path.parent):
+            with self.store.product().connect() as db:
+                admin['branch_ids'] = [r['branch_id'] for r in db.execute(
+                    'SELECT branch_id FROM branch_memberships WHERE person_id=? AND status="active" ORDER BY branch_id',
+                    (admin['person_id'],))]
+        if not admin.get('is_super') and 'branch_ids' in admin:
+            admin['branch_ids']=[str(branch) for branch in admin['branch_ids'] if str(branch)==str(admin.get('branch_id'))]
+        return admin
 
     @staticmethod
     def _session_fingerprint(admin: Dict[str, Any]) -> str:
@@ -99,11 +127,12 @@ class AdminAuth:
         session["admin_auth_version"] = self._session_fingerprint(admin)
 
     def login_admin(self, username: Any, password: Any) -> bool:
-        if not isinstance(username, str) or not username or len(username) > 200:
+        if not isinstance(username, str) or not username or len(username) > 254:
             return False
         with self.store.transaction() as admins:
+            username=self.resolve_username(admins,username)
             admin = admins.get(username)
-            if not self._scope_is_valid(admin) or not self.verify_password(password, admin.get("password_hash")):
+            if not isinstance(admin, dict) or not self._scope_is_valid(self._resolve_role(admin)) or not self.verify_password(password, admin.get("password_hash")):
                 return False
             if re.fullmatch(r"[a-fA-F0-9]{64}", admin["password_hash"]):
                 # Preserve access for legacy short passwords, but never create new weak ones.
@@ -116,7 +145,7 @@ class AdminAuth:
         self.validate_new_password(new_password)
         with self.store.transaction() as admins:
             admin = admins.get(username)
-            if not self._scope_is_valid(admin) or not self.verify_password(old_password, admin.get("password_hash")):
+            if not isinstance(admin, dict) or not self._scope_is_valid(self._resolve_role(admin)) or not self.verify_password(old_password, admin.get("password_hash")):
                 return False
             admin["password_hash"] = self.hash_password(new_password)
             saved = dict(admin)
@@ -142,6 +171,10 @@ class AdminAuth:
         if not isinstance(supplied, str) or not hmac.compare_digest(expected, supplied):
             session.clear()
             return None
+        if not admin.get('is_super') and admin.get('branch_ids'):
+            selected = str(admin.get('branch_id'))
+            admin = dict(admin, branch_id=int(selected))
+            session['active_branch_id'] = selected
         return admin
 
     def is_logged_in(self) -> bool:

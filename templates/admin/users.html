@@ -1,71 +1,26 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Админка - Пользователи</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="stylesheet" href="/static/css/admin.css">
-</head>
-<body>
-    <header class="admin-header">
-        <nav class="admin-nav">
-            <button class="burger-menu" onclick="toggleBurgerMenu()">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
-            <img src="/static/images/logo.svg" alt="logo" class="admin-logo">
-            <div class="nav-items-wrapper" id="navItems">
-                <a href="/admin/users" class="nav-item active">Пользователи</a>
-                <a href="/admin/add-user" class="nav-item">Добавить пользователя</a>
-                <a href="/admin/temp-link" class="nav-item">Разовый пропуск</a>
-                <a href="/admin/change-password" class="nav-item">Сменить пароль</a>
-                <a href="/admin/logs" class="nav-item">Логи</a>
-                <a href="/admin/settings" class="nav-item">Филиал</a>
-                <form method="POST" action="/admin/logout" style="display:contents">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="nav-item logout mobile-logout" title="Выход" style="border:0;cursor:pointer">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                </button>
-                </form>
-            </div>
-            <form method="POST" action="/admin/logout" style="display:contents">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="nav-item logout desktop-logout" title="Выход" style="border:0;cursor:pointer">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-            </button>
-                </form>
-        </nav>
-    </header>
-    
-    <div class="admin-container">
+{% extends "base.html" %}
+{% set admin_page = true %}
+{% block title %}Админка - Пользователи{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/client-preferences.css">{% endblock %}
+{% block content %}
+<div class="admin-container">
         <div class="admin-content">
-            <h1>Управление пользователями</h1>
+            <div class="page-heading"><div><p class="page-eyebrow">Парковка и доступ</p><h1>Клиенты</h1><p class="page-description">Пропуска, контакты и уведомления в одном месте.</p></div><span class="badge" id="clientCount" aria-live="polite"></span></div>
             {% if not is_super and admin_branch_name %}
             <div class="sub-title" style="font-weight:700; font-size:18px; margin: 6px 0 14px 0;">{{ admin_branch_name }}</div>
             <style>
                 /* Скрываем колонку Филиал и фильтр филиала для обычного админа */
                 .filter-section #filterBranch { display: none; }
-                .users-table th:nth-child(3), .users-table td:nth-child(3) { display: none; }
+                .users-table .client-branch { display: none; }
             </style>
             {% endif %}
             
             <div class="filter-section" style="display:flex; gap:10px; align-items:center;">
-                <input type="text" id="searchInput" placeholder="Поиск по имени или телефону...">
-                <select id="filterBranch">
+                <input type="search" id="searchInput" placeholder="Имя, телефон или email" aria-label="Поиск клиентов">
+                <select id="filterBranch" aria-label="Филиал">
                     <option value="">Все филиалы</option>
                 </select>
-                <select id="filterStatus">
+                <select id="filterStatus" aria-label="Тип пропуска">
                     <option value="">Все статусы</option>
                     <option value="Разовый">Разовый</option>
                     <option value="Временный">Временный</option>
@@ -91,11 +46,12 @@
                         <tr>
                             <th onclick="sortUsersBy('user_name')" style="cursor:pointer;">Имя</th>
                             <th>Телефон</th>
-                            <th onclick="sortUsersBy('branch_name')" style="cursor:pointer;">Филиал</th>
+                            <th onclick="sortUsersBy('email')" style="cursor:pointer;">Email</th>
+                            <th class="client-branch" onclick="sortUsersBy('branch_name')" style="cursor:pointer;">Филиал</th>
                             <th onclick="sortUsersBy('pass_label')" style="cursor:pointer;">Пропуск</th>
                             <th onclick="sortUsersBy('has_bot')" style="cursor:pointer;">Боты</th>
                             <th onclick="sortUsersBy('has_yclients')" style="cursor:pointer;">YClients</th>
-                            <th onclick="sortUsersBy('mailing_enabled')" style="cursor:pointer;">Рассылка</th>
+                            <th onclick="sortUsersBy('notification_channels')" style="cursor:pointer;">Уведомления</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -108,9 +64,9 @@
     </div>
     
     <!-- Модальное окно для установки срока доступа -->
-    <div id="accessModal" class="modal">
+    <div id="accessModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="accessModalTitle">
         <div class="modal-content">
-            <h2>Установить срок доступа</h2>
+            <h2 id="accessModalTitle">Установить срок доступа</h2>
             <form id="accessForm">
                 <input type="hidden" id="tokenField" name="token">
                 <div class="modal-form-content">
@@ -131,14 +87,15 @@
             </form>
         </div>
     </div>
-    
-    <script>
+{% endblock %}
+{% block scripts %}
+<script>
         window.DEFAULT_BRANCH_ID = {{ admin_branch_id | tojson }};
         window.IS_SUPER = {{ 'true' if is_super else 'false' }};
     </script>
-    <script>
+<script>
         window.BASE_URL = {{ (BASE_URL or "") | tojson }};
     </script>
-    <script src="/static/js/admin.js"></script>
-</body>
-</html>
+<script src="/static/js/client-notification-admin.js"></script>
+<script src="/static/js/admin.js"></script>
+{% endblock %}

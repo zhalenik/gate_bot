@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% set admin_page = true %}
+{% block title %}Цвета интерфейса — GateBot{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/palette.css">{% endblock %}
+{% block content %}
+<main class="admin-container palette-page" id="palettePage" data-defaults="{{ 'true' if palette_defaults | default(false) else 'false' }}">
+  <section class="admin-content">
+    <div class="page-heading palette-heading">
+      <div><p class="page-eyebrow">GateBot · Настройки сервиса</p><h1>Цвета интерфейса</h1><p class="page-description">Общая палитра клиентских страниц и кабинетов. Выберите оттенок, проверьте его в предпросмотре и сохраните для всех филиалов.</p></div>
+      <span class="palette-total" id="paletteTotal">Загрузка…</span>
+    </div>
+    {% if palette_defaults | default(false) %}<div class="palette-notice">Редактор открыт в исходных цветах. Сохранённая палитра не применяется к этой странице, пока вы не включите предпросмотр.</div>{% endif %}
+    <div id="paletteNotice" class="palette-notice" role="status" hidden></div>
+    <div class="palette-toolbar">
+      <div class="palette-save-state"><strong id="paletteChangeCount">Загружаем палитру</strong><span id="paletteSavedAt">Изменения появятся у всех после сохранения.</span></div>
+      <div class="palette-toolbar-actions"><button type="button" class="btn-action" id="paletteDiscard" disabled>Отменить изменения</button><button type="button" class="btn-primary" id="paletteSave" disabled>Сохранить палитру</button></div>
+    </div>
+    <section class="palette-preview-panel" aria-label="Предпросмотр цветов">
+      <div class="palette-section-heading"><div><h2>Предпросмотр</h2><p>Черновик меняет только эту страницу в вашем браузере.</p></div><label class="palette-check"><input type="checkbox" id="palettePreviewEnabled" {% if not palette_defaults | default(false) %}checked{% endif %}> Показывать изменения</label></div>
+      <div class="palette-preview-samples" id="palettePreviewSamples">
+        <div class="palette-preview-card"><p class="page-eyebrow">Ваш филиал</p><h3>Доступ открыт</h3><p>Основной текст и второстепенная подпись на фоне карточки.</p><div class="palette-preview-actions"><button class="btn-primary" type="button" tabindex="-1">Основная кнопка</button><button class="btn-action" type="button" tabindex="-1">Дополнительная</button></div></div>
+        <div class="palette-preview-card"><h3>Статусы и поля</h3><div class="palette-preview-badges"><span class="badge success">Действует</span><span class="badge warning">Скоро истечёт</span><span class="badge danger">Нет доступа</span></div><label class="palette-demo-field">Название<input type="text" value="Пример поля ввода" readonly tabindex="-1"></label><p class="palette-preview-caption">Это примеры оформления, они не выполняют действий.</p></div>
+      </div>
+    </section>
+    <div class="palette-workspace">
+      <aside class="palette-filters" aria-label="Фильтры палитры">
+        <label for="paletteSearch">Найти цвет или элемент</label><input id="paletteSearch" type="search" placeholder="Кнопки, фон, CSS-селектор…" autocomplete="off">
+        <label for="paletteCategory">Раздел интерфейса</label><select id="paletteCategory"><option value="">Все разделы</option></select>
+        <label for="paletteFile">Файл стилей</label><select id="paletteFile"><option value="">Все файлы</option></select>
+        <label class="palette-check"><input id="paletteOnlyChanged" type="checkbox"> Только настроенные</label>
+        <div class="palette-filter-info"><p>Один цвет может использоваться в нескольких местах. Раскройте «Где применяется», чтобы увидеть все связи.</p><p>Тема или более точное правило CSS могут перекрывать цвет. Для общих изменений начните с раздела «Основная палитра».</p><p>Цвета статусов тоже доступны здесь: меняйте их осознанно, чтобы состояния оставались различимыми.</p></div>
+        <div class="palette-config-actions"><button type="button" class="btn-action" id="paletteExport" disabled>Скачать конфиг</button><button type="button" class="btn-action" id="paletteImport" disabled>Загрузить конфиг</button><input id="paletteImportFile" type="file" accept="application/json,.json" hidden></div>
+        <button class="palette-reset-all" type="button" id="paletteResetAll" disabled>Вернуть стандартную палитру</button>
+        <a href="/admin/palette?defaults=1" class="palette-emergency-link">Открыть редактор в исходных цветах</a>
+      </aside>
+      <section class="palette-catalog" aria-label="Каталог цветов">
+        <div class="palette-catalog-heading"><h2 id="paletteResultCount">Цвета</h2><span id="paletteCatalogHint"></span></div>
+        <div id="paletteColors" class="palette-color-grid" aria-busy="true"></div>
+        <div class="palette-empty" id="paletteEmpty" hidden><h3>Ничего не найдено</h3><p>Попробуйте другое название или сбросьте фильтры.</p><button class="btn-action" type="button" id="paletteClearFilters">Сбросить фильтры</button></div>
+        <button class="btn-action palette-load-more" type="button" id="paletteLoadMore" hidden>Показать ещё</button>
+      </section>
+    </div>
+  </section>
+</main>
+<dialog id="paletteResetDialog" class="palette-reset-dialog"><h2>Вернуть стандартные цвета?</h2><p>Все настроенные цвета будут заменены исходной палитрой GateBot. Сначала вы увидите результат в предпросмотре; для публикации нажмите «Сохранить палитру».</p><div class="palette-dialog-actions"><button class="btn-action" type="button" id="paletteCancelReset">Оставить как есть</button><button class="btn-primary" type="button" id="paletteConfirmReset">Вернуть стандартные</button></div></dialog>
+{% endblock %}
+{% block scripts %}<script src="/static/js/palette.js"></script>{% endblock %}

@@ -1,55 +1,11 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Настройки филиала — GateBot</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="stylesheet" href="/static/css/admin.css">
-</head>
-<body>
-<header class="admin-header">
-        <nav class="admin-nav">
-            <button class="burger-menu" onclick="toggleBurgerMenu()">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
-            <img src="/static/images/logo.svg" alt="logo" class="admin-logo">
-            <div class="nav-items-wrapper" id="navItems">
-                <a href="/admin/users" class="nav-item">Пользователи</a>
-                <a href="/admin/add-user" class="nav-item">Добавить пользователя</a>
-                <a href="/admin/temp-link" class="nav-item">Разовый пропуск</a>
-                <a href="/admin/change-password" class="nav-item">Сменить пароль</a>
-                <a href="/admin/logs" class="nav-item">Логи</a>
-                <a href="/admin/settings" class="nav-item active">Филиал</a>
-                <form method="POST" action="/admin/logout" style="display:contents">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="nav-item logout mobile-logout" title="Выход" style="border:0;cursor:pointer">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                </button>
-                </form>
-            </div>
-            <form method="POST" action="/admin/logout" style="display:contents">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="nav-item logout desktop-logout" title="Выход" style="border:0;cursor:pointer">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M16 17l5-5-5-5" stroke="#272b2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M21 12H9" stroke="#272b2e" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-            </button>
-                </form>
-        </nav>
-    </header>
-    <div class="admin-container">
+{% extends "base.html" %}
+{% set admin_page = true %}
+{% block title %}Настройки филиала — GateBot{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/gate-qr.css"><link rel="stylesheet" href="/static/css/branch-hours.css">{% endblock %}
+{% block content %}
+<div class="admin-container">
         <div class="admin-content">
-            <h1>Настройки филиала</h1>
+            <div class="page-heading"><div><p class="page-eyebrow">Управление</p><h1>Настройки филиала</h1><p class="page-description">Параметры доступа, кнопки ворот и контакты администратора.</p></div></div>
             {% if is_super %}
             <div class="filter-section">
                 <label for="settingsBranch">Филиал</label>
@@ -61,8 +17,16 @@
             {% endif %}
             <form id="branchSettingsForm">
                 <div style="max-width:640px">
+                    <div class="form-group" {% if not is_super %}hidden{% endif %}>
+                        <label for="settingsYclients">Тип филиала</label>
+                        <select id="settingsYclients" {% if not is_super %}disabled{% endif %}>
+                            <option value="true">С YCLIENTS</option>
+                            <option value="false">Без CRM — самостоятельный филиал</option>
+                        </select>
+                        <small class="form-hint" id="settingsYclientsHint">Самостоятельному филиалу не нужны YCLIENTS и ChatPush.</small>
+                    </div>
                     <div class="form-group">
-                        <label for="settingsBranchId">ID филиала в YCLIENTS</label>
+                        <label for="settingsBranchId" id="settingsBranchIdLabel">ID филиала в YCLIENTS</label>
                         <input id="settingsBranchId" type="number" min="1" step="1" required readonly>
                     </div>
                     <div class="form-group">
@@ -80,8 +44,15 @@
                         </datalist>
                     </div>
                     <div class="form-group">
-                        <label for="settingsLogo">Логотип: HTTPS-ссылка или путь /static/</label>
-                        <input id="settingsLogo" type="text" maxlength="2048">
+                        <label for="settingsLogoUpload">Логотип филиала</label>
+                        <input id="settingsLogo" type="hidden">
+                        <div class="branch-logo-editor">
+                            <img id="settingsLogoPreview" alt="Логотип филиала" width="88" height="88" hidden>
+                            <div><input id="settingsLogoUpload" type="file" accept="image/png,image/jpeg,image/webp">
+                            <small class="form-hint" id="settingsLogoHint">PNG, JPEG или WebP до 5 МБ. Изображение появится на странице пропуска.</small>
+                            <button id="settingsLogoRemove" class="btn-action" type="button" hidden>Удалить логотип</button></div>
+                        </div>
+                        <p id="settingsLogoStatus" class="form-hint" role="status"></p>
                     </div>
                     <div class="form-group">
                         <label><input id="settingsEnabled" type="checkbox"> Разрешить доступ по пропускам филиала</label>
@@ -101,13 +72,35 @@
                     <button type="submit" id="saveSettingsButton" class="btn-primary">Сохранить настройки</button>
                 </div>
             </form>
+            {% if is_super %}
+            <section id="branchDeletionPanel" class="panel" hidden>
+                <h2>Удаление филиала</h2>
+                <p class="page-description">Удаляет филиал, его клиентов, аккаунты администраторов, пропуска, настройки и данные подписки. Отменить это действие в интерфейсе нельзя.</p>
+                <button type="button" id="deleteBranchButton" class="btn-danger">Удалить филиал</button>
+            </section>
+            <dialog id="branchDeletionDialog" aria-labelledby="branchDeletionHeading">
+                <h2 id="branchDeletionHeading">Удалить филиал?</h2>
+                <p id="branchDeletionSummary"></p>
+                <p class="form-hint">Глобальный аккаунт суперадминистратора и данные других филиалов сохраняются. Общий журнал связи и приватные резервные копии остаются у суперадминистратора.</p>
+                <form id="branchDeletionForm" class="admin-form">
+                    <label for="branchDeletionConfirmation">Введите ID филиала для подтверждения</label>
+                    <input id="branchDeletionConfirmation" type="text" inputmode="numeric" autocomplete="off" required>
+                    <p id="branchDeletionNotice" class="form-hint" role="status"></p>
+                    <div class="action-buttons"><button type="button" id="branchDeletionCancel" class="btn-action">Отмена</button><button type="submit" id="branchDeletionSubmit" class="btn-danger" disabled>Удалить безвозвратно</button></div>
+                </form>
+            </dialog>
+            {% endif %}
         </div>
     </div>
-    <script>
+{% endblock %}
+{% block scripts %}
+<script>
         window.DEFAULT_BRANCH_ID = {{ admin_branch_id | tojson }};
         window.IS_SUPER = {{ 'true' if is_super else 'false' }};
         window.BASE_URL = {{ (BASE_URL or "") | tojson }};
     </script>
-    <script src="/static/js/admin.js"></script>
-</body>
-</html>
+<script src="/static/js/admin.js"></script>
+<script src="/static/js/gate-qr-admin.js"></script>
+<script src="/static/js/branch-hours.js"></script>
+{% if is_super %}<script src="/static/js/branch-lifecycle.js"></script>{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="theme-color" content="#EFF0E8">
+  <title>{% block title %}GateBot{% endblock %}</title>
+  <link rel="icon" href="/static/images/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ui.css">
+  <link rel="stylesheet" href="/static/css/admin.css">
+  {% block head %}{% endblock %}
+  {% if admin_page | default(false) %}<link rel="stylesheet" href="/static/css/support.css">{% endif %}
+  <link rel="stylesheet" href="/static/css/theme.css">
+  {% if not palette_defaults | default(false) %}<link rel="stylesheet" href="/ui/palette.css" id="savedPaletteStyles">{% endif %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% include 'components/header.html' %}
+  {% block content %}{% endblock %}
+  {% if admin_page | default(false) and request.path != '/admin/support' %}{% include 'components/support_widget.html' %}{% endif %}
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/phone-input.js"></script>
+  {% block scripts %}{% endblock %}
+  {% if admin_page | default(false) %}<script src="/static/js/support.js"></script>{% endif %}
+</body>
+</html>

@@ -1,0 +1,10 @@
+.branch-hours-panel{margin-top:24px}
+.branch-hours-panel>.admin-form{max-width:900px}
+.branch-hours-days{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin:18px 0}
+.branch-hours-day{border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0}
+.branch-hours-day h3{font-size:16px;margin:0 0 12px}
+.branch-hours-interval{display:flex;align-items:end;gap:12px;margin-bottom:12px}
+.branch-hours-interval label{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.branch-hours-interval input{width:100%;min-width:0;max-width:150px}
+.branch-hours-day>.action-buttons{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:600px){.branch-hours-day{padding:12px}.branch-hours-interval{gap:8px}.branch-hours-interval .btn-action{padding-inline:10px}}

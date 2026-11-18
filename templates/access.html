@@ -1,74 +1,32 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ branch_name }} — доступ на парковку</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="access-container">
-        <div class="access-card">
-            <div class="header">
-                {% if branch_logo %}<img src="{{ branch_logo }}" alt="{{ branch_name }}" class="branch-logo">{% endif %}
-                <h1>{{ branch_name }}</h1>
-                <p class="user-info">Клиент: {{ user_name }}</p>
-            </div>
-            <div class="buttons-container">
-                {% for button in buttons %}
-                    {% if button.type == 'gate' %}
-                    <button class="button button-gate" type="button" data-button-id="{{ button.id }}">{{ button.label }}</button>
-                    {% elif button.type == 'admin' %}
-                    <a class="button button-admin" href="tel:{{ button.phone }}">{{ button.label }}</a>
-                    {% endif %}
-                {% endfor %}
-                {% if telegram_url %}<a class="button" href="{{ telegram_url }}" rel="noreferrer">Открыть Telegram</a>{% endif %}
-                {% if max_url %}<a class="button" href="{{ max_url }}" rel="noreferrer">Открыть MAX</a>{% endif %}
-            </div>
-            <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
-        </div>
+{% extends "base.html" %}
+{% set client_page = true %}
+{% set working_hours = access_hours | default({}) %}
+{% block title %}{{ branch_name }} — ваш пропуск{% endblock %}
+{% block body_class %}access-page{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/access.css">{% endblock %}
+{% block content %}
+<main class="access-main">
+  <section class="pass-card" aria-label="Ваш пропуск">
+    <div class="pass-topline"><span class="pass-eyebrow">Персональный пропуск</span><span id="accessBadge" class="access-badge">Проверка…</span></div>
+    <div class="pass-brand">{% if branch_logo %}<img src="{{ branch_logo }}" alt="" class="branch-logo">{% else %}<img src="/static/images/favicon.svg" alt="" class="branch-logo">{% endif %}<div><h1>{{ branch_name }}</h1><p>{{ user_name }}</p></div></div>
+    <div class="gate-illustration" aria-hidden="true"><svg viewBox="0 0 260 150" fill="none"><ellipse cx="132" cy="130" rx="97" ry="11" fill="#e8eff9"/><path d="M60 123V63a10 10 0 0 1 10-10h15a10 10 0 0 1 10 10v60" fill="#e7f0fc" stroke="#a8c8f3" stroke-width="2"/><path d="M78 56 200 22" stroke="#007aff" stroke-width="12" stroke-linecap="round"/><path d="m105 48 11-3m21-6 11-3m21-6 11-3" stroke="white" stroke-width="8"/><circle cx="78" cy="56" r="6" fill="white"/><path d="M69 92h16M69 103h16" stroke="#a8c8f3" stroke-width="3" stroke-linecap="round"/><path d="M174 124V88m-7 5 7-7 7 7" stroke="#b8cce8" stroke-width="2" stroke-linecap="round"/></svg></div>
+    <h2 id="accessHeading">{% if working_hours.get('open', true) %}Добро пожаловать{% else %}Сейчас доступ закрыт{% endif %}</h2><p id="accessDescription" class="access-description">{% if working_hours.get('open', true) %}Откройте нужные ворота, когда будете рядом.{% else %}{{ working_hours.message }}{% endif %}</p>
+    <div id="gateActions" class="gate-actions">
+      {% for button in buttons %}{% if button.type == 'gate' %}<button type="button" class="gate-action button-gate" data-button-id="{{ button.id }}" {% if not working_hours.get('open', true) %}disabled{% endif %}><span>{{ button.label }}</span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 20V9h5v11M7 9l12-5M16 20v-8m-3 3 3-3 3 3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>{% endif %}{% endfor %}
     </div>
-    <script>
-        const accessToken = {{ token | tojson }};
-        const cooldownSeconds = {{ timeout | tojson }};
-        const gateButtons = Array.from(document.querySelectorAll('[data-button-id]'));
-        const statusMessage = document.getElementById('statusMessage');
-        let releaseTimer;
-        const setDisabled = (disabled) => gateButtons.forEach(button => { button.disabled = disabled; });
-        function releaseAfter(seconds) {
-            window.clearTimeout(releaseTimer);
-            if (seconds > 0) {
-                releaseTimer = window.setTimeout(() => setDisabled(false), seconds * 1000);
-            } else {
-                setDisabled(false);
-            }
-        }
-        async function openGate(buttonId) {
-            setDisabled(true);
-            statusMessage.textContent = 'Отправляем команду…';
-            statusMessage.className = 'status-message loading';
-            try {
-                const response = await fetch('/open-gate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
-                    },
-                    body: JSON.stringify({ token: accessToken, button_id: buttonId })
-                });
-                const result = await response.json();
-                const ok = response.ok && result.status === 'success';
-                statusMessage.textContent = result.message || (ok ? 'Команда принята' : 'Не удалось отправить команду');
-                statusMessage.className = 'status-message ' + (ok ? 'success' : 'error');
-                releaseAfter(ok ? cooldownSeconds : (Number(result.retry_after) || 0));
-            } catch (error) {
-                statusMessage.textContent = 'Нет ответа сервера. Если команда была принята, ворота могут сработать; подождите перед повтором.';
-                statusMessage.className = 'status-message error';
-                releaseAfter(cooldownSeconds);
-            }
-        }
-        gateButtons.forEach(button => button.addEventListener('click', () => openGate(button.dataset.buttonId)));
-    </script>
-</body>
-</html>
+    <p id="gateCooldown" class="gate-cooldown" aria-live="polite" hidden></p>
+    <p id="statusMessage" class="status-message" role="status" aria-live="polite"></p>
+    <div id="adminContacts" class="pass-contacts">{% for button in buttons %}{% if button.type == 'admin' %}<a class="contact-link button-admin" href="tel:{{ button.phone }}">{{ button.label }} <span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div>
+  </section>
+  <section class="pass-tools" aria-label="Управление пропуском">
+    <h2>Всегда под рукой</h2><p>Подключите удобный мессенджер, чтобы пользоваться пропуском в боте.</p>
+    <div class="bot-links"><a id="telegramLink" href="{{ telegram_url or '#' }}" {% if not telegram_url %}hidden{% endif %} rel="noreferrer"><span class="bot-mark">↗</span><span>Telegram<small>Открыть бота</small></span><span aria-hidden="true">›</span></a><a id="maxLink" href="{{ max_url or '#' }}" {% if not max_url %}hidden{% endif %} rel="noreferrer"><span class="bot-mark max">М</span><span>MAX<small>Открыть бота</small></span><span aria-hidden="true">›</span></a></div>
+    <a id="preferencesLink" class="preferences-link" href="{{ preferences_url | default('#', true) }}" {% if not preferences_url | default(false) or is_temporary | default(false) %}hidden{% endif %}>Настроить уведомления <span aria-hidden="true">›</span></a>
+  </section>
+  <p class="access-footer">Персональная ссылка — ваш ключ к пропуску.</p>
+</main>
+{% endblock %}
+{% block scripts %}
+<script id="accessConfig" type="application/json">{{ {'token':token,'cooldown':timeout | default(20),'buttons':buttons,'expires_at':expires_at | default(none),'preferences_url':preferences_url | default(none),'is_temporary':is_temporary | default(false),'telegram_url':telegram_url,'max_url':max_url,'access_hours':working_hours} | tojson }}</script>
+<script src="/static/js/access.js"></script>
+{% endblock %}

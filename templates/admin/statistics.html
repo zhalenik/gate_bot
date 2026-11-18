@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% set admin_page = true %}
+{% block title %}Статистика — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container" id="statisticsPage"><section class="admin-content">
+  <div class="page-heading"><div><div class="page-eyebrow">GateBot · Аналитика</div><h1>Статистика проезда</h1><p class="page-description">Запросы клиентов и команды модему. Положение шлагбаума не измеряется.</p></div></div>
+  <div id="productNotice" role="status"></div>
+  <form id="statisticsFilters" class="panel admin-form"><div class="filter-section">
+    <label>С <input name="from" type="datetime-local" required></label><label>По <input name="to" type="datetime-local" required></label>
+    <label>Часовой пояс группировки<select name="timezone"><option>Europe/Moscow</option><option>UTC</option><option>Europe/Kaliningrad</option><option>Asia/Yekaterinburg</option><option>Asia/Novosibirsk</option><option>Asia/Vladivostok</option></select></label>
+  </div><div class="filter-section">
+    <label>Филиалы<select name="branches" id="statisticsBranches" multiple aria-label="Филиалы"></select></label>
+    <label>Клиенты<select name="clients" id="statisticsClients" multiple aria-label="Клиенты"></select></label>
+    <label>Ворота<select name="gates" id="statisticsGates" multiple aria-label="Ворота"></select></label>
+    <label>Типы пропусков<select name="pass_types" multiple><option value="guest">Гостевые</option><option value="manual_timed">Срочные</option><option value="permanent">Постоянные</option><option value="admin_role">Администраторы</option><option value="appointment">CRM</option><option value="manual">Ручные</option></select></label>
+    <label>Каналы<select name="sources" multiple><option value="web">Веб</option><option value="telegram">Telegram</option><option value="max">MAX</option></select></label>
+    <label>Результат<select name="statuses" multiple><option value="command_sent">Команда выполнена</option><option value="queued">В очереди</option><option value="started">Исполняется</option><option value="denied">Отказ</option><option value="failed">Ошибка</option><option value="unknown">Неизвестно</option><option value="cancelled">Отмена</option><option value="expired">Истёк TTL</option></select></label>
+    <label>Группировать<select name="group_by" multiple required><option value="hour">По часу</option><option value="day" selected>По дню</option><option value="week">По неделе</option><option value="month">По месяцу</option><option value="branch">По филиалу</option><option value="client">По клиенту</option><option value="gate">По воротам</option><option value="pass_type">По пропуску</option><option value="source">По каналу</option><option value="status">По результату</option></select></label>
+  </div><p class="page-description">Без выбора — все доступные значения. До трёх группировок. Начало и конец вводятся по времени вашего устройства.</p>
+  <div class="filter-section"><label><input name="include_simulated" type="checkbox"> Включить имитации</label><label><input name="compare_previous" type="checkbox"> Сравнить с предыдущим периодом</label><button type="submit" class="btn-primary">Построить отчёт</button><button id="statisticsExport" type="button" class="btn-action">Скачать CSV</button><button id="statisticsSave" type="button" class="btn-action">Запомнить фильтры</button></div></form>
+  <div id="statisticsSummary" class="stat-grid"></div>
+  <section class="panel"><h2>Динамика запросов</h2><div id="statisticsChart" aria-label="График количества запросов" role="img"></div></section>
+  <section class="panel"><div style="overflow:auto"><table class="users-table"><thead id="statisticsHead"></thead><tbody id="statisticsBody"></tbody></table></div><p id="statisticsNotes" class="page-description"></p></section>
+</section></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/product.js"></script>{% endblock %}

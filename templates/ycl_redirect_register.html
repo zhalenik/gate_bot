@@ -1,20 +1,15 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Подключение филиала — GateBot</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="stylesheet" href="/static/css/admin.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}Подключение филиала — GateBot{% endblock %}
+{% block content %}
+
     <div class="login-container">
         <div class="login-card">
             <img src="/static/images/logo.svg" alt="GateBot" style="max-width:180px">
             <h1>Подключение филиала</h1>
-            <p>Самостоятельное подключение через YCLIENTS пока недоступно. Для добавления филиала обратитесь к суперадминистратору GateBot.</p>
+            <p>Для подключения филиала заполните форму GateBot и подтвердите свой номер телефона.</p>
+            <a class="btn-primary" href="/register-branch">Зарегистрировать филиал</a>
             <div class="login-footer"><a href="/admin/login">Вход для администратора</a></div>
         </div>
     </div>
-</body>
-</html>
+
+{% endblock %}

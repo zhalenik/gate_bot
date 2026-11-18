@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Подключить YCLIENTS — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container" style="max-width:760px"><section class="admin-content">
+  <div class="page-eyebrow">GateBot + YCLIENTS</div><h1>Подключение филиала</h1>
+  <p class="page-description">Завершите подключение после входа в GateBot. Разрешение YCLIENTS действует один час.</p>
+  <div id="marketplaceNotice" role="status" class="panel" hidden></div>
+  {% if not state.authenticated %}
+  <section class="panel"><h2>Добро пожаловать</h2><p>Войдите в свой аккаунт или зарегистрируйте новый филиал. Телефон подтверждается кодом из SMS.</p>
+    <a class="btn-primary" href="/admin/login?next=marketplace">Войти</a> <a class="btn-action" href="/register-branch?marketplace=1">Зарегистрировать филиал</a>
+  </section>
+  {% endif %}
+  <div id="marketplaceBranches"></div>
+  <p id="marketplaceDeadline" class="page-description"></p>
+  <p><a href="https://support.yclients.ru/67-68-191" target="_blank" rel="noopener">Как работает подключение YCLIENTS ↗</a></p>
+</section></main>
+{% endblock %}
+{% block scripts %}
+<script id="marketplaceBootstrap" type="application/json">{{ state|tojson }}</script>
+<script src="/static/js/marketplace.js"></script>
+{% endblock %}

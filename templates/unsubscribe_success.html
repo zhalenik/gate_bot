@@ -1,22 +1,16 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Отписка завершена</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <div class="error-container">
-            <span class="error-emoji">✅</span>
+{% extends "base.html" %}
+{% block title %}Отписка завершена{% endblock %}
+{% block content %}
+
+    <div class="guest-container">
+        <div class="guest-card">
+            <span class="guest-symbol" aria-hidden="true">↗</span>
             <h1 class="error-title">Отписка завершена</h1>
-            <p class="error-message">
+            <p class="page-description">
                 {{ user_name }}, уведомления о пропусках на стоянку отключены.
             </p>
-            <a href="/" class="back-home">Вернуться на главную</a>
+            <a href="/" class="text-link">Вернуться на главную</a>
         </div>
     </div>
-</body>
-</html>
+
+{% endblock %}

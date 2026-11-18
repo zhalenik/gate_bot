@@ -1,0 +1,27 @@
+{% set is_admin_view = admin_page | default(false) %}
+<header class="app-bar" data-shared-header>
+  {% if client_page | default(false) %}<div class="brand" aria-label="GateBot">{% else %}<a class="brand" href="{{ '/admin/users' if is_admin_view else '/' }}" aria-label="GateBot — главная">{% endif %}
+    <img src="/static/images/logo.svg" alt="GateBot" width="152" height="36">
+    {% if is_admin_view %}<span class="brand-scope">{{ 'Все филиалы · Суперадминистратор' if is_super else (admin_branch_name or 'Администратор филиала') }}</span>{% endif %}
+  {% if client_page | default(false) %}</div>{% else %}</a>{% endif %}
+  {% if is_admin_view %}
+  <nav class="app-navigation" aria-label="Администрирование">
+    {% for href, label in [('/admin/users','Клиенты'),('/admin/telephony','Связь'),('/admin/settings','Филиал'),('/admin/subscription','Подписка'),('/admin/statistics','Статистика')] %}
+      {% if (href != '/admin/telephony' or is_super) and (href != '/admin/subscription' or not is_super) %}
+      <a href="{{ href }}" {% if href == '/admin/telephony' %}title="Звонки и SMS"{% endif %} {% if request.path == href or (href == '/admin/users' and request.path == '/admin/add-user') %}aria-current="page"{% endif %}>{{ label }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+  <details class="account-menu"><summary class="icon-button" aria-label="Меню администратора" title="Меню администратора">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+  </summary><div class="dropdown">
+    <div class="menu-heading">Управление</div>
+    <a href="/admin/add-user">Добавить клиента</a><a href="/admin/invitations">Администраторы</a>
+    <a href="/admin/notifications">Уведомления</a><a href="/admin/notification-settings">Настройки уведомлений</a>{% if admin_yclients_enabled | default(true) %}<a href="/admin/integrations">Интеграции</a>{% endif %}
+    {% if is_super %}<a href="/admin/branch-plans">Тарифы филиалов</a><a href="/admin/system-settings">Системные настройки</a><a href="/admin/palette">Цвета интерфейса</a><a href="/admin/logs">Журнал событий</a>{% endif %}
+    <a href="/admin/change-password">Сменить пароль</a>
+    <a href="/admin/help">Помощь</a>
+    <form method="POST" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Выйти</button></form>
+  </div></details>
+  {% elif not client_page | default(false) and not hide_admin_signin | default(false) %}<a class="header-signin" href="/admin/login">Для администратора <span aria-hidden="true">↗</span></a>{% endif %}
+</header>

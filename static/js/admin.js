@@ -2,6 +2,7 @@
 'use strict';
 
 let usersCache = [];
+let branchesCache = [];
 let sortState = { key: null, asc: true };
 
 function element(tag, className = '', text = null) {
@@ -12,9 +13,10 @@ function element(tag, className = '', text = null) {
 }
 
 function showAlert(message, type = 'info') {
-    const banner = element('div', 'alert alert-' + type, message);
-    const container = document.querySelector('.admin-content') || document.body;
-    container.prepend(banner);
+    const banner = element('div', 'alert alert-' + type + ' admin-toast', message);
+    banner.setAttribute('role',type==='error'?'alert':'status');
+    document.querySelectorAll('.admin-toast').forEach(previous=>previous.remove());
+    document.body.append(banner);
     window.setTimeout(() => banner.remove(), 7000);
 }
 
@@ -32,7 +34,12 @@ async function api(path, options = {}) {
         window.location.assign('/admin/login');
         throw new Error('Войдите в систему заново');
     }
-    if (!response.ok) throw new Error(data.message || 'Не удалось выполнить действие');
+    if (!response.ok) {
+        const error = new Error(data.message || 'Не удалось выполнить действие');
+        error.status = response.status; error.data = data;
+        error.retry_after = Number(data.retry_after || response.headers.get('Retry-After')) || 0;
+        throw error;
+    }
     if (data.csrf_token) {
         document.querySelector('meta[name="csrf-token"]').content = data.csrf_token;
         document.querySelectorAll('input[name="csrf_token"]').forEach(input => { input.value = data.csrf_token; });
@@ -72,7 +79,8 @@ function fullLink(path) {
 const ICONS = {
     copy: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2" stroke="#272b2e" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="#272b2e" stroke-width="2"/></svg>',
     edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 17v4h4L20 8l-4-4L3 17z" stroke="#272b2e" stroke-width="2"/></svg>',
-    delete: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3h6M4 6h16M6 6l1 14h10l1-14M10 10v8M14 10v8" stroke="#272b2e" stroke-width="2"/></svg>'
+    delete: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3h6M4 6h16M6 6l1 14h10l1-14M10 10v8M14 10v8" stroke="#272b2e" stroke-width="2"/></svg>',
+    admin: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7l-9-4Z"/><path d="M12 8v7m-3-4h6"/></svg>'
 };
 
 function button(text, callback, className = 'btn-action') {
@@ -92,7 +100,9 @@ function iconButton(title, icon, callback) {
 }
 
 function createModal(title) {
+    const trigger=document.activeElement;
     const modal = element('div', 'modal');
+    modal.dataset.dynamic='true';
     modal.style.display = 'block';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
@@ -104,7 +114,10 @@ function createModal(title) {
     content.append(body, actions);
     modal.append(content);
     document.body.append(modal);
-    return { modal, body, actions, close: () => modal.remove() };
+    setTimeout(()=>modal.querySelector('input:not([readonly]),select,button')?.focus(),0);
+    const close=()=>{modal.remove();if(trigger?.isConnected)trigger.focus();};
+    modal.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close();}});
+    return { modal, body, actions, close };
 }
 
 function formField(body, label, value, type = 'text', readOnly = false) {
@@ -122,7 +135,7 @@ function formField(body, label, value, type = 'text', readOnly = false) {
 
 function passInfo(user) {
     if (!user.gate_access) return { category: 'Запрещен', text: 'Запрещен', className: 'btn-pass-denied' };
-    if (!user.access_expires) return { category: 'Постоянный', text: 'Постоянный', className: 'btn-pass-permanent' };
+    if (user.admin_role_active || user.admin_role?.is_admin || user.admin_role?.is_super || !user.access_expires) return { category: 'Постоянный', text: 'Постоянный', className: 'btn-pass-permanent' };
     const days = Number(user.access_expires_days);
     if (days <= 1) return { category: 'Разовый', text: 'Разовый', className: 'btn-pass-one' };
     const last = days % 10;
@@ -142,6 +155,12 @@ async function loadUsers() {
 function displayUsers(users) {
     const tbody = document.getElementById('usersTableBody');
     tbody.replaceChildren();
+    const counter=document.getElementById('clientCount');if(counter)counter.textContent=`${users.length} из ${usersCache.length}`;
+    const selectedId=document.getElementById('filterBranch')?.value||window.DEFAULT_BRANCH_ID;
+    const selectedBranch=branchesCache.find(branch=>String(branch.id)===String(selectedId));
+    const contextUsers=selectedId?usersCache.filter(user=>String(user.branch_id)===String(selectedId)):usersCache;
+    const hideCrm=selectedBranch?.yclients_enabled===false||(!selectedBranch&&contextUsers.length>0&&contextUsers.every(user=>user.yclients_enabled===false));
+    const crmHeader=tbody.closest('table').querySelector('th[onclick*="has_yclients"]');if(crmHeader)crmHeader.hidden=hideCrm;
     users.forEach(user => {
         const row = element('tr');
         const pass = passInfo(user);
@@ -152,27 +171,26 @@ function displayUsers(users) {
             row.append(td);
             return td;
         }
-        cell('Имя', user.user_name || '—');
+        const nameCell=cell('Имя');nameCell.append(element('span','',user.user_name||'—'));
+        const role=user.admin_role||{};
+        if(role.is_admin||role.is_super){const badge=element('span','client-role-badge',role.is_super?'Суперадминистратор':role.last_admin?'Администратор · единственный':'Администратор');nameCell.append(element('br'),badge);}
         cell('Телефон', user.phone || '—');
-        cell('Филиал', user.branch_name || '—');
-        cell('Пропуск').append(button(pass.text, () => onPassButtonClick(user.token, !!user.gate_access), 'btn-pass ' + pass.className));
+        cell('Email', user.email || '—');
+        cell('Филиал', user.branch_name || '—').classList.add('client-branch');
+        const passCell=cell('Пропуск');passCell.append(button(pass.text, () => onPassButtonClick(user.token, !!user.gate_access), 'btn-pass ' + pass.className));
+        const branchReason={pending_verification:'Филиал ожидает подтверждения',branch_disabled:'Доступ филиала выключен',branch_missing:'Филиал не настроен'}[user.branch_access_reason];
+        if(branchReason)passCell.append(element('small','client-branch-access-hint',branchReason));
         cell('Боты', [user.has_telegram ? 'TG' : '', user.has_max ? 'MAX' : ''].filter(Boolean).join(' · ') || '—');
-        cell('YCLIENTS', user.has_yclients ? '✓' : '');
-        const mailing = element('input');
-        mailing.type = 'checkbox';
-        mailing.checked = !!user.mailing_enabled;
-        mailing.disabled = !user.has_yclients;
-        mailing.title = user.has_yclients ? 'Уведомления о пропуске' : 'Нет клиента в YCLIENTS';
-        mailing.addEventListener('change', () => onToggleMailing(user.token, mailing.checked));
-        cell('Рассылка').append(mailing);
+        cell('YCLIENTS', user.has_yclients ? '✓' : '').hidden=hideCrm;
+        cell('Уведомления').append(clientNotificationStatusButton(user));
         const actions = cell('Действия');
         actions.style.whiteSpace = 'nowrap';
         actions.style.textAlign = 'right';
-        actions.append(
-            iconButton('Копировать ссылку', 'copy', () => onCopyUserLink(user.token)),
-            iconButton('Редактировать', 'edit', () => openEditUserModal(user.token)),
-            iconButton('Удалить', 'delete', () => onDeleteUser(user.token))
-        );
+        actions.append(iconButton('Копировать ссылку', 'copy', () => onCopyUserLink(user.token)),iconButton('Редактировать', 'edit', () => openEditUserModal(user.token)));
+        if(!role.is_admin&&!role.is_super)actions.append(iconButton('Назначить администратором', 'admin', () => inviteAdministrator(user)));
+        const remove=iconButton('Удалить', 'delete', () => onDeleteUser(user.token));
+        if(role.can_delete===false){remove.disabled=true;remove.title=role.reason||'Удаление недоступно';}
+        actions.append(remove);
         tbody.append(row);
     });
 }
@@ -182,12 +200,12 @@ function filterUsers() {
     const branchId = document.getElementById('filterBranch')?.value || '';
     const status = document.getElementById('filterStatus')?.value || '';
     let users = usersCache.filter(user => {
-        return (!search || String(user.user_name || '').toLowerCase().includes(search) || String(user.phone || '').includes(search)) &&
+        return (!search || String(user.user_name || '').toLowerCase().includes(search) || String(user.phone || '').includes(search) || String(user.email || '').toLowerCase().includes(search)) &&
             (!branchId || String(user.branch_id) === branchId) && (!status || passInfo(user).category === status);
     });
     if (sortState.key) {
         users = [...users].sort((a, b) => {
-            const getValue = u => sortState.key === 'pass_label' ? passInfo(u).text : (u[sortState.key] ?? '');
+            const getValue = u => sortState.key === 'pass_label' ? passInfo(u).text : sortState.key === 'notification_channels' ? Object.entries(u.notification_status?.effective_channels||{}).filter(([,active])=>active).map(([key])=>key).join(',') : (u[sortState.key] ?? '');
             return String(getValue(a)).localeCompare(String(getValue(b)), 'ru', { numeric: true }) * (sortState.asc ? 1 : -1);
         });
     }
@@ -197,12 +215,33 @@ function filterUsers() {
 function sortUsersBy(key) {
     sortState = { key, asc: sortState.key === key ? !sortState.asc : true };
     filterUsers();
+    document.querySelectorAll('.users-table th[onclick]').forEach(th=>th.setAttribute('aria-sort',th.getAttribute('onclick').includes("'"+key+"'")?(sortState.asc?'ascending':'descending'):'none'));
+}
+
+function inviteAdministrator(user) {
+    const view=createModal('Пригласить администратора');
+    view.body.append(element('p','',`${user.user_name || 'Клиент'} получит приглашение управлять филиалом. Ссылка действует один час. Роль появится после регистрации и проверки телефона.`));
+    const group=element('div','form-group'),caption=element('label','','Канал приглашения'),select=element('select');
+    for(const [value,title,available] of [['sms','SMS',!!user.phone],['chatpush','ChatPush',!!user.phone],['email','Email',!!user.email],['telegram','Telegram',!!user.has_telegram],['max','MAX',!!user.has_max]]){
+        if(value==='chatpush'&&user.yclients_enabled===false)continue;
+        const option=element('option','',title+(available?'':' — не подключён'));option.value=value;option.disabled=!available;select.append(option);
+    }
+    caption.append(select);group.append(caption);view.body.append(group);
+    const send=button('Создать приглашение',async()=>{
+        send.disabled=true;
+        try{const result=await post('/admin/invitations/new',{client_token:user.token,branch_id:user.branch_id,channel:select.value});view.close();
+            const resultView=createModal('Приглашение создано'),box=element('div','link-box'),input=element('input');input.value=result.link;input.readOnly=true;box.append(input,iconButton('Копировать приглашение','copy',()=>copyToClipboard(result.link)));resultView.body.append(box,element('p','form-hint','Ссылка действует один час. Регистрация требует кода из SMS.'));
+            if(result.delivery?.message)resultView.body.append(element('p','form-hint',result.delivery.message));
+            resultView.actions.append(button('Закрыть',resultView.close));
+        }catch(error){showAlert(error.message,'error');}finally{send.disabled=false;}
+    });view.actions.append(button('Отмена',view.close),send);
 }
 
 async function loadBranches() {
     try {
         const data = await api('/admin/api/branches');
         const branches = data.branches || [];
+        branchesCache=branches;
         document.querySelectorAll('select[name="branchId"]').forEach(select => {
             select.replaceChildren();
             branches.forEach(branch => {
@@ -222,6 +261,7 @@ async function loadBranches() {
                 filter.append(option);
             });
         }
+        if(document.getElementById('usersTableBody'))filterUsers();
     } catch (error) { showAlert(error.message, 'error'); }
 }
 
@@ -229,16 +269,73 @@ function openEditUserModal(token) {
     const user = usersCache.find(value => value.token === token);
     if (!user) return;
     const view = createModal('Редактировать пользователя');
+    const roleInfo=element('div','client-role-details');roleInfo.hidden=true;roleInfo.dataset.roleInfo='true';view.body.append(roleInfo);
+    function showRole(role){
+        if(!view.modal.isConnected)return;roleInfo.replaceChildren();roleInfo.hidden=!role.is_admin&&!role.is_super;if(roleInfo.hidden)return;
+        roleInfo.append(element('strong','',role.is_super?'Суперадминистратор':'Администратор филиала'),element('p','form-hint',role.reason||'Права администратора действуют в веб-кабинете и ботах. Можно отозвать роль, сохранив карточку клиента.'));
+        const revoke=button('Отозвать права администратора',()=>confirmRevokeClientAdmin(user,view),'btn-action btn-deny');revoke.disabled=role.can_revoke!==true;roleInfo.append(revoke);
+    }
+    if(user.admin_role){showRole({...user.admin_role,can_revoke:false});api('/admin/api/client-role?token='+encodeURIComponent(token)).then(result=>{user.admin_role=result.admin_role;showRole(result.admin_role);}).catch(error=>{if(view.modal.isConnected){roleInfo.hidden=false;roleInfo.append(element('p','form-hint',error.message));}});}
     const name = formField(view.body, 'Имя', user.user_name);
     const phone = formField(view.body, 'Телефон', user.phone, 'tel');
-    const crm = formField(view.body, 'YCLIENTS ID', user.id_ycl);
+    const email = formField(view.body, 'Email', user.email, 'email');
+    email.maxLength = 254;
+    email.autocomplete = 'email';
+    email.placeholder = 'Необязательно';
+    const crm = user.yclients_enabled===false?null:formField(view.body, 'YCLIENTS ID', user.id_ycl);
+    let lookupBusy = false;
+    if (crm) {
+        const label = crm.parentElement, group = label.parentElement;
+        crm.id = 'clientYclientsId'; label.htmlFor = crm.id;
+        const row = element('div', 'client-yc-id-control'), hint = element('p', 'form-hint');
+        hint.dataset.yclientsIdHint = 'true'; hint.setAttribute('role', 'status');
+        const lookup = button('', async () => {
+            if (lookupBusy || changedPhone()) return;
+            lookupBusy = true; updateLookup(); phone.disabled = crm.disabled = save.disabled = true;
+            hint.textContent = 'Ищем клиента по сохранённому номеру телефона…';
+            try {
+                const response = await post('/admin/api/yclients/client-id', {token});
+                const result = response.result || {};
+                if (['updated', 'unchanged'].includes(result.status)) {
+                    user.id_ycl = result.id_ycl;
+                    const current = usersCache.find(item => item.token === token);
+                    if (current) current.id_ycl = result.id_ycl;
+                    if (view.modal.isConnected) crm.value = result.id_ycl ?? '';
+                    if (document.getElementById('usersTableBody')) filterUsers();
+                }
+                if (view.modal.isConnected) hint.textContent = result.message || 'Проверка завершена. ID не изменён.';
+            } catch (error) {
+                if (view.modal.isConnected) hint.textContent = error.message;
+            } finally {
+                lookupBusy = false;
+                if (view.modal.isConnected) { phone.disabled = crm.disabled = save.disabled = false; updateLookup(); }
+            }
+        }, 'btn-action client-yc-id-refresh');
+        lookup.title = 'Обновить ID из YCLIENTS'; lookup.setAttribute('aria-label', lookup.title);
+        lookup.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6a8 8 0 0 1 13.2 3M17.9 18a8 8 0 0 1-13.2-3"/></svg>';
+        row.append(crm, lookup); group.append(row, hint);
+        const normalizedPhone = value => window.GateBotPhone?.normalize(value) || value.trim();
+        const savedPhone = normalizedPhone(user.phone || '');
+        function changedPhone() { return normalizedPhone(phone.value) !== savedPhone; }
+        function updateLookup() {
+            lookup.disabled = lookupBusy || changedPhone();
+            if (changedPhone()) hint.textContent = 'Сначала сохраните новый номер телефона, затем обновите ID.';
+        }
+        phone.addEventListener('input', () => {
+            if (!lookupBusy && !changedPhone()) hint.textContent = '';
+            updateLookup();
+        });
+        updateLookup();
+    }
     formField(view.body, 'Telegram — подтвержденная привязка', user.tg_id || 'Не привязан', 'text', true);
     formField(view.body, 'MAX — подтвержденная привязка', user.max_id || 'Не привязан', 'text', true);
     view.body.append(element('p', 'form-hint', 'После смены телефона пользователь заново привязывает мессенджер по персональной ссылке или своему контакту.'));
     const save = button('Сохранить', async () => {
+        if (lookupBusy) return;
+        if (!email.reportValidity()) return;
         save.disabled = true;
         try {
-            await post('/admin/api/update-user', { token, user_name: name.value, phone: phone.value, id_ycl: crm.value });
+            await post('/admin/api/update-user', { token, user_name: name.value, phone: phone.value, email: email.value, ...(crm?{id_ycl:crm.value}:{}) });
             view.close();
             await loadUsers();
             showAlert('Изменения сохранены', 'success');
@@ -263,30 +360,29 @@ function onPassButtonClick(token, accessAllowed) {
     view.actions.append(button('Отмена', view.close), button('Запретить', () => { view.close(); toggleAccess(token, false); }, 'btn-action btn-deny'));
 }
 
+let accessModalTrigger=null;
 function showAccessModal(token) {
+    accessModalTrigger=document.activeElement;
     document.getElementById('tokenField').value = token;
     document.getElementById('accessModal').style.display = 'block';
+    document.querySelector('#accessModal input[name="accessType"]:checked')?.focus();
 }
 
 function closeModal() {
     document.getElementById('accessModal').style.display = 'none';
+    if(accessModalTrigger?.isConnected)accessModalTrigger.focus();
 }
 
-async function onToggleMailing(token, enabled) {
-    try {
-        await post('/admin/api/set-mailing', { token, enabled });
-        showAlert('Настройка уведомлений обновлена', 'success');
-    } catch (error) { showAlert(error.message, 'error'); }
-    await loadUsers();
-}
-
-function onDeleteUser(token) {
+async function onDeleteUser(token) {
+    const user=usersCache.find(item=>item.token===token);let role=user?.admin_role||{};
+    try{if(user?.admin_role)role=(await api('/admin/api/client-role?token='+encodeURIComponent(token))).admin_role;}catch(error){showAlert(error.message,'error');return;}
+    if(role.can_delete===false){showAlert(role.reason||'Удаление недоступно','error');return;}
     const view = createModal('Удалить пользователя?');
-    view.body.append(element('p', '', 'Пропуск и привязки мессенджеров будут удалены.'));
+    view.body.append(element('p', '', role.is_admin?'Это администратор филиала. Удаление клиента также отзовёт его права администратора, доступ к кабинету и административным функциям ботов. Пропуск и клиентские привязки будут удалены.':'Пропуск и привязки мессенджеров будут удалены.'));
     const confirm = button('Удалить', async () => {
         confirm.disabled = true;
         try {
-            await post('/admin/api/delete-user', { token });
+            await post('/admin/api/delete-user', { token,confirm_admin:role.is_admin===true });
             view.close();
             await loadUsers();
             showAlert('Пользователь удален', 'success');
@@ -294,6 +390,11 @@ function onDeleteUser(token) {
         finally { confirm.disabled = false; }
     }, 'btn-action btn-deny');
     view.actions.append(button('Отмена', view.close), confirm);
+}
+
+function confirmRevokeClientAdmin(user,editor){
+    const view=createModal('Отозвать права администратора?');view.body.append(element('p','','Карточка клиента сохранится. Доступ к административным функциям будет закрыт; пропуск по роли администратора перестанет действовать. Независимый ручной или CRM-пропуск сохраняется.'));
+    const confirm=button('Отозвать права',async()=>{confirm.disabled=true;try{await post('/admin/api/client-role/revoke',{token:user.token});view.close();editor.close();await loadUsers();showAlert('Права администратора отозваны. Клиент сохранён.','success');}catch(error){showAlert(error.message,'error');}finally{confirm.disabled=false;}},'btn-action btn-deny');view.actions.append(button('Отмена',view.close),confirm);
 }
 
 function showLinkModal(title, token, link, delivery = null) {
@@ -400,12 +501,75 @@ async function initializeBranchSettings() {
     const selector = document.getElementById('settingsBranch');
     const rows = document.getElementById('settingsButtons');
     const branchId = document.getElementById('settingsBranchId');
+    const crmMode = document.getElementById('settingsYclients');
+    const logoValue = document.getElementById('settingsLogo');
+    const logoUpload = document.getElementById('settingsLogoUpload');
+    const logoPreview = document.getElementById('settingsLogoPreview');
+    const logoRemove = document.getElementById('settingsLogoRemove');
+    const logoStatus = document.getElementById('settingsLogoStatus');
     let creating = false;
+    let internalId = false;
     let loadSerial = 0;
     form.dataset.ready = 'false';
+    function showBranchMode() {
+        const crm=crmMode.value==='true';
+        crmMode.disabled=!window.IS_SUPER||(!creating&&internalId);
+        branchId.required=creating&&crm;
+        branchId.readOnly=!creating||!crm;
+        branchId.closest('.form-group').hidden=(creating&&!crm)||(!window.IS_SUPER&&!crm);
+        if(creating&&!crm)branchId.value='';
+        if(creating&&!crm)for(const row of Array.from(rows.children))if(!row.querySelector('[data-field="phone"]').value)row.remove();
+        document.getElementById('settingsBranchIdLabel').textContent=internalId?'Внутренний ID филиала':crm?'ID филиала в YCLIENTS':'ID филиала';
+        document.getElementById('settingsYclientsHint').textContent=creating&&!crm?'Внутренний ID назначится автоматически при создании.':internalId?'Филиал работает самостоятельно. Внутренний ID сохраняется на весь срок работы.':'Для самостоятельного филиала интеграции YCLIENTS и ChatPush недоступны.';
+    }
+    crmMode.addEventListener('change',showBranchMode);
+    function showLogo(url) {
+        logoValue.value = url || '';
+        logoPreview.hidden = !url;
+        if (url) logoPreview.src = url; else logoPreview.removeAttribute('src');
+        logoRemove.hidden = !url;
+    }
+    async function changeLogo(file) {
+        if (creating || form.dataset.ready !== 'true') return;
+        if (file && file.size > 5 * 1024 * 1024) {
+            logoStatus.textContent = 'Выберите изображение размером до 5 МБ';
+            logoUpload.value = '';
+            return;
+        }
+        const selectedBranch = branchId.value;
+        const save = document.getElementById('saveSettingsButton');
+        const add = document.getElementById('newBranchBtn');
+        logoUpload.disabled = logoRemove.disabled = save.disabled = true;
+        if (selector) selector.disabled = true;
+        if (add) add.disabled = true;
+        logoStatus.textContent = file ? 'Загружаем изображение…' : 'Удаляем логотип…';
+        try {
+            const body = new FormData();
+            if (file) body.append('image', file);
+            const response = await fetch('/admin/api/branches/' + encodeURIComponent(selectedBranch) + '/logo', {
+                method: file ? 'POST' : 'DELETE', credentials: 'same-origin',
+                headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
+                ...(file ? {body} : {})
+            });
+            let result;
+            try { result = await response.json(); } catch { throw new Error('Не удалось обработать изображение'); }
+            if (!response.ok) throw new Error(result.message || 'Не удалось сохранить логотип');
+            if (branchId.value === selectedBranch) showLogo(result.logo);
+            logoStatus.textContent = file ? 'Логотип сохранён' : 'Логотип удалён';
+        } catch (error) { logoStatus.textContent = error.message; }
+        finally {
+            logoUpload.value = '';
+            logoUpload.disabled = logoRemove.disabled = save.disabled = false;
+            if (selector) selector.disabled = false;
+            if (add) add.disabled = false;
+        }
+    }
+    logoUpload.addEventListener('change', () => { if (logoUpload.files[0]) changeLogo(logoUpload.files[0]); });
+    logoRemove.addEventListener('click', () => changeLogo(null));
     function addRow(value = { type: 'gate', label: 'Въезд', phone: '' }) {
         if (rows.children.length >= 12) { showAlert('Можно добавить до 12 кнопок', 'info'); return; }
         const row = element('tr');
+        if(value.stable_id)row.dataset.stableId=value.stable_id;
         function cell(label, control) {
             const td = element('td');
             td.dataset.label = label;
@@ -420,6 +584,7 @@ async function initializeBranchSettings() {
             type.append(option);
         });
         type.value = value.type;
+        type.addEventListener('change',()=>{delete row.dataset.stableId;});
         const label = element('input');
         label.dataset.field = 'label';
         label.value = value.label;
@@ -444,15 +609,23 @@ async function initializeBranchSettings() {
     }
     function fill(value) {
         branchId.value = value.branch_id || '';
-        branchId.readOnly = !creating;
+        internalId=value.id_origin==='internal';
+        crmMode.value=value.yclients_enabled===false?'false':'true';
+        showBranchMode();
         document.getElementById('settingsName').value = value.name || '';
         document.getElementById('settingsTimezone').value = value.timezone || 'Europe/Moscow';
-        document.getElementById('settingsLogo').value = value.logo || '';
+        showLogo(value.logo || '');
+        logoUpload.value = '';
+        logoUpload.disabled = creating;
+        logoStatus.textContent = creating ? 'Сначала сохраните новый филиал, затем загрузите логотип.' : '';
         document.getElementById('settingsEnabled').checked = value.enabled === true;
         rows.replaceChildren();
         (value.buttons || []).forEach(addRow);
+        rows.querySelectorAll('input,select,button').forEach(control=>control.disabled=false);
+        document.getElementById('addSettingsButton').disabled=false;
         document.getElementById('saveSettingsButton').textContent = creating ? 'Создать филиал' : 'Сохранить настройки';
         form.dataset.ready = 'true';
+        document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:value.branch_id,buttons:value.buttons||[]}}));
     }
     async function load(id) {
         const serial = ++loadSerial;
@@ -498,10 +671,12 @@ async function initializeBranchSettings() {
             const buttons = Array.from(rows.children).map(row => ({
                 type: row.querySelector('[data-field="type"]').value,
                 label: row.querySelector('[data-field="label"]').value,
-                phone: row.querySelector('[data-field="phone"]').value
+                phone: row.querySelector('[data-field="phone"]').value,
+                ...(row.dataset.stableId?{stable_id:row.dataset.stableId}:{})
             }));
             const result = await post('/admin/api/branch-settings', {
-                branch_id: Number(branchId.value), create: creating,
+                ...(!(creating&&crmMode.value==='false')?{branch_id:Number(branchId.value)}:{}), create: creating,
+                yclients_enabled:crmMode.value==='true',
                 name: document.getElementById('settingsName').value,
                 timezone: document.getElementById('settingsTimezone').value,
                 enabled: document.getElementById('settingsEnabled').checked,
@@ -567,8 +742,8 @@ function initialize() {
             expiryDays.disabled = !expiry.checked;
             expiryDays.style.display = expiry.checked ? 'block' : 'none';
             document.getElementById('permanentText').classList.toggle('hidden', expiry.checked);
-            phone.required = send.checked;
-            document.getElementById('phoneLabel').textContent = 'Номер телефона' + (send.checked ? ' *' : '');
+            phone.required = true;
+            document.getElementById('phoneLabel').textContent = 'Номер телефона *';
         };
         expiry.addEventListener('change', syncInputs);
         send.addEventListener('change', syncInputs);
@@ -581,6 +756,7 @@ function initialize() {
                 const data = await post('/admin/api/create-link', {
                     user_name: document.getElementById('userName').value,
                     phone: phone.value,
+                    email: document.getElementById('clientEmail').value,
                     branch_id: document.getElementById('branchId') ? Number(document.getElementById('branchId').value) : window.DEFAULT_BRANCH_ID,
                     send_link: send.checked,
                     expires_days: expiry.checked ? Number(expiryDays.value) : null
@@ -600,13 +776,14 @@ function initialize() {
         loadBranches();
         const send = document.getElementById('sendLinkCheckbox');
         const phone = document.getElementById('tempPhone');
-        send.addEventListener('change', () => { phone.style.display = send.checked ? 'block' : 'none'; phone.required = send.checked; });
+        phone.required = true;
         createTemp.addEventListener('click', async () => {
+            if(!phone.value.trim() || !phone.checkValidity()){phone.reportValidity();return;}
             createTemp.disabled = true;
             try {
                 const data = await post('/admin/api/create-temp-link', {
                     branch_id: document.getElementById('tempBranch') ? Number(document.getElementById('tempBranch').value) : window.DEFAULT_BRANCH_ID,
-                    phone: send.checked ? phone.value : null, send_link: send.checked
+                    phone: phone.value, send_link: send.checked
                 });
                 const link = fullLink(data.link);
                 await copyToClipboard(link, false);

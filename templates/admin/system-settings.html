@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% set admin_page = true %}
+{% block title %}Системные настройки — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container"><section class="admin-content">
+  <div class="page-heading"><div><div class="page-eyebrow">GateBot · Суперадминистратор</div><h1>Системные настройки</h1><p class="page-description">Общие параметры сервиса, интеграций, модема и разработки.</p></div></div>
+  <div id="systemSettingsNotice" role="status" hidden></div>
+  <section class="panel">
+    <p id="systemSettingsState" role="status">Загрузка настроек…</p>
+    <p class="page-description">Изменения в разделах ниже применяются после перезапуска сервиса. Текущие соединения продолжают работать с прежними параметрами. Почтовые настройки в разделе SMTP применяются сразу.</p>
+    <label class="form-group">Найти параметр<input id="systemSettingsSearch" type="search" autocomplete="off" placeholder="Название или имя переменной"></label>
+  </section>
+  <form id="systemSettingsForm" class="admin-form">
+    <div id="systemSettingsGroups"></div>
+    <div class="action-buttons"><button class="btn-primary" id="systemSettingsSave" type="submit" disabled>Сохранить настройки</button><button class="btn-action" id="systemSettingsReset" type="button" disabled>Вернуть настройки окружения</button></div>
+  </form>
+  <details class="panel" id="systemSmtp"><summary><strong>SMTP · Отправка email</strong></summary><p class="page-description">Один почтовый сервер для всех филиалов. Сохранение и проверка используют существующие настройки SMTP.</p>
+    {% include 'components/smtp-form.html' %}
+  </details>
+</section></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/system-settings.js"></script><script src="/static/js/smtp.js"></script>{% endblock %}

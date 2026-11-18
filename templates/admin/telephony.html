@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% set admin_page = true %}
+{% block title %}Связь — GateBot{% endblock %}
+{% block body_class %}telephony-page{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/telephony.css">{% endblock %}
+{% block content %}
+<main class="phone-shell" id="phoneShell">
+    <aside class="sidebar" aria-label="Контакты и история">
+      <div class="sidebar-heading"><h1 id="sectionTitle">Сообщения</h1><div class="toolbar">
+        <button id="sidebarMore" class="icon-button" type="button" aria-label="Действия с историей" title="Действия с историей" aria-haspopup="menu"><span data-icon="more"></span></button>
+        <button id="newChatOpen" class="icon-button accent" type="button" aria-label="Новое сообщение" title="Новое сообщение"><span data-icon="compose"></span></button>
+      </div></div>
+      <div class="phone-tabs" role="tablist" aria-label="Раздел связи">
+        <button id="modeSms" type="button" role="tab" aria-selected="true" aria-controls="smsPanel"><span data-icon="message"></span>Сообщения</button>
+        <button id="modeCalls" type="button" role="tab" aria-selected="false" aria-controls="callsPanel" tabindex="-1"><span data-icon="phone"></span>Звонки</button>
+      </div>
+      <label class="search-field"><span data-icon="search"></span><input id="smsSearch" type="search" maxlength="200" placeholder="Поиск" aria-label="Поиск по имени, номеру или сообщению"></label>
+      <div id="callFilters" class="call-filters" hidden><select id="callDirection" aria-label="Направление звонков"><option value="all">Все звонки</option><option value="incoming">Входящие</option><option value="outgoing">Исходящие</option></select></div>
+      <div class="sidebar-scroll" id="sidebarScroll">
+        <div id="chatList" aria-label="Чаты"></div><div id="callList" aria-label="История звонков" hidden></div>
+        <button id="loadChats" class="text-button load-more" type="button" hidden>Ещё диалоги</button>
+        <button id="loadCalls" class="text-button load-more" type="button" hidden>Ещё звонки</button>
+      </div>
+      <div class="sidebar-footer"><button id="modemStatus" class="connection" type="button" aria-label="Состояние модема"><span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="connectionLabel">Подключение…</span></button><span id="modeBadge" class="mode-badge" hidden>Имитация</span></div>
+    </aside>
+    <section id="smsPanel" class="conversation" role="tabpanel" aria-labelledby="modeSms">
+      <div id="threadEmpty" class="empty-state"><span class="empty-icon" data-icon="message"></span><h2>Ваши сообщения</h2><p>Выберите чат или напишите новое сообщение.</p><button id="emptyCompose" class="text-button" type="button">Написать сообщение<span data-icon="arrow-right"></span></button></div>
+      <div id="threadContent" class="thread-content" hidden>
+        <header class="thread-header">
+          <button id="backToChats" class="icon-button mobile-back" type="button" aria-label="К списку чатов"><span data-icon="back"></span></button>
+          <div id="threadAvatar" class="avatar"></div><div class="contact-heading"><h2 id="chatHeading"></h2><p id="chatSubtitle"></p></div>
+          <button id="callContact" class="icon-button accent" type="button" aria-label="Позвонить контакту" title="Позвонить"><span data-icon="phone"></span></button>
+          <button id="threadMore" class="icon-button" type="button" aria-label="Действия с чатом" title="Действия с чатом" aria-haspopup="menu"><span data-icon="more"></span></button>
+        </header>
+        <div id="messageScroll" class="message-scroll"><button id="loadMessages" class="text-button load-more" type="button" hidden>Ранее</button><div id="chatMessages" aria-label="Переписка"></div></div>
+        <form id="smsForm" class="composer"><input name="phone" id="smsPhone" type="hidden">
+          <div class="compose-field"><textarea name="text" rows="1" required maxlength="17850" placeholder="Сообщение SMS" aria-label="Текст сообщения"></textarea>
+            <button type="submit" class="send-button" aria-label="Отправить SMS" title="Отправить SMS"><span data-icon="up"></span></button></div>
+          <div class="composer-caption"><span id="smsParts" aria-live="polite">SMS</span><span id="composeHint">Ctrl + Enter — отправить</span></div>
+        </form>
+      </div>
+    </section>
+    <section id="callsPanel" class="call-stage" role="tabpanel" aria-labelledby="modeCalls" hidden>
+      <button id="backToCalls" class="icon-button mobile-back" type="button" aria-label="К списку звонков"><span data-icon="back"></span></button>
+      <div class="dial-card"><div class="dial-icon" data-icon="phone"></div><h2>Новый вызов</h2><p id="callContactName">Введите номер с кодом страны</p>
+        <form id="callForm"><label class="sr-only" for="callPhone">Номер телефона</label><input name="phone" id="callPhone" type="tel" required maxlength="40" placeholder="+7 ··· ··· ·· ··" autocomplete="tel">
+          <label class="duration-field">Длительность вызова<select name="duration" aria-label="Длительность вызова"><option value="10">10 секунд</option><option value="20" selected>20 секунд</option><option value="30">30 секунд</option></select></label>
+          <button type="submit" class="call-button"><span data-icon="phone"></span>Позвонить</button>
+        </form><p id="callResult" class="call-result" role="status"></p>
+      </div>
+    </section>
+  </main>
+  <div id="contextMenu" class="context-menu" popover="auto" role="menu" aria-label="Действия"></div>
+  <dialog id="newChatDialog" class="sheet"><form id="newChatForm"><div class="sheet-heading"><h2>Новое сообщение</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div><label for="newChatPhone">Кому</label><input id="newChatPhone" type="tel" required maxlength="40" placeholder="Номер с кодом страны" autocomplete="tel"><button type="submit" class="primary-button">Продолжить</button></form></dialog>
+  <dialog id="confirmDialog" class="sheet confirm-sheet"><span class="confirm-icon" data-icon="trash"></span><h2 id="confirmTitle"></h2><p id="confirmText"></p><div class="dialog-actions"><button id="confirmCancel" type="button" class="secondary-button">Отмена</button><button id="confirmDelete" type="button" class="destructive-button">Удалить</button></div></dialog>
+  <dialog id="detailsDialog" class="sheet"><div class="sheet-heading"><h2 id="detailsTitle">Сведения</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><span data-icon="close"></span></button></div><div id="detailsBody"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/admin.js"></script>
+<script src="/static/js/telephony.js"></script>
+{% endblock %}

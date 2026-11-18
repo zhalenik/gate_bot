@@ -5,16 +5,15 @@ POST/PUT/PATCH/DELETE, SMS, registration, login or webhook provisioning.
 Official contract: https://developers.yclients.com/ru/
 """
 from datetime import timedelta
-import os
 import re
 import threading
 import time
-from urllib.parse import urlparse
 import requests
 from storage import config
 from branch_manager import BranchManager
 from timeutil import now, end_of_day, parse_datetime, timezone
 import logger
+from yclients_urls import normalize_yclients_base_url
 
 
 class YClientsError(RuntimeError):
@@ -39,34 +38,33 @@ def _pace():
 
 
 class YClientsClient:
-    def __init__(self, session=None, base_url=None, branches=None, pace=_pace):
+    def __init__(self, session=None, base_url=None, branches=None, pace=_pace, credential_provider=None):
         self.session = session or requests.Session()
-        self.base_url = (base_url or config.YC_BASE_URL).rstrip('/')
-        url = urlparse(self.base_url)
-        if url.scheme != 'https' or url.hostname not in {'api.yclients.ru', 'api.yclients.com'} or url.path != '/api/v1' or url.query or url.fragment or url.username is not None or url.password is not None or url.port not in {None, 443}:
-            raise ValueError('YCLIENTS requires its official HTTPS API host')
+        self.base_url = normalize_yclients_base_url(base_url or config.YC_BASE_URL)
         self.branches = branches or BranchManager()
         self.pace = pace
+        self.credential_provider = credential_provider
 
     def _credentials(self, branch_id):
         branch = self.branches.load_branches().get(str(branch_id))
         if not branch:
             raise YClientsError('Unknown branch')
-        env_name = branch.get('yclients_user_token_env', f'YC_USER_TOKEN_{branch_id}')
-        if not re.fullmatch(r'[A-Z][A-Z0-9_]*', str(env_name)):
-            raise YClientsError('Invalid credential reference')
-        user_token = os.getenv(env_name, '')
-        if not user_token and str(config.YC_COMPANY_ID) == str(branch_id):
-            user_token = config.YC_USER_TOKEN
-        if not config.YC_PARTNER_TOKEN or not user_token:
+        if branch.get('yclients_enabled',True) is False:
+            raise YClientsReadOnlyError('YCLIENTS is not available for a standalone branch')
+        if branch.get('yclients_marketplace_state') in {'uninstalled', 'frozen'}:
+            raise YClientsError('YCLIENTS marketplace connection is inactive')
+        saved = self.credential_provider(branch_id) if self.credential_provider else {}
+        user_token = saved.get('user_token')
+        partner_token = saved.get('partner_token') or config.YC_PARTNER_TOKEN
+        if not partner_token or not user_token:
             raise YClientsError('Missing credentials for branch')
-        return {'Accept': 'application/vnd.yclients.v2+json', 'Authorization': f'Bearer {config.YC_PARTNER_TOKEN}, User {user_token}'}
+        return {'Accept': 'application/vnd.yclients.v2+json', 'Authorization': f'Bearer {partner_token}, User {user_token}'}
 
     def request(self, method, path, branch_id, params=None):
         if method.upper() != 'GET':
             raise YClientsReadOnlyError('YCLIENTS is read-only: only allowlisted GET operations are permitted')
         branch = str(branch_id)
-        if not branch.isdigit() or not re.fullmatch(rf'(records/{re.escape(branch)}|client/{re.escape(branch)}/[0-9]+|staff/{re.escape(branch)})', path):
+        if not branch.isdigit() or not re.fullmatch(rf'(records/{re.escape(branch)}|client/{re.escape(branch)}/[0-9]+|clients/{re.escape(branch)}|staff/{re.escape(branch)})', path):
             raise YClientsReadOnlyError('This YCLIENTS endpoint is not allowed')
         if not config.YCLIENTS_ENABLED:
             raise YClientsError('YCLIENTS integration is disabled')
@@ -140,8 +138,98 @@ class YClientsClient:
             raise YClientsError('Cross-branch client in response')
         return {'id': client_id, 'name': data.get('name', ''), 'phone': data.get('phone', ''), 'email': data.get('email', '')}
 
+    def find_clients_by_phone(self, branch_id, phone, page_size=100):
+        """Read the documented GET collection, then match the complete phone.
 
-def eligible_clients(records, branch_id, at=None, branch_timezone=None):
+        The official clients GET is deprecated but still documented with phone,
+        page and count. Its phone filter is substring-based. Never replace this
+        operation with the newer POST search or return a partial page as proof.
+        https://developers.yclients.com/ru/ — Clients: deprecated client list.
+        """
+        from link_manager import normalize_phone
+
+        if isinstance(branch_id, bool) or not re.fullmatch(r'[1-9][0-9]{0,15}', str(branch_id)):
+            raise YClientsError('Invalid branch identity for client search')
+        if type(page_size) is not int or not 1 <= page_size <= 200:
+            raise YClientsError('Invalid client search page size')
+
+        def full_phone(value):
+            # YCLIENTS documents both integer and string phones. A masked value
+            # must not become a plausible number by dropping its non-digits.
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
+                raise YClientsError('CRM client phone is missing or masked')
+            value = str(value).strip()
+            if (not re.fullmatch(r'[+0-9\s().-]{7,64}', value) or
+                    not re.fullmatch(r'\+?[0-9]{7,15}', re.sub(r'[\s().-]', '', value))):
+                raise YClientsError('CRM client phone is missing or masked')
+            normalized = normalize_phone(value)
+            if not re.fullmatch(r'\+[1-9][0-9]{6,14}', normalized):
+                raise YClientsError('CRM client phone is missing or masked')
+            return normalized
+
+        if not isinstance(phone, str):
+            raise YClientsError('Invalid phone for client search')
+        target = full_phone(phone)
+        matches, seen = [], set()
+        expected_total, total_present = None, None
+        for page in range(1, 1001):
+            payload = self.request('GET', f'clients/{branch_id}', branch_id,
+                                   {'phone': target.lstrip('+'), 'page': page, 'count': page_size})
+            items = payload.get('data')
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise YClientsError('Invalid clients collection')
+            if len(items) > page_size:
+                raise YClientsError('CRM returned an oversized client page')
+            for item in items:
+                if item.get('company_id') is not None and str(item['company_id']) != str(branch_id):
+                    raise YClientsError('Cross-branch client in CRM response')
+                client_id = item.get('id')
+                if isinstance(client_id, bool) or not re.fullmatch(r'[1-9][0-9]{0,15}', str(client_id)):
+                    raise YClientsError('Invalid client identity in search response')
+                client_id = int(client_id)
+                if client_id in seen:
+                    raise YClientsError('CRM pagination repeated a client; incomplete search')
+                seen.add(client_id)
+                actual_phone = full_phone(item.get('phone'))
+                if actual_phone == target:
+                    matches.append({'id': client_id, 'phone': actual_phone,
+                                    'name': item.get('name') if isinstance(item.get('name'), str) else '',
+                                    'email': item.get('email') if isinstance(item.get('email'), str) else ''})
+            meta = payload.get('meta')
+            if meta is None or meta == []:
+                meta = {}
+            if not isinstance(meta, dict):
+                raise YClientsError('Invalid client pagination metadata')
+            if 'page' in meta and (isinstance(meta['page'], bool) or
+                    not isinstance(meta['page'], (str, int)) or
+                    not re.fullmatch(r'[1-9][0-9]*', str(meta['page'])) or int(meta['page']) != page):
+                raise YClientsError('CRM client pagination returned the wrong page')
+            total = meta.get('total_count')
+            present = total is not None
+            if total_present is None:
+                total_present = present
+            elif total_present != present:
+                raise YClientsError('Client pagination metadata changed; search not applied')
+            if present:
+                if isinstance(total, bool) or not isinstance(total, (str, int)) or not re.fullmatch(r'[0-9]+', str(total)):
+                    raise YClientsError('Invalid client pagination total')
+                total = int(total)
+                if expected_total is None:
+                    expected_total = total
+                elif expected_total != total:
+                    raise YClientsError('CRM clients changed during pagination; search not applied')
+                if len(seen) > total:
+                    raise YClientsError('CRM client total contradicts returned rows')
+                if len(seen) == total:
+                    return matches
+                if not items:
+                    raise YClientsError('CRM returned an incomplete client page')
+            elif len(items) < page_size:
+                return matches
+        raise YClientsError('Client pagination limit exceeded; search not applied')
+
+
+def eligible_clients(records, branch_id, at=None, branch_timezone=None, *, lead_seconds=0):
     at = (at or now(branch_timezone)).astimezone(timezone(branch_timezone))
     clients = {}
     for record in records:
@@ -156,8 +244,14 @@ def eligible_clients(records, branch_id, at=None, branch_timezone=None):
             visit = parse_datetime(record.get('datetime') or record.get('date'), branch_timezone).astimezone(timezone(branch_timezone))
         except (ValueError, TypeError):
             raise YClientsError('Invalid appointment date; no changes applied') from None
-        if visit.date() == at.date() and visit - timedelta(hours=config.ACCESS_BEFORE_VISIT_HOURS) <= at <= end_of_day(visit, branch_timezone):
-            clients[str(client['id'])] = {key: client[key] for key in ('id', 'name', 'phone', 'email') if key in client}
+        expiry = end_of_day(visit, branch_timezone)
+        # An early-morning appointment opens access on the preceding evening.
+        # A small scheduler lead absorbs the local outbox dispatch interval.
+        if visit - timedelta(hours=max(2, config.ACCESS_BEFORE_VISIT_HOURS), seconds=lead_seconds) <= at <= expiry:
+            key = str(client['id'])
+            if key not in clients or clients[key]['_access_expires'] < expiry.isoformat():
+                clients[key] = {field: client[field] for field in ('id', 'name', 'phone', 'email') if field in client}
+                clients[key]['_access_expires'] = expiry.isoformat()
     return clients
 
 

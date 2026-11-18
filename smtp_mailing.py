@@ -3,8 +3,8 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
 from pathlib import Path
-import re
 import smtplib
+from smtp_settings import SmtpSettings, email_address, smtp_connection
 from storage import config
 from link_manager import LinkManager
 from branch_manager import BranchManager
@@ -21,25 +21,25 @@ def load_template(template_name):
 
 
 def send_email(to_email, subject, html_content, from_email=None):
-    if not config.OUTBOUND_ENABLED or not config.SMTP_ENABLED:
+    if not config.OUTBOUND_ENABLED:
         return False
-    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', str(to_email)) or any(ch in subject for ch in '\r\n'):
+    if not email_address(to_email) or not isinstance(subject, str) or any(ch in subject for ch in '\r\n'):
         return False
-    if not all((config.MAILING_SMTP_SERVER, config.MAILING_SMTP_USER, config.MAILING_SMTP_PASSWORD)):
+    settings = SmtpSettings().effective()
+    if not settings['enabled'] or not email_address(from_email or settings['from_email']):
         return False
     message = EmailMessage()
-    message['From'] = formataddr((config.MAILING_SMTP_FROM, from_email or config.MAILING_SMTP_USER))
+    message['From'] = formataddr((settings['from_name'], from_email or settings['from_email']))
     message['To'] = to_email
     message['Subject'] = subject
     message.set_content('Информация о доступе на парковку содержится в HTML-версии письма.')
     message.add_alternative(html_content, subtype='html')
     try:
-        with smtplib.SMTP_SSL(config.MAILING_SMTP_SERVER, config.MAILING_SMTP_PORT, timeout=15) as server:
-            server.login(config.MAILING_SMTP_USER, config.MAILING_SMTP_PASSWORD)
+        with smtp_connection(settings) as server:
             server.send_message(message)
         logger.event('SMTP_SENT', details={'recipient_ref': logger.reference(to_email)})
         return True
-    except (OSError, smtplib.SMTPException) as error:
+    except (OSError, ValueError, smtplib.SMTPException) as error:
         logger.event('SMTP_ERROR', level='ERROR', details={'error_type': type(error).__name__})
         return False
 

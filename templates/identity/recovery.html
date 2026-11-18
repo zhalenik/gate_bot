@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% set hide_admin_signin = true %}
+{% block title %}Восстановление доступа — GateBot{% endblock %}
+{% block content %}
+<main class="login-container"><section class="login-card" id="recoveryPage">
+<p class="page-eyebrow">Личный кабинет</p><h1>Вернём доступ</h1>
+<p class="page-description">Подтвердите номер телефона администратора, затем задайте новый пароль.</p>
+<div id="recoveryNotice" class="panel" role="status" hidden></div>
+<form id="recoveryPhone" class="admin-form" autocomplete="off">
+<div class="form-group"><label for="recoveryPhoneValue">Телефон</label><input id="recoveryPhoneValue" name="phone" type="tel" required autocomplete="tel"></div>
+<button type="submit" class="btn-primary" id="recoverySend">Получить SMS-код</button>
+</form>
+<form id="recoveryCode" class="admin-form" hidden>
+<div class="form-group"><label for="recoveryCodeValue">Код из SMS</label><input id="recoveryCodeValue" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+<button class="btn-primary" type="submit">Подтвердить телефон</button>
+</form>
+<form id="recoveryPassword" class="admin-form" hidden>
+<div class="form-group"><label for="newPassword">Новый пароль</label><input id="newPassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div>
+<div class="form-group"><label for="confirmPassword">Повторите пароль</label><input id="confirmPassword" name="confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div>
+<button class="btn-primary" type="submit">Сохранить новый пароль</button>
+</form>
+<p class="page-description">Доступ суперадминистратора восстанавливается через консоль сервера.</p>
+<a class="btn-action" href="/admin/login">Вернуться ко входу</a>
+</section></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/admin.js"></script><script src="/static/js/recovery.js"></script>{% endblock %}

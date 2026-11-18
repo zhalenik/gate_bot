@@ -137,12 +137,22 @@ def test_supervisor_uses_shared_service_and_stops_intake_before_workers(delivery
     import sim800c
 
     order = []
-    service = SimpleNamespace(stop_accepting=lambda: order.append("stop_accepting"))
-    monkeypatch.setitem(sys.modules, "app", SimpleNamespace(
-        app=object(), link_manager=object(), branch_manager=object(), access_service=service))
+    service = SimpleNamespace(stop_accepting=lambda: order.append("stop_accepting"),
+                              authorize_command=lambda *a, **kw: True, command_finished=lambda *a: None)
     scheduler_stub = SimpleNamespace(start=lambda: None, stop=lambda: order.append("scheduler"))
     notifications_stub = SimpleNamespace(start=lambda: None, stop=lambda: order.append("notifications"),
-                                         enqueue=lambda payload: None)
+                                         access_transition=lambda payload: None, event=lambda *a: None, request_stop=lambda: None)
+    products = SimpleNamespace(notifications=notifications_stub, bootstrap_console_identity=lambda auth: None,
+                               attach=lambda service: None, index_clients=lambda: None,
+                               yclients_client_jobs=SimpleNamespace(
+                                   start=lambda: order.append("client_ids_start"),
+                                   stop=lambda: order.append("client_ids") or True),
+                               billing=SimpleNamespace(recover=lambda: None))
+    monkeypatch.setitem(sys.modules, "app", SimpleNamespace(
+        app=object(), link_manager=object(), branch_manager=object(), access_service=service,
+        admin_auth=object(), product_services=lambda: products))
+    monkeypatch.setattr(sim800c, "_get_queue", lambda: SimpleNamespace())
+    monkeypatch.setattr(sim800c, "monitor_status", lambda stop: None)
     monkeypatch.setattr(scheduler, "Scheduler", lambda *args, **kwargs: scheduler_stub)
     monkeypatch.setattr(notifications, "NotificationDispatcher", lambda *args, **kwargs: notifications_stub)
     server = SimpleNamespace(run=lambda: None, close=lambda: order.append("listener"))
@@ -158,4 +168,5 @@ def test_supervisor_uses_shared_service_and_stops_intake_before_workers(delivery
     monkeypatch.setattr(sim800c, "shutdown", stop_modem)
     with pytest.raises(RuntimeError, match="Web server stopped"):
         run.main()
-    assert order == ["stop_accepting", "listener", "sim800", "scheduler", "notifications"]
+    assert order == ["client_ids_start", "stop_accepting", "listener", "sim800", "scheduler",
+                     "client_ids", "notifications"]

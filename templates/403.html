@@ -1,27 +1,23 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Доступ недоступен</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <div class="error-container">
-            <span class="error-emoji">🚫</span>
+{% extends "base.html" %}
+{% block title %}Доступ недоступен{% endblock %}
+{% block content %}
+
+    <div class="guest-container">
+        <div class="guest-card">
+            <span class="guest-symbol" aria-hidden="true">↗</span>
             <h1 class="error-title">Доступ недоступен</h1>
-            <p class="error-message">Ссылка недействительна, срок пропуска истёк или действие не разрешено. Обновите страницу; если проблема сохраняется, обратитесь к администратору своего филиала.</p>
+            <p class="page-description">Ссылка недействительна, срок пропуска истёк или действие не разрешено. Обновите страницу; если проблема сохраняется, обратитесь к администратору своего филиала.</p>
             {% if admin_contacts %}
             <p class="user-info">{{ branch_name }}</p>
-            <div class="buttons-container">
+            <div class="support-actions">
                 {% for contact in admin_contacts %}
-                <a class="button button-admin" href="tel:{{ contact.phone }}">{{ contact.label }}</a>
+                <a class="btn-primary" href="tel:{{ contact.phone }}">{{ contact.label }}</a>
                 {% endfor %}
             </div>
             {% endif %}
-            <a href="/" class="back-home">На главную</a>
+            {% if preferences_url and not is_temporary | default(false) %}<div class="support-preferences"><a href="{{ preferences_url }}" class="btn-action">Настроить уведомления <span aria-hidden="true">›</span></a></div>{% endif %}
+            {% if not client_page | default(false) %}<a href="/" class="text-link">На главную</a>{% endif %}
         </div>
     </div>
-</body>
-</html>
+
+{% endblock %}

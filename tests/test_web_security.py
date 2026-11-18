@@ -146,7 +146,7 @@ def test_read_scope_is_exact_and_super_can_read_all(web):
     client = web.app.test_client()
     login(client)
     assert [row["branch_id"] for row in client.get("/admin/api/users").json["users"]] == [12]
-    assert client.get("/admin/api/branches").json == {"branches": [{"id": 12, "name": "Branch 12"}]}
+    assert client.get("/admin/api/branches").json == {"branches": [{"id": 12, "name": "Branch 12", "yclients_enabled": True}]}
     csv = client.get("/admin/api/export-csv").text
     assert "Client A" in csv
     assert "Client B" not in csv
@@ -283,7 +283,7 @@ def test_temporary_pass_expires_at_local_day_end(web):
     from timeutil import now, parse_datetime
     client = web.app.test_client()
     csrf_token = login(client)
-    response = post(client, csrf_token, "/admin/api/create-temp-link", {"branch_id": 12, "send_link": False})
+    response = post(client, csrf_token, "/admin/api/create-temp-link", {"branch_id": 12, "phone": "+70000000444", "send_link": False})
     assert response.status_code == 200
     user = web.links.load_links()[response.json["token"]]
     expiry = parse_datetime(user["access_expires"])
@@ -333,17 +333,19 @@ def test_legacy_password_is_upgraded_at_login(web):
     assert web.auth.load_admins()["tenant-a"]["password_hash"].startswith("scrypt:")
 
 
-def test_logs_use_exact_branch_filter_and_zip_is_super_only(web, monkeypatch):
+def test_logs_and_archive_are_super_only(web, monkeypatch):
     from timeutil import now
     events = [{"ts": now().isoformat(), "level": "INFO", "event": "OPEN", "branch_id": str(value), "details": {"message": f"branch {value}"}} for value in (12, 123)]
     monkeypatch.setattr(web.module.logger, "read_events", lambda **kwargs: events)
     client = web.app.test_client()
     login(client)
+    assert client.get("/admin/logs").status_code == 403
+    assert client.get("/admin/api/logs").status_code == 403
+    assert client.get("/admin/api/logs-zip").status_code == 403
+    login(client, 'super')
     response = client.get("/admin/api/logs")
     assert response.status_code == 200
-    assert len(response.json["logs"]) == 1
-    assert "branch 123" not in response.text
-    assert client.get("/admin/api/logs-zip").status_code == 403
+    assert len(response.json["logs"]) == 2
     assert client.get("/admin/api/logs?from=../../storage").status_code == 400
 
 
@@ -386,7 +388,14 @@ def test_admin_cannot_assign_messenger_identity(web):
 
 
 def branch_settings(web, branch_id=12):
-    return web.module._public_branch_settings(web.branches.get_branch(branch_id))
+    data = web.module._public_branch_settings(web.branches.get_branch(branch_id))
+    for key in ('id_origin', 'hardware_routes_verified'):
+        data.pop(key, None)
+    # These regressions cover the legacy writable contract. Stable-ID round
+    # trips and reordered/deleted QR gates have their own route tests.
+    for button in data['buttons']:
+        button.pop('stable_id', None)
+    return data
 
 
 def test_settings_are_scoped_and_preserve_private_credentials(web):
@@ -432,6 +441,43 @@ def test_super_can_create_branch_without_touching_crm(web):
     assert web.branches.get_branch(321).enabled is False
     assert web.calls == []
     assert post(client, csrf_token, "/admin/api/branch-settings", data).status_code == 409
+    subscription = web.module.product_services().billing.subscription_view('321')
+    assert subscription['status'] == 'trial' and subscription['unlimited']
+    from billing_service import epoch, month_at
+    assert epoch(subscription['ends_at']) == month_at(epoch(subscription['period_starts_at']), 2, 'Europe/Moscow')
+    data.update(create=False, name='Renamed branch')
+    assert post(client, csrf_token, '/admin/api/branch-settings', data).status_code == 200
+    assert web.module.product_services().billing.subscription_view('321')['ends_at'] == subscription['ends_at']
+
+
+def test_sql_branch_creation_rolls_back_if_trial_activation_fails(web, monkeypatch):
+    from storage.sql_documents import migrate_legacy
+    migrate_legacy(Path(web.links.links_file).parent, activate=True)
+    client=web.app.test_client();csrf_token=login(client,'super')
+    data=branch_settings(web);data.update(branch_id=321,create=True,name='Atomic branch')
+    def reject(*args,**kwargs):raise ValueError('failed activation')
+    monkeypatch.setattr(web.module.product_services().billing,'activate_trial',reject)
+    assert post(client,csrf_token,'/admin/api/branch-settings',data).status_code==400
+    assert web.branches.get_branch(321) is None
+
+
+def test_sql_new_branch_keeps_global_super_scope_without_copying_client(web):
+    from storage.sql_documents import migrate_legacy
+    from link_manager import access_is_active
+    migrate_legacy(Path(web.links.links_file).parent, activate=True)
+    products=web.module.product_services()
+    products.identity.attach_console_account('super','+70000000333')
+    admin=products.identity.web_admin('super')
+    before={token for token,r in web.links.load_links().items() if r.get('person_id')==admin['person_id']}
+    client=web.app.test_client();csrf_token=login(client,'super')
+    data=branch_settings(web);data.update(branch_id=321,create=True,name='New scoped branch')
+    assert post(client,csrf_token,'/admin/api/branch-settings',data).status_code==200
+    records=[r for r in web.links.load_links().values() if str(r.get('branch_id'))=='321' and r.get('person_id')==admin['person_id']]
+    assert records==[]
+    current=web.links.load_links()
+    assert {token for token,r in current.items() if r.get('person_id')==admin['person_id']}==before
+    assert all(access_is_active(current[token]) for token in before)
+    assert client.get('/admin/api/identity/admins?branch_id=321').status_code==200
 
 
 @pytest.mark.parametrize("changes", [
@@ -467,10 +513,10 @@ def test_old_gate_button_cannot_open_changed_target(web):
 def test_all_admin_templates_render_with_csrf_and_post_logout(web):
     client = web.app.test_client()
     login(client)
-    for path in ("/admin/users", "/admin/add-user", "/admin/temp-link", "/admin/change-password", "/admin/logs", "/admin/settings"):
+    for path in ("/admin/users", "/admin/add-user", "/admin/temp-link", "/admin/change-password", "/admin/settings"):
         response = client.get(path)
         assert response.status_code == 200
         assert 'name="csrf-token"' in response.text
         assert '<a href="/admin/logout"' not in response.text
         assert 'action="/admin/logout"' in response.text
-    assert 'downloadLogsZipBtn' not in client.get("/admin/logs").text
+    assert client.get("/admin/logs").status_code == 403

@@ -10,6 +10,16 @@ import zipfile
 import pytest
 
 
+def stored_credentials(state, branch='1', credentials=None):
+    from cryptography.fernet import Fernet
+    key=state/'integration.key'
+    if not key.exists():key.write_bytes(Fernet.generate_key())
+    encrypted=Fernet(key.read_bytes()).encrypt(json.dumps(credentials or {'user_token':'synthetic-stored-user-secret'}).encode()).decode()
+    with sqlite3.connect(state/'application.sqlite3') as db:
+        db.execute('CREATE TABLE IF NOT EXISTS identity_integrations(branch_id TEXT,kind TEXT,ciphertext TEXT,PRIMARY KEY(branch_id,kind))')
+        db.execute('INSERT OR REPLACE INTO identity_integrations VALUES(?,"yclients",?)',(branch,encrypted))
+
+
 @pytest.fixture
 def diagnostic(tmp_path, monkeypatch):
     import storage
@@ -56,6 +66,7 @@ def diagnostic(tmp_path, monkeypatch):
     write_state('branches.json', branches)
     write_state('admins.json', {'private-admin-name': {'password_hash': 'synthetic-password-hash'}})
     write_state('links.json', {'synthetic-link-secret': {'user_name': 'private client name'}})
+    stored_credentials(state)
     return SimpleNamespace(module=module, config=config, state=state, branches=branches,
                            write_state=write_state, tmp_path=tmp_path)
 
@@ -112,7 +123,7 @@ def test_global_crm_token_cannot_cover_another_active_branch(diagnostic):
     assert report['problems'] == ['yclients_active_branch_token_missing']
 
 
-def test_explicit_and_default_branch_references_are_resolved(diagnostic, monkeypatch):
+def test_environment_references_do_not_replace_branch_database_credentials(diagnostic, monkeypatch):
     diagnostic.config.YC_USER_TOKEN = ''
     diagnostic.branches['1']['yclients_user_token_env'] = 'SYNTHETIC_BRANCH_CREDENTIAL'
     diagnostic.branches['2']['enabled'] = True
@@ -120,11 +131,13 @@ def test_explicit_and_default_branch_references_are_resolved(diagnostic, monkeyp
     monkeypatch.setenv('SYNTHETIC_BRANCH_CREDENTIAL', 'synthetic-explicit-secret')
     monkeypatch.setenv('YC_USER_TOKEN_2', 'synthetic-second-secret')
     report = diagnostic.module.doctor()
-    assert report['credentials']['yclients_active_branch_tokens_present'] is True
-    assert report['problems'] == []
+    assert report['credentials']['yclients_active_branch_tokens_present'] is False
+    assert report['problems'] == ['yclients_active_branch_token_missing']
+    stored_credentials(diagnostic.state,'2')
+    assert diagnostic.module.doctor()['credentials']['yclients_active_branch_tokens_present'] is True
 
 
-def test_missing_explicit_reference_still_allows_exact_branch_fallback(diagnostic):
+def test_obsolete_reference_is_ignored_when_database_token_exists(diagnostic):
     diagnostic.branches['1']['yclients_user_token_env'] = 'SYNTHETIC_BRANCH_CREDENTIAL'
     diagnostic.write_state('branches.json', diagnostic.branches)
     report = diagnostic.module.doctor()
@@ -132,13 +145,13 @@ def test_missing_explicit_reference_still_allows_exact_branch_fallback(diagnosti
     assert report['problems'] == []
 
 
-def test_invalid_reference_is_not_hidden_by_a_fallback_token(diagnostic):
+def test_obsolete_invalid_reference_no_longer_controls_connection(diagnostic):
     diagnostic.branches['1']['yclients_user_token_env'] = 'invalid-reference'
     diagnostic.write_state('branches.json', diagnostic.branches)
     report = diagnostic.module.doctor()
-    assert report['credentials']['yclients_active_branch_references_valid'] is False
-    assert report['credentials']['yclients_invalid_reference_branch_count'] == 1
-    assert report['problems'] == ['yclients_branch_credential_reference_invalid']
+    assert report['credentials']['yclients_active_branch_references_valid'] is True
+    assert report['credentials']['yclients_invalid_reference_branch_count'] == 0
+    assert report['problems'] == []
 
 
 def test_disabled_branch_does_not_require_a_valid_reference_or_token(diagnostic):
@@ -157,6 +170,7 @@ def test_crm_requires_partner_token_but_disabled_integration_does_not(diagnostic
     assert report['problems'] == ['yclients_partner_token_missing']
     diagnostic.config.YCLIENTS_ENABLED = False
     diagnostic.config.YC_USER_TOKEN = ''
+    with sqlite3.connect(diagnostic.state/'application.sqlite3') as db:db.execute('DELETE FROM identity_integrations')
     report = diagnostic.module.doctor()
     assert report['credentials']['yclients_active_branch_tokens_present'] is False
     assert report['problems'] == []

@@ -51,7 +51,7 @@ class FakeSerial:
 
 def fake_modem(responses=None, timeout=0.1, chunk=3):
     port = FakeSerial(responses=responses, chunk=chunk)
-    modem = Sim800Modem("FAKE", command_timeout=timeout, serial_factory=lambda **kwargs: port)
+    modem = Sim800Modem("FAKE", command_timeout=timeout, serial_factory=lambda **kwargs: port, startup_delay=0)
     return modem, port
 
 
@@ -65,7 +65,7 @@ def test_real_call_commands_and_no_false_physical_confirmation():
     modem, port = fake_modem()
     try:
         result = modem.call("10001", duration=0.1)
-        assert port.commands == ["AT", "ATE0", "AT+CMEE=2", "ATD10001;", "ATH"]
+        assert port.commands == ["AT", "ATE0", "AT+CMEE=2", "AT+CLCC=1", "AT+CLIP=1", "AT+CMGF=0", 'AT+CPMS="SM","SM","SM"', "AT+CNMI=2,1,0,0,0", "AT+CPMS=?", "ATD10001;", "ATH"]
         assert result["delivery"] == "command_sent" and result["confirmed"] is False
     finally:
         modem.close()
@@ -74,7 +74,7 @@ def test_real_call_commands_and_no_false_physical_confirmation():
 
 @pytest.mark.parametrize("reply", ["\r\nERROR\r\n", "\r\n+CMS ERROR: 500\r\n", "\r\n+CME ERROR: 10\r\n"])
 def test_command_errors_are_not_accepted_as_success(reply):
-    modem, port = fake_modem({"AT": reply})
+    modem, port = fake_modem({"AT": reply, "ATQ0V1": reply})
     with pytest.raises(ModemError, match="command_rejected") as error:
         modem.call("10001", duration=0.1)
     assert error.value.uncertain is False
@@ -263,3 +263,94 @@ def test_shutdown_before_first_command_cannot_be_undone_by_late_request(monkeypa
     assert sim800c.open_gate("10001", duration=0.1)["code"] == "stopping"
     assert sim800c.get_call_queue_status()["stopping"] is True
     assert not sim800c._queue.processing and sim800c._queue.modem._serial is None
+
+
+def test_diagnostics_parses_status_without_dialing_or_private_fields():
+    modem, port = fake_modem({
+        "AT+CPIN?": "\r\n+CPIN: READY\r\nOK\r\n",
+        "AT+CREG?": '\r\n+CREG: 0,5,"PRIVATE","LOCATION"\r\nOK\r\n',
+        "AT+CSQ": "\r\n+CSQ: 18,0\r\nOK\r\n",
+    })
+    try:
+        assert modem.diagnostics() == {"state": "ok", "sim": "READY",
+            "registration": "roaming", "rssi": 18, "signal_dbm": -77}
+        assert not any(c.startswith("ATD") for c in port.commands)
+    finally:
+        modem.close()
+
+
+def test_diagnostics_timeout_names_safe_stage(capsys):
+    modem, port = fake_modem({"AT": "", "ATQ0V1": ""}, timeout=0.015)
+    assert modem.diagnostics() == {"state": "error", "error_code": "command_timeout"}
+    assert "stage=AT" in capsys.readouterr().out
+    assert port.closed
+
+
+def test_diagnostics_unknown_signal_is_not_a_fake_dbm():
+    modem, port = fake_modem({"AT+CSQ": "\r\n+CSQ: 99,99\r\nOK\r\n"})
+    try:
+        assert modem.diagnostics()["signal_dbm"] is None
+    finally:
+        modem.close()
+
+
+def test_startup_recovers_lost_first_at_without_reopening_port():
+    class WakingSerial(FakeSerial):
+        def write(self, data):
+            if data == b"AT\r" and not self.commands:
+                self.commands.append("AT")
+                return len(data)  # First command lost during wakeup/autobaud.
+            return super().write(data)
+    port = WakingSerial()
+    modem = Sim800Modem("FAKE", command_timeout=0.015,
+                        serial_factory=lambda **kw: port, startup_delay=0)
+    try:
+        assert modem.diagnostics()["state"] == "ok"
+        assert port.commands[:2] == ["AT", "AT"]
+        assert not port.closed
+        assert not any(c.startswith("ATD") for c in port.commands)
+    finally:
+        modem.close()
+
+
+def test_startup_recovers_suppressed_or_numeric_result_codes():
+    modem, port = fake_modem({"AT": ""}, timeout=0.015)
+    try:
+        assert modem.diagnostics()["state"] == "ok"
+        assert port.commands[:4] == ["AT", "AT", "AT", "ATQ0V1"]
+        assert not any(c.startswith(("ATD", "AT&W", "AT+IPR", "AT&F")) for c in port.commands)
+    finally:
+        modem.close()
+
+
+def test_stop_interrupts_startup_grace_without_sending_commands():
+    modem, port = fake_modem()
+    modem.startup_delay = 10
+    worker = threading.Thread(target=modem.diagnostics)
+    worker.start()
+    modem.request_stop()
+    worker.join(1)
+    assert not worker.is_alive() and not port.commands
+    modem.close()
+
+
+def test_incoming_ring_is_read_between_status_queries(capsys):
+    modem, port = fake_modem()
+    try:
+        modem.diagnostics()
+        capsys.readouterr()
+        port.incoming.extend(b'\r\nRING\r\n+CLIP: "PRIVATE",145\r\n')
+        for _ in range(4):
+            modem.poll_events(timeout=0.01)
+        output = capsys.readouterr().out
+        assert "notice=RING" in output and "PRIVATE" not in output
+        assert not any(c.startswith("ATA") for c in port.commands)
+    finally:
+        modem.close()
+
+
+def test_call_state_notice_never_prints_recipient(capsys):
+    Sim800Modem._report_notice('+CLCC: 1,0,3,0,0,"PRIVATE",145')
+    output = capsys.readouterr().out
+    assert "call_state=alerting" in output and "direction=outgoing" in output
+    assert "PRIVATE" not in output

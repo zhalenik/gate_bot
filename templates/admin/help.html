@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Помощь — GateBot{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/help.css">{% endblock %}
+{% block content %}
+<main class="admin-container"><section class="admin-content" id="helpPage">
+  <div class="page-heading"><div><p class="page-eyebrow">GateBot · Справочник</p><h1>Помощь</h1><p class="page-description">Инструкции для вашего кабинета. Найдите действие, раздел или проблему.</p></div><a class="btn-action" href="/admin/support">Написать в поддержку</a></div>
+  <label class="help-search"><span class="sr-only">Поиск по инструкциям</span><input id="helpSearch" type="search" placeholder="Например: пропуск, SMS, подписка" autocomplete="off"></label>
+  <div class="help-layout"><nav id="helpNavigation" class="help-nav" aria-label="Разделы помощи"></nav><section id="helpArticles" aria-live="polite"></section></div>
+  <p id="helpEmpty" class="empty-state" hidden>По этому запросу ничего не найдено. Попробуйте другое слово или напишите в поддержку.</p>
+</section></main>
+{% endblock %}
+{% block scripts %}<script id="helpData" type="application/json">{{ help_articles|tojson }}</script><script src="/static/js/help.js"></script>{% endblock %}

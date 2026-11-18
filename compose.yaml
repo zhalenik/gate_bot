@@ -17,6 +17,7 @@ services:
       - "127.0.0.1:30550:5000"
     volumes:
       - ./data:/state
+      - ./private/system-config:/app/private/system-config
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

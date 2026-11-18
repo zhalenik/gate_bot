@@ -1,17 +1,5 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GateBot — доступ на парковку</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <img src="/static/images/logo.svg" alt="GateBot" style="max-width:240px;width:100%">
-        <h1>Доступ на парковку</h1>
-        <p class="subtitle">Откройте персональную ссылку, которую вам выдал ваш филиал.</p>
-        <a href="/admin/login" class="button">Вход для администратора</a>
-    </div>
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}GateBot — доступ, который всегда рядом{% endblock %}
+{% block content %}
+<main class="guest-container"><section class="guest-card"><span class="guest-symbol" aria-hidden="true"><img src="/static/images/favicon.svg" width="42" height="42" alt=""></span><p class="page-eyebrow">Парковка вашего филиала</p><h1>Доступ, который<br>всегда рядом.</h1><p>Открывайте ворота по персональной ссылке, QR-коду или в удобном мессенджере. Пропуск действует в сроки, назначенные вашим филиалом.</p><div class="landing-actions"><a href="/register-branch" class="btn-primary">Зарегистрировать филиал</a><a href="/admin/login" class="btn-action">Войти в кабинет</a></div></section><p class="guest-footer">Есть пропуск? Откройте ссылку, полученную от вашего филиала.</p></main>
+{% endblock %}

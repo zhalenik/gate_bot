@@ -6,12 +6,11 @@ from filelock import FileLock, Timeout
 from storage import config
 import logger
 
+_unfinished_runtime_locks = []
 
 def main():
-    from app import app, link_manager, branch_manager, access_service
     from link_manager import set_notify_hook
     from scheduler import Scheduler
-    from notifications import NotificationDispatcher
     from waitress import create_server
     import sim800c
 
@@ -20,12 +19,25 @@ def main():
         lock.acquire()
     except Timeout:
         raise SystemExit('GateBot is already running for this data directory. Stop the other instance first.')
+    try:
+        from storage.sql_documents import migrate_legacy
+        migration = migrate_legacy(config.DATA_DIR, activate=True)
+        from app import app, link_manager, branch_manager, access_service, admin_auth, product_services
+        products = product_services()
+        products.bootstrap_console_identity(admin_auth)
+        products.attach(access_service)
+        products.billing.recover()
+        products.index_clients()
+    except BaseException:
+        lock.release()
+        raise
     stop = threading.Event()
     threads = []
-    callbacks = {}
-    ready = {}
     service = access_service
-    scheduler = Scheduler(link_manager, branch_manager)
+    from yclients_api import YClientsClient
+    crm = YClientsClient(branches=branch_manager,
+                         credential_provider=lambda branch: products.identity.integration_credentials(branch, 'yclients')) if config.YCLIENTS_ENABLED else None
+    scheduler = Scheduler(link_manager, branch_manager, crm=crm, event_sink=products.notifications.event)
     server = None
     dispatcher = None
 
@@ -51,32 +63,38 @@ def main():
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, on_signal)
     try:
+        from telephony_store import TelephonyStore
+        TelephonyStore().recover_outgoing()
         if config.BOT_ENABLED:
             if config.BOT_MODE != 'polling' or not config.BOT_TOKEN:
                 raise ValueError('This test build requires BOT_MODE=polling and BOT_TOKEN')
             import telegram_bot
-            callbacks['telegram'] = telegram_bot.notify_access
-            ready['telegram'] = telegram_bot.status
             threads.append(threading.Thread(target=bot_worker, args=(telegram_bot, 'telegram'), name='gatebot-telegram', daemon=True))
         if config.MAX_BOT_ENABLED:
             if config.MAX_BOT_MODE != 'polling' or not config.MAX_BOT_TOKEN:
                 raise ValueError('This test build requires MAX_BOT_MODE=polling and MAX_BOT_TOKEN')
             import max_bot
-            callbacks['max'] = max_bot.notify_access
-            ready['max'] = max_bot.status
             threads.append(threading.Thread(target=bot_worker, args=(max_bot, 'max'), name='gatebot-max', daemon=True))
-        dispatcher = NotificationDispatcher(callbacks, ready=ready, links=link_manager)
-        set_notify_hook(dispatcher.enqueue)
+        dispatcher = products.notifications
+        dispatcher._menu_refreshers = [__import__('telegram_bot').refresh_menus, __import__('max_bot').refresh_menus]
+        hardware = sim800c._get_queue()
+        dispatcher.hardware = hardware
+        hardware.command_guard = lambda command_id: service.authorize_command(command_id, start=True)
+        hardware.command_observer = service.command_finished
+        set_notify_hook(dispatcher.access_transition)
+        threads.append(threading.Thread(target=sim800c.monitor_status, args=(stop,),
+                                        name='gatebot-sim800-status', daemon=True))
+        dispatcher.start()
         for thread in threads:
             thread.start()
-        dispatcher.start()
         scheduler.start()
+        products.yclients_client_jobs.start()
         # Bound locally by default. No Flask debugger or reloader, even on Windows.
         server = create_server(app, host=config.HOST, port=config.PORT, threads=4, clear_untrusted_proxy_headers=True)
         web = threading.Thread(target=server.run, name='gatebot-web', daemon=True)
         web.start()
         print(f'GateBot: {config.BASE_URL} | gate mode: {"DRY RUN" if config.GATE_DRY_RUN else "HARDWARE"}')
-        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.1.0-alpha.1'})
+        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.11'})
         while not stop.wait(0.5):
             if not web.is_alive():
                 raise RuntimeError('Web server stopped')
@@ -88,6 +106,8 @@ def main():
         service.stop_accepting()
         stop.set()
         shutdown_errors = []
+        if dispatcher:
+            dispatcher.request_stop()
 
         def finish(component, action):
             try:
@@ -108,18 +128,32 @@ def main():
         if not finish('sim800', lambda: sim800c.shutdown(timeout=10)):
             shutdown_errors.append('sim800_unconfirmed')
         finish('scheduler', scheduler.stop)
+        if finish('yclients_client_ids', products.yclients_client_jobs.stop) is False:
+            shutdown_errors.append('yclients_client_ids_unconfirmed')
         if dispatcher:
-            finish('notifications', dispatcher.stop)
+            if finish('notifications', dispatcher.stop) is False:
+                shutdown_errors.append('notifications_unconfirmed')
         set_notify_hook(None)
         for thread in threads:
             finish(thread.name, lambda worker=thread: worker.join(timeout=35))
         alive = [worker.name for worker in threads if worker.is_alive()]
+        alive.extend(worker.name for worker in (getattr(scheduler, '_thread', None),
+                     getattr(scheduler, '_activation_thread', None),
+                     getattr(products.yclients_client_jobs, '_thread', None)) if worker and worker.is_alive())
+        if dispatcher:
+            alive.extend(worker.name for worker in (getattr(dispatcher, 'thread', None),
+                         getattr(dispatcher, 'menu_thread', None)) if worker and worker.is_alive())
         try:
             logger.event('RUNTIME_STOPPED', level='WARNING' if shutdown_errors or alive else 'INFO',
                          details={'clean_shutdown': not shutdown_errors and not alive,
                                   'shutdown_errors': shutdown_errors, 'workers_still_alive': alive})
         finally:
-            lock.release()
+            if alive or 'sim800_unconfirmed' in shutdown_errors or 'notifications_unconfirmed' in shutdown_errors or 'yclients_client_ids_unconfirmed' in shutdown_errors:
+                # Retain ownership until this process exits if a worker has not
+                # stopped. A new runtime must not overlap uncertain effects.
+                _unfinished_runtime_locks.append(lock)
+            else:
+                lock.release()
 
 
 if __name__ == '__main__':

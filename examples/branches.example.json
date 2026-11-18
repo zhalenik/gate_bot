@@ -5,7 +5,7 @@
     "logo": "/static/images/logo.svg",
     "timezone": "Europe/Moscow",
     "enabled": true,
-    "yclients_user_token_env": "YC_USER_TOKEN_1001",
+    "yclients_connection_mode": "direct",
     "buttons": [
       {"type": "gate", "label": "Въезд", "phone": "+70000000001"},
       {"type": "gate", "label": "Выезд", "phone": "+70000000002"},

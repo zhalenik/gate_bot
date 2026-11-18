@@ -1,0 +1,27 @@
+.integration-workspace { margin: 20px 0; }
+.integration-branch { display: grid; gap: 8px; max-width: 360px; margin-bottom: 20px; font-weight: 600; }
+.integration-branch select { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--gb-color-integrations-background-4fa5bca0163b, #f7f9fc); color: var(--ink); font-weight: 400; }
+.integration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.integration-grid > .panel { margin: 0; min-width: 0; }
+.integration-grid .admin-form { margin-top: 20px; max-width: none; }
+.integration-grid .form-group { display: grid; gap: 8px; margin-bottom: 16px; }
+.integration-grid [hidden] { display: none !important; }
+.integration-grid .admin-form + .btn-action { margin-top: 12px; }
+.integration-checks { list-style: none; padding: 0; display: grid; gap: 8px; font-size: 14px; }
+.integration-guide summary { cursor: pointer; font-weight: 600; }
+.integration-guide summary + p { margin-top: 16px; }
+@media (max-width: 850px) { .integration-grid { grid-template-columns: minmax(0, 1fr); } }
+.integration-test-panel { margin-top: 20px; }
+.integration-test-form { max-width: 720px; }
+.integration-test-form .form-group { display: grid; gap: 8px; min-width: 0; }
+.integration-test-form input, .integration-test-form select, .integration-test-form textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+.integration-test-form textarea { resize: vertical; min-height: 110px; font: inherit; }
+.integration-test-form [hidden] { display: none !important; }
+.integration-test-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.integration-test-actions button { white-space: normal; }
+.yclients-sync-panel { margin-top: 20px; }
+.yclients-sync-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 12px; }
+.yclients-sync-actions button { max-width: 100%; white-space: normal; }
+.yclients-sync-panel progress { display: block; width: 100%; max-width: 720px; height: 8px; accent-color: var(--blue); margin: 16px 0; }
+.yclients-sync-panel [hidden] { display: none !important; }
+#integrationTestStatus { overflow-wrap: anywhere; }

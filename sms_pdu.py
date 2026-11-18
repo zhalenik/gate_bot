@@ -237,8 +237,9 @@ def assemble_messages(parts: Iterable[SMSPart], max_span: timedelta = timedelta(
     """Join unordered segments. Never claim incomplete/conflicting sets are whole.
 
     A sender can reuse a concatenation reference. Different senders, encodings,
-    UDHs and widely separated timestamps never get joined. Conflicting copies
-    within a time window remain explicitly ambiguous instead of being guessed.
+    UDHs and widely separated timestamps never get joined. A repeated sequence
+    with a NEW service-centre timestamp starts another transmission, even when
+    its text is identical. Only same-timestamp copies can be retransmissions.
     TS 23.040 allows segments to arrive through different SMSCs; callers can
     opt into stricter SMSC separation for a specific deployment.
     """
@@ -254,7 +255,9 @@ def assemble_messages(parts: Iterable[SMSPart], max_span: timedelta = timedelta(
                part.reference, part.reference_bits,
                part.total, part.dcs, part.extra_headers)
         batches = groups.setdefault(key, [])
-        if not batches or part.timestamp - batches[-1][0].timestamp > max_span:
+        previous = [p for p in batches[-1] if p.sequence == part.sequence] if batches else []
+        repeated_sequence = previous and all(p.timestamp != part.timestamp for p in previous)
+        if not batches or part.timestamp - batches[-1][0].timestamp > max_span or repeated_sequence:
             batches.append([])
         batches[-1].append(part)
     result = []

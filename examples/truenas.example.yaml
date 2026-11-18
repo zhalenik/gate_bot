@@ -19,6 +19,7 @@ services:
       - /mnt/POOL/apps-data/gatebot/gatebot.env
     volumes:
       - /mnt/POOL/apps-data/gatebot/state:/state
+      - /mnt/POOL/apps-data/gatebot/system-config:/app/private/system-config
     ports:
       - "30550:5000"
     # Configure Nginx Proxy Manager to proxy HTTPS to the internal server:30550.

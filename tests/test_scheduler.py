@@ -36,6 +36,47 @@ def record(client_id, hour=13, branch=1, **kwargs):
             "client": {"id": client_id, "name": "Synthetic", "phone": "+10000000001"}, **kwargs}
 
 
+@pytest.mark.parametrize('email', ['local@example.invalid', ''])
+def test_crm_keeps_explicit_local_email_and_clear_without_changing_access_rules(state, email):
+    links, branches, events = state
+    links.reconcile_appointments(1, {1: {'id': 1, 'email': 'crm@example.invalid'}}, at=AT)
+    token, _ = links.get_user_by_id_ycl(1, 1)
+    links.update_user(token, {'email': email})
+    links.toggle_user_access(token, False)
+    links.reconcile_appointments(1, {1: {
+        'id': 1, 'name': 'Updated by CRM', 'phone': '+10000000002',
+        'email': 'changed-in-crm@example.invalid',
+    }}, at=AT)
+    contact = links.load_links()[token]
+    assert contact['email'] == email
+    assert contact['email_override'] is True
+    assert contact['user_name'] == 'Updated by CRM'
+    assert contact['phone'] == '+10000000002'
+    assert contact['admin_blocked'] is True
+    assert contact['gate_access'] is False
+
+
+def test_crm_email_without_local_override_still_updates_and_clears(state):
+    links, branches, events = state
+    for email in ('crm@example.invalid', 'changed@example.invalid', ''):
+        links.reconcile_appointments(1, {1: {'id': 1, 'email': email}}, at=AT)
+        token, contact = links.get_user_by_id_ycl(1, 1)
+        assert contact['email'] == email
+        assert not contact.get('email_override')
+    links.reconcile_appointments(1, {1: {'id': 1}}, at=AT)
+    assert links.load_links()[token]['email'] == ''
+
+
+@pytest.mark.parametrize('email,expected', [('local@example.invalid', 'local@example.invalid'), ('', 'crm@example.invalid')])
+def test_only_nonempty_email_on_manual_creation_overrides_crm(state, email, expected):
+    links, branches, events = state
+    token = links.create_link({'id_ycl': 1, 'branch_id': 1, 'email': email})
+    links.reconcile_appointments(1, {1: {'id': 1, 'email': 'crm@example.invalid'}}, at=AT)
+    contact = links.load_links()[token]
+    assert contact['email'] == expected
+    assert contact['email_override'] is bool(email)
+
+
 class CRM:
     def __init__(self, by_branch):
         self.by_branch, self.calls = by_branch, []
@@ -46,6 +87,26 @@ class CRM:
         if isinstance(value, Exception):
             raise value
         return deepcopy(value)
+
+
+@pytest.mark.parametrize('fail_read',[False,True])
+def test_branch_deleted_during_crm_read_is_not_recreated(state,fail_read):
+    links,branches,events=state
+    class DeletingCRM:
+        def records_for_day(self,branch,day):
+            if branch==1:
+                branches.delete_branch(1)
+                if fail_read:raise YClientsError('synthetic transport failure')
+                return [record(99)]
+            return []
+    notices=[]
+    scheduler=Scheduler(links,branches,DeletingCRM(),event_sink=lambda *args:notices.append(args))
+    scheduler.run_once()
+    assert branches.get_branch(1) is None
+    assert not any(str(client.get('branch_id'))=='1' for client in links.load_links().values())
+    with scheduler.store.connect() as db:
+        assert db.execute('SELECT count(*) FROM appointment_schedule WHERE branch_id="1"').fetchone()[0]==0
+    assert not any(str(args[1])=='1' for args in notices)
 
 
 def create(links, client_id, branch=1, **kwargs):
@@ -178,7 +239,7 @@ def test_disabled_branch_does_not_call_crm(state):
     branches.update_branch(1, data)
     crm = CRM({})
     result = Scheduler(links, branches, crm).run_once()
-    assert "1" not in result and [branch for branch, _ in crm.calls] == [2]
+    assert "1" not in result and crm.calls == [(2, AT.date()), (2, AT.date() + timedelta(days=1))]
 
 
 def test_malformed_temporary_expiry_is_preserved_without_stopping_other_branches(state):

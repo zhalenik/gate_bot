@@ -1,0 +1,46 @@
+'use strict';
+(() => {
+ const form=document.getElementById('systemSettingsForm'),groups=document.getElementById('systemSettingsGroups'),notice=document.getElementById('systemSettingsNotice');
+ const save=document.getElementById('systemSettingsSave'),resetAll=document.getElementById('systemSettingsReset'),search=document.getElementById('systemSettingsSearch');
+ const fields=new Map();let snapshot=null,busy=false;
+ const node=(tag,text='',className='')=>{const value=document.createElement(tag);value.textContent=text;value.className=className;return value;};
+ function tell(message,error=false){notice.hidden=false;notice.className='alert '+(error?'alert-error':'alert-success');notice.textContent=message;}
+ async function api(data){const options={credentials:'same-origin',cache:'no-store'};if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content};options.body=JSON.stringify(data);}const response=await fetch('/admin/api/system-settings',options);let result;try{result=await response.json();}catch{throw Error('Не удалось прочитать настройки');}if(!response.ok)throw Error(result.message||'Не удалось сохранить настройки');return result.settings;}
+ function display(value){return typeof value==='boolean'?(value?'Включено':'Выключено'):String(value??'')||'Не задано';}
+ function paint(settings){
+  snapshot=settings;fields.clear();groups.replaceChildren();const containers={};
+  for(const [key,title] of Object.entries(settings.groups)){
+   const section=node('details','','panel system-settings-group');section.dataset.group=key;section.open=key==='service';section.append(node('summary',title));
+   const body=node('div','','system-settings-grid');section.append(body);groups.append(section);containers[key]=body;
+  }
+  for(const field of settings.fields){
+   const row=node('div','','form-group system-settings-field');row.dataset.key=field.key;
+   const invalidTyped=!!field.validation_error&&['bool','int','float'].includes(field.kind);
+   const label=node('label',field.label),input=document.createElement(field.kind==='select'?'select':'input');input.name=field.key;input.id='setting-'+field.key;label.htmlFor=input.id;
+   if(field.kind==='select'){if(field.validation_error){const previous=node('option','Текущее значение: '+display(field.value));previous.value=field.value;input.append(previous);}for(const value of field.options){const option=node('option',value);option.value=value;input.append(option);}input.value=field.value;}
+   else if(field.kind==='bool'&&!invalidTyped){input.type='checkbox';input.checked=field.value;label.className='checkbox-label';}
+   else{input.type=field.secret?'password':invalidTyped?'text':['int','float'].includes(field.kind)?'number':field.kind==='url'||field.kind==='https_url'?'url':'text';input.value=field.secret?'':field.value??'';input.autocomplete=field.secret?'new-password':'off';input.maxLength=field.secret?8192:1024;if(field.minimum!==undefined)input.min=field.minimum;if(field.maximum!==undefined)input.max=field.maximum;if(field.kind==='float')input.step='any';}
+   label.append(input);row.append(label,node('small',field.key));
+   if(field.help)row.append(node('p',field.help,'form-hint'));
+   if(field.validation_error){const error=node('p',field.validation_error,'alert alert-error');error.setAttribute('role','alert');row.append(error);input.setAttribute('aria-invalid','true');containers[field.group].parentElement.open=true;}
+   else if(field.active_validation_error)row.append(node('p','Параметр текущего запуска требует перезапуска после исправления: '+field.active_validation_error,'form-hint'));
+   const source=node('small',(field.source==='saved'?'Сохранено в GateBot':field.source==='environment'?'Из окружения / .env':'Значение по умолчанию')+(field.restart_required?' · Ожидает перезапуска':''));row.append(source);
+   if(field.secret)row.append(node('p',field.configured?'Секрет задан. Пустое поле сохранит его без изменений.':'Секрет не задан.','form-hint'));
+   else if(field.restart_required)row.append(node('p','Сейчас: '+display(field.active_value),'form-hint'));
+   const controls=node('div','','action-buttons'),reset=node('button','Из окружения','btn-action');reset.type='button';reset.disabled=!field.overridden;reset.title='Удалить только сохранённое переопределение этого параметра';controls.append(reset);
+   const model={field,row,input,reset,resetPending:false,clear:null};
+   if(field.secret){const wrap=node('label','Очистить секрет','checkbox-label'),clear=node('input');clear.type='checkbox';clear.setAttribute('aria-label','Очистить '+field.label);wrap.prepend(clear);controls.append(wrap);model.clear=clear;clear.addEventListener('change',()=>{model.resetPending=false;input.disabled=clear.checked;reset.textContent='Из окружения';});}
+   reset.addEventListener('click',()=>{model.resetPending=!model.resetPending;reset.textContent=model.resetPending?'Отменить возврат':'Из окружения';input.disabled=model.resetPending;if(model.clear){model.clear.checked=false;model.clear.disabled=model.resetPending;}source.textContent=model.resetPending?'После сохранения: значение окружения / .env':(field.overridden?'Сохранено в GateBot':'Из окружения / .env');});
+   row.append(controls);containers[field.group].append(row);fields.set(field.key,model);
+  }
+  document.getElementById('systemSettingsState').textContent=settings.invalid_keys?.length?'Проверьте параметры: '+settings.invalid_keys.length+'. Исправьте отмеченные поля и сохраните.':settings.restart_required?'Сохранены изменения: '+settings.restart_keys.length+'. Для применения перезапустите сервис.':'Сохранённые параметры соответствуют текущему запуску.';
+  save.disabled=false;resetAll.disabled=!settings.fields.some(field=>field.overridden);filter();
+ }
+ function filter(){const text=search.value.toLocaleLowerCase().trim();for(const model of fields.values()){model.row.hidden=!([model.field.key,model.field.label,model.field.help].join(' ').toLocaleLowerCase().includes(text));}for(const section of groups.children){section.hidden=![...section.querySelectorAll('.system-settings-field')].some(row=>!row.hidden);if(text&&!section.hidden)section.open=true;}}
+ search.addEventListener('input',filter);
+ function changes(){const payload={revision:snapshot.revision,values:{},reset:[],clear:[]};for(const [key,model] of fields){if(model.resetPending){payload.reset.push(key);continue;}if(model.clear?.checked){payload.clear.push(key);continue;}const value=model.input.type==='checkbox'?model.input.checked:model.input.type==='number'?Number(model.input.value):model.input.value;if(model.field.secret){if(value)payload.values[key]=value;}else if(value!==model.field.value)payload.values[key]=value;}return payload;}
+ async function perform(callback){if(busy)return;busy=true;save.disabled=true;resetAll.disabled=true;try{await callback();}catch(error){tell(error.message,true);}finally{busy=false;if(snapshot){save.disabled=false;resetAll.disabled=!snapshot.fields.some(field=>field.overridden);}}}
+ form.addEventListener('submit',event=>{event.preventDefault();perform(async()=>{paint(await api(changes()));tell(snapshot.restart_required?'Настройки сохранены. Изменения применятся после перезапуска сервиса.':'Настройки сохранены.');});});
+ resetAll.addEventListener('click',()=>{if(!confirm('Вернуть все системные параметры к значениям окружения / .env после перезапуска? Настройки SMTP сохранятся.'))return;perform(async()=>{paint(await api({revision:snapshot.revision,reset:snapshot.fields.filter(field=>field.overridden).map(field=>field.key)}));tell('Возврат к окружению сохранён. Перезапустите сервис для применения.');});});
+ perform(async()=>paint(await api()));
+})();

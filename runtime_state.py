@@ -49,6 +49,11 @@ class RuntimeState:
         with self.connect() as db:
             db.execute('DELETE FROM cooldown WHERE key=? AND claim=?', (key, claim))
 
+    def cooldown_remaining(self, key):
+        with self.connect() as db:
+            row = db.execute('SELECT expires FROM cooldown WHERE key=?', (key,)).fetchone()
+        return max(0, int(row['expires'] - time.time() + .999)) if row else 0
+
     def enqueue(self, channel, payload):
         # One transition notification per channel, token, target and expiry.
         material = json.dumps([channel, payload.get('token'), payload.get('event'), payload.get('access_expires'), payload.get('tg_id'), payload.get('max_id'), payload.get('access_revision', 0)], ensure_ascii=False)

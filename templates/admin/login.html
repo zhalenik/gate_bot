@@ -1,20 +1,12 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вход в админку</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link rel="stylesheet" href="/static/css/admin.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% set hide_admin_signin = true %}
+{% block title %}Вход — GateBot{% endblock %}
+{% block content %}
+
     <div class="login-container">
         <div class="login-card">
-            <div style="text-align:center; margin-bottom: 12px;">
-                <img src="/static/images/logo.svg" alt="logo" style="max-width: 180px; width: 60%; height: auto;">
-            </div>
-            <h1 style="font-size:22px; text-align:center;">Вход в систему</h1>
+            <p class="page-eyebrow">Личный кабинет</p>
+            <h1>С возвращением</h1>
             
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
@@ -27,9 +19,9 @@
             <form method="POST" action="/admin/login">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
-                    <label for="username">Логин</label>
-                    <input type="text" id="username" name="username" autocomplete="username" aria-describedby="username-help" maxlength="200" required>
-                    <small id="username-help">Укажите логин учётной записи, а не отображаемое имя.</small>
+                    <label for="username">Email или прежний логин</label>
+                    <input type="text" id="username" name="username" autocomplete="username" aria-describedby="username-help" maxlength="254" required>
+                    <small id="username-help">Для новых аккаунтов логином служит email.</small>
                 </div>
                 
                 <div class="form-group">
@@ -41,9 +33,10 @@
             </form>
             
             <div class="login-footer">
+                <a href="/admin/recover">Не помню пароль</a>
                 <a href="/">← Вернуться на главную</a>
             </div>
         </div>
     </div>
-</body>
-</html>
+
+{% endblock %}

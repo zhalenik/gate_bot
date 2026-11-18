@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% set client_page = kind in ['preferences', 'email_verify'] %}
+{% block title %}{{ title }} — GateBot{% endblock %}
+{% block head %}{% if kind == 'integrations' %}<link rel="stylesheet" href="/static/css/integrations.css">{% endif %}{% if kind == 'preferences' %}<link rel="stylesheet" href="/static/css/client-preferences.css">{% endif %}{% endblock %}
+{% block content %}
+<main class="admin-container" id="identityPage" data-kind="{{ kind }}"><section class="admin-content">
+<div class="page-heading"><div><p class="page-eyebrow">GATEBOT</p><h1>{{ title }}</h1><p class="page-description" id="identityDescription"></p></div></div>
+<div id="identityNotice" role="status" class="panel" hidden></div>
+<div id="identityContent" class="{% if kind == 'integrations' %}integration-workspace{% else %}panel{% endif %}"></div>
+{% if kind == 'integrations' and branches %}
+<details class="panel integration-guide"><summary>Два способа подключения YCLIENTS</summary><p><strong>Учётная запись YCLIENTS.</strong> При регистрации на сайте укажите ID филиала. В этой карточке войдите с логином и паролем обычного пользователя YCLIENTS. Установка приложения из маркетплейса не требуется. После проверки прав здесь появятся имя пользователя и статус связи; пароль не сохраняется.</p><p><strong>Приложение YCLIENTS Marketplace.</strong> В карточке GateBot нажмите «Подключить», выберите филиал и перейдите в GateBot. ID филиала, логин и пароль YCLIENTS вводить не нужно. Создайте аккаунт GateBot или войдите в существующий. Новому филиалу сначала требуется подтверждение суперадминистратора; затем снова начните подключение из карточки и завершите его в течение часа. Для этого способа используется системный пользователь приложения, а форма ручной авторизации недоступна.</p><p>В обоих случаях нужны чтение записей всех сотрудников, доступ к данным клиента и телефонам в журнале. Доступ ко всей клиентской базе и email проверяется отдельно. Если для уведомлений выбран YCLIENTS, пользователю дополнительно нужны права на рассылку. Изменение записей, удаление и финансы не используются.</p><a href="https://support.yclients.ru/67-68-191" target="_blank" rel="noopener">Подключение в маркетплейсе</a> · <a href="https://developers.yclients.com/ru/" target="_blank" rel="noopener">Документация API и прав доступа</a></details>
+<details class="panel integration-guide"><summary>Сообщения через ChatPush или YCLIENTS</summary><p>В блоке «Сообщения клиентам» выберите способ доставки. ChatPush напрямую использует токен аккаунта и номер телефона. Рассылка YCLIENTS использует подключение филиала и ID его клиента; тип доставки определяется сервисом рассылки, настроенным в YCLIENTS.</p><p>Автоматический выбор использует подключённый ChatPush, иначе YCLIENTS. Клиент разрешает общий канал «Мессенджеры (сообщение от администратора)». Для гостя без ID YCLIENTS доступна прямая отправка через подключённый ChatPush. Сохранение настройки не отправляет пробных сообщений.</p></details>
+{% endif %}
+{% if not admin_page and not client_page %}<p><a href="/admin/login">Вход в кабинет</a></p>{% endif %}
+</section></main>
+{% endblock %}
+{% block scripts %}
+<script id="identityBootstrap" type="application/json">{{ {'kind':kind,'data':bootstrap,'branches':branches,'is_super':is_super | default(false)}|tojson }}</script>
+<script src="/static/js/admin.js"></script>{% if kind == 'integrations' %}<script src="/static/js/integrations.js"></script>{% else %}<script src="/static/js/identity.js"></script>{% endif %}
+{% if kind == 'integrations' %}<script src="/static/js/messenger-settings.js"></script><script src="/static/js/integration-test.js"></script><script src="/static/js/yclients-client-sync.js"></script>{% endif %}
+{% endblock %}

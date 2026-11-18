@@ -8,6 +8,13 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_DIR / ".env"
 load_dotenv(ENV_FILE, override=False, encoding="utf-8-sig")
 
+# The fixed bootstrap store is independent of DATA_DIR, so restart-only path and
+# session-key changes can be loaded before either setting is used.
+from system_config_bootstrap import apply_startup_overrides
+SYSTEM_BASE_ENVIRONMENT = dict(os.environ)
+SYSTEM_STARTUP_SETTINGS = apply_startup_overrides(PROJECT_DIR)
+SYSTEM_ACTIVE_ENVIRONMENT = dict(os.environ)
+
 def _project_path(value):
     """Keep local state and certificates stable when Cursor changes the cwd."""
     path = Path(value)
@@ -28,6 +35,12 @@ def env_int(name, default, minimum=1, maximum=100000):
 DATA_DIR = _project_path(os.getenv("GATEBOT_DATA_DIR", PROJECT_DIR / "data"))
 LOG_DIR = _project_path(os.getenv("GATEBOT_LOG_DIR", Path(DATA_DIR) / "logs"))
 ENVIRONMENT = os.getenv("GATEBOT_ENV", "development")
+EXPLICIT_DEVELOPMENT = os.getenv("GATEBOT_ENV") == "development"
+# Private local acceptance only; the routing helper additionally requires the
+# exact development environment, including when this flag is accidentally set.
+DEV_REGISTRATION_SMS_REDIRECT_ENABLED = env_bool("DEV_REGISTRATION_SMS_REDIRECT_ENABLED")
+DEV_REGISTRATION_SMS_PREFIX = os.getenv("DEV_REGISTRATION_SMS_PREFIX", "").strip()
+DEV_REGISTRATION_SMS_PHONE = os.getenv("DEV_REGISTRATION_SMS_PHONE", "").strip()
 TIMEZONE = os.getenv("GATEBOT_TIMEZONE", "Europe/Moscow")
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:5000").rstrip("/")
 HOST = os.getenv("HOST", "127.0.0.1")
@@ -59,7 +72,7 @@ def _secret_key():
     return value
 
 SECRET_KEY = _secret_key()
-timeout = env_int("GATE_COOLDOWN_SECONDS", 21, maximum=300)
+timeout = env_int("GATE_COOLDOWN_SECONDS", 20, maximum=300)
 call_queue_timeout = env_int("SIM800_QUEUE_TIMEOUT", 40, maximum=300)
 max_calls_in_queue = env_int("SIM800_MAX_QUEUE", 4, maximum=100)
 SIM800_ENABLED = env_bool("SIM800_ENABLED")
@@ -90,12 +103,11 @@ MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
 YCLIENTS_ENABLED = env_bool("YCLIENTS_ENABLED")
 YC_BASE_URL = os.getenv("YC_BASE_URL", "https://api.yclients.ru/api/v1")
 YC_PARTNER_TOKEN = os.getenv("YC_PARTNER_TOKEN", "")
-# A fallback credential is only usable for the one explicitly named branch.
-YC_USER_TOKEN = os.getenv("YC_USER_TOKEN", "")
-YC_COMPANY_ID = os.getenv("YC_COMPANY_ID", "")
+YC_MARKETPLACE_APPLICATION_ID = os.getenv("YC_MARKETPLACE_APPLICATION_ID", "").strip()
+YC_MARKETPLACE_SYSTEM_USER_TOKEN = os.getenv("YC_MARKETPLACE_SYSTEM_USER_TOKEN", "")
+YC_MARKETPLACE_CONNECT_ENABLED = env_bool("YC_MARKETPLACE_CONNECT_ENABLED")
 YC_WEBHOOK_SECRET = os.getenv("YC_WEBHOOK_SECRET", "")
 YC_WEBHOOK_URL = BASE_URL + "/webhook/yclients"
-YC_SEND_MESSAGES = False  # Immutable policy: no YCLIENTS write operations exist.
 ACCESS_BEFORE_VISIT_HOURS = env_int("ACCESS_BEFORE_VISIT_HOURS", 2, minimum=0, maximum=24)
 ACCESS_UPD_PERIOD = env_int("ACCESS_UPD_PERIOD", 15, maximum=1440)
 SCHEDULER_ENABLED = env_bool("SCHEDULER_ENABLED")
@@ -105,6 +117,8 @@ OUTBOUND_ENABLED = env_bool("OUTBOUND_ENABLED")
 SMTP_ENABLED = env_bool("SMTP_ENABLED")
 MAILING_SMTP_SERVER = os.getenv("MAILING_SMTP_SERVER", "")
 MAILING_SMTP_PORT = env_int("MAILING_SMTP_PORT", 465, maximum=65535)
+MAILING_SMTP_SECURITY = os.getenv("MAILING_SMTP_SECURITY", "ssl" if MAILING_SMTP_PORT == 465 else "starttls")
 MAILING_SMTP_USER = os.getenv("MAILING_SMTP_USER", "")
 MAILING_SMTP_PASSWORD = os.getenv("MAILING_SMTP_PASSWORD", "")
 MAILING_SMTP_FROM = os.getenv("MAILING_SMTP_FROM", "GateBot")
+MAILING_SMTP_FROM_EMAIL = os.getenv("MAILING_SMTP_FROM_EMAIL", "")

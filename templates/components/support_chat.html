@@ -1,0 +1,14 @@
+<div class="support-app" id="supportApp">
+  <aside class="support-sidebar"><div class="support-list-heading"><h2>Обращения</h2><button type="button" class="btn-action" id="supportNew">Новое</button></div><div id="supportThreads" class="support-threads"></div><button class="btn-action" type="button" id="supportMore" hidden>Ещё обращения</button></aside>
+  <section class="support-conversation" aria-label="Переписка с поддержкой">
+    <div class="support-chat-heading"><div><h2 id="supportTitle">Напишите нам</h2><p class="page-description" id="supportContext">Выберите обращение или создайте новое.</p></div><button class="btn-action" type="button" id="supportCloseThread" hidden>Закрыть обращение</button></div>
+    <div id="supportNotice" role="status" class="support-notice" hidden></div>
+    <button type="button" id="supportOlder" class="btn-action" hidden>Предыдущие сообщения</button>
+    <div id="supportMessages" class="support-messages" role="log" aria-live="polite" aria-label="Сообщения"></div>
+    <form id="supportForm" class="support-compose">
+      <label id="supportBranchLabel" hidden>Филиал<select name="branch_id" id="supportBranch" required></select></label>
+      <label class="sr-only" for="supportText">Сообщение в поддержку</label><textarea id="supportText" name="text" required maxlength="4000" rows="3" placeholder="Что произошло и чем помочь?"></textarea>
+      <div class="support-compose-footer"><small>Не отправляйте пароли, токены и SMS-коды.</small><button class="btn-primary" type="submit">Отправить</button></div>
+    </form>
+  </section>
+</div>

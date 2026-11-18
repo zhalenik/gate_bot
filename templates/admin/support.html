@@ -1,0 +1,3 @@
+{% extends 'base.html' %}
+{% block title %}Поддержка — GateBot{% endblock %}
+{% block content %}<main class="admin-container"><section class="admin-content"><div class="page-heading"><div><p class="page-eyebrow">GateBot · Поддержка</p><h1>{{ 'Обращения администраторов' if is_super else 'Поддержка' }}</h1><p class="page-description">Сообщения и ответы сохраняются в личной переписке.</p></div><a href="/admin/help" class="btn-action">Помощь</a></div>{% include 'components/support_chat.html' %}</section></main>{% endblock %}

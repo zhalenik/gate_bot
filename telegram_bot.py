@@ -10,6 +10,7 @@ import hashlib
 import logging
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -72,12 +73,17 @@ class TelegramBot:
         self.service, self.state, self.bot = service, state, bot
         self.stop_event = stop_event or threading.Event()
         self.namespace = "telegram:" + hashlib.sha256(token.encode()).hexdigest()[:16]
+        self.workflows = None
+        if getattr(service, 'identity', None) is not None:
+            from bot_workflows import BotWorkflows
+            self.workflows = BotWorkflows(service, state)
 
     def menu(self, user_id: str, *, page: int = 0, prefix: str = "") -> tuple[str, Any]:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
         sections = self.service.menu_for_identity("telegram", user_id)
-        if not sections:
+        extras = self.workflows.actions('telegram', user_id) if self.workflows else []
+        if not sections and not extras:
             text = "Чтобы найти ваши пропуски, нажмите «Поделиться номером». Номер должен совпадать с номером в записи на услугу."
             return ((prefix + "\n\n") if prefix else "") + text, ReplyKeyboardMarkup(
                 [[KeyboardButton("Поделиться номером", request_contact=True)]],
@@ -93,6 +99,9 @@ class TelegramBot:
         rows = []
         for section, button in actions[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
             label = f"{section['branch_name']} · {button['label']}"[:128]
+            if button['type'] == 'gate' and section.get('retry_after'):
+                rows.append([InlineKeyboardButton(f"Подождите {section['retry_after']} с", callback_data='m:0')])
+                continue
             rows.append([InlineKeyboardButton(
                 label, callback_data=_action("g" if button["type"] == "gate" else "a", section["branch_id"], button["id"]),
             )])
@@ -104,6 +113,8 @@ class TelegramBot:
                 nav.append(InlineKeyboardButton("Далее →", callback_data=f"m:{page + 1}"))
             rows.append(nav)
         rows.append([InlineKeyboardButton("Обновить доступ", callback_data=f"m:{page}")])
+        for action in extras[:20]:
+            rows.append([InlineKeyboardButton(action['label'][:128], **({'url': action['url']} if action.get('url') else {'callback_data': action['callback']}))])
         text = (
             "Выберите ворота нужного филиала или свяжитесь с администратором."
             if any(section.get("active") for section in sections)
@@ -115,7 +126,66 @@ class TelegramBot:
 
     async def _send_menu(self, message: Any, user_id: str, *, prefix: str = "") -> None:
         text, keyboard = self.menu(user_id, prefix=prefix)
-        await message.reply_text(text, reply_markup=keyboard)
+        previous = self.state.get_checkpoint(self.namespace, 'menu:' + user_id, {})
+        if previous.get('message_id') and self.bot is not None:
+            from telegram.error import BadRequest
+            try:
+                await self.bot.edit_message_text(chat_id=int(user_id), message_id=previous['message_id'], text=text, reply_markup=keyboard)
+                self._remember_menu(user_id, previous['message_id'], text, keyboard)
+                return
+            except BadRequest as error:
+                if 'message is not modified' in str(error).lower():
+                    self._remember_menu(user_id, previous['message_id'], text, keyboard)
+                    return
+                if 'message to edit not found' not in str(error).lower():
+                    raise
+        sent = await message.reply_text(text, reply_markup=keyboard)
+        if isinstance(getattr(sent, 'message_id', None), int):
+            self._remember_menu(user_id, sent.message_id, text, keyboard)
+
+    def _remember_menu(self, user_id, message_id, text, keyboard):
+        from bot_menu import fingerprint, next_refresh
+        self.state.set_checkpoint(self.namespace, 'menu:' + user_id, {
+            'message_id': message_id, 'fingerprint': fingerprint(text, keyboard.to_dict()),
+            'refresh_at': next_refresh(self.service, 'telegram', user_id)})
+
+    async def _workflow_view(self, message, user_id, view, query=None):
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        rows = [[InlineKeyboardButton(a['label'], **({'url': a['url']} if a.get('url') else {'callback_data': a['callback']}))]
+                for a in view.get('actions', [])]
+        rows.append([InlineKeyboardButton('Главное меню', callback_data='m:0')])
+        keyboard = InlineKeyboardMarkup(rows)
+        if query is not None:
+            await query.edit_message_text(view['text'][:4000], reply_markup=keyboard)
+        else:
+            previous = self.state.get_checkpoint(self.namespace, 'menu:' + user_id, {})
+            if self.bot is not None and previous.get('message_id'):
+                await self.bot.edit_message_text(chat_id=int(user_id), message_id=previous['message_id'], text=view['text'][:4000], reply_markup=keyboard)
+            else:
+                await message.reply_text(view['text'][:4000], reply_markup=keyboard)
+        previous = self.state.get_checkpoint(self.namespace, 'menu:' + user_id, {})
+        if previous:
+            previous['refresh_at'] = time.time() + 300
+            self.state.set_checkpoint(self.namespace, 'menu:' + user_id, previous)
+
+    async def refresh_menus(self):
+        from bot_menu import fingerprint
+        from telegram.error import BadRequest
+        count = 0
+        for key, previous in self.state.checkpoints(self.namespace, 'menu:'):
+            if not previous.get('message_id') or previous.get('refresh_at', 0) > time.time():
+                continue
+            user_id = key[5:]
+            text, keyboard = self.menu(user_id)
+            try:
+                if fingerprint(text, keyboard.to_dict()) != previous.get('fingerprint'):
+                    await self.bot.edit_message_text(chat_id=int(user_id), message_id=previous['message_id'], text=text, reply_markup=keyboard)
+                self._remember_menu(user_id, previous['message_id'], text, keyboard)
+            except BadRequest:
+                self.state.set_checkpoint(self.namespace, key, {})
+            count += 1
+            if count >= 10:
+                break
 
     async def on_start(self, update: Any, context: Any) -> None:
         user_id = _private_user(update)
@@ -139,6 +209,14 @@ class TelegramBot:
         message = update.effective_message
         if user_id is None or message is None:
             return
+        if self.workflows and message.contact is None:
+            try:
+                view = await asyncio.to_thread(self.workflows.message, 'telegram', user_id, message.text or '')
+            except (ValueError, PermissionError) as error:
+                view = {'text': str(error), 'actions': []}
+            if view:
+                await self._workflow_view(message, user_id, view)
+                return
         contact = message.contact
         if contact is not None:
             # Telegram only proves this is the sender's contact when user_id is
@@ -178,6 +256,18 @@ class TelegramBot:
             await query.answer("Откройте личный диалог с ботом и обновите меню.")
             return
         value = query.data if isinstance(query.data, str) else ""
+        if value.startswith('x:') and self.workflows:
+            await query.answer()
+            event_key = hashlib.sha256(f'admin:{query.id}'.encode()).hexdigest()
+            if not self.state.claim(self.namespace, event_key):
+                return
+            try:
+                view = await asyncio.to_thread(self.workflows.action, 'telegram', user_id, value)
+            except (ValueError, PermissionError) as error:
+                view = {'text': str(error), 'actions': []}
+            await self._workflow_view(query.message, user_id, view, query)
+            self.state.finish(self.namespace, event_key, 'handled')
+            return
         if re.fullmatch(r"m:\d{1,6}", value):
             from telegram import InlineKeyboardMarkup
             text, keyboard = self.menu(user_id, page=int(value[2:]))
@@ -206,6 +296,8 @@ class TelegramBot:
                     for button in section.get("buttons", []):
                         if str(button["id"]) == button_id and button.get("type") == "admin":
                             await query.answer()
+                            if hasattr(self.service, '_emit'):
+                                self.service._emit('admin_contact_requested', branch_id, event_id=str(query.id))
                             await query.message.reply_text(f"{section['branch_name']}\n{button['label']}: {button['phone']}")
                             return
             await query.answer("Контакт филиала недоступен. Обновите меню.")
@@ -224,6 +316,12 @@ class TelegramBot:
                 self.service.open_for_identity, "telegram", user_id, branch_id, button_id,
             )
             _audit("BOT_GATE_RESULT", branch_id=branch_id, status=result.get("status", "unknown"), command_id=result.get("command_id"))
+            if isinstance(getattr(query.message, 'message_id', None), int):
+                text, keyboard = self.menu(user_id, prefix=result.get('message', ''))
+                await query.edit_message_text(text, reply_markup=keyboard)
+                self._remember_menu(user_id, query.message.message_id, text, keyboard)
+                self.state.finish(self.namespace, event_key, 'handled')
+                return
             await self._send_menu(
                 query.message, user_id,
                 prefix=result.get("message") or "Команда обработана. Проверьте состояние ворот.",
@@ -381,6 +479,32 @@ def notify_access(payload: dict[str, Any]) -> bool:
     except Exception as exc:
         _audit("BOT_NOTIFICATION_ERROR", level="ERROR", branch_id=payload.get("branch_id"), error_type=type(exc).__name__)
         raise
+
+
+def notify_text(user_id, text):
+    runtime, loop = _RUNTIME, _LOOP
+    if runtime is None or loop is None or not loop.is_running() or not _READY.is_set():
+        return False
+    async def send():
+        # Split by Unicode characters conservatively below Telegram's limit.
+        for start in range(0, len(text), 3500):
+            await runtime.bot.send_message(chat_id=int(user_id), text=text[start:start+3500])
+        return True
+    future = asyncio.run_coroutine_threadsafe(send(), loop)
+    try:
+        return future.result(timeout=30)
+    except TimeoutError:
+        future.cancel()
+        raise RuntimeError('Telegram delivery result unknown') from None
+
+
+def refresh_menus():
+    if _RUNTIME is not None and _LOOP is not None and _LOOP.is_running() and _READY.is_set():
+        future = asyncio.run_coroutine_threadsafe(_RUNTIME.refresh_menus(), _LOOP)
+        try:
+            future.result(timeout=15)
+        except TimeoutError:
+            future.cancel()
 
 
 def status() -> dict[str, Any]:

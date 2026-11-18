@@ -36,10 +36,9 @@ class Session:
 
 @pytest.fixture
 def crm_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "YC_BASE_URL", "https://api.yclients.ru/api/v1")
     monkeypatch.setattr(config, "YCLIENTS_ENABLED", True)
     monkeypatch.setattr(config, "YC_PARTNER_TOKEN", "synthetic-partner-token")
-    monkeypatch.setattr(config, "YC_USER_TOKEN", "")
-    monkeypatch.setattr(config, "YC_COMPANY_ID", "")
     monkeypatch.setattr(config, "LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("YC_USER_TOKEN_1", "synthetic-user-token-1")
     monkeypatch.setenv("YC_USER_TOKEN_2", "synthetic-user-token-2")
@@ -50,7 +49,7 @@ def crm_config(tmp_path, monkeypatch):
 
 def client(branches, responses):
     session = Session(responses)
-    return YClientsClient(session=session, branches=branches, pace=lambda: None), session
+    return YClientsClient(session=session, branches=branches, pace=lambda: None, credential_provider=lambda branch: {"user_token": "synthetic-user-token-" + str(branch)}), session
 
 
 def page(ids, total=None, company=1):
@@ -117,16 +116,16 @@ def test_connection_error_does_not_echo_tokens(crm_config):
     assert "synthetic-private" not in str(error.value)
 
 
-def test_fallback_credential_is_restricted_to_named_branch(crm_config, monkeypatch):
-    monkeypatch.delenv("YC_USER_TOKEN_1")
-    monkeypatch.delenv("YC_USER_TOKEN_2")
-    monkeypatch.setattr(config, "YC_COMPANY_ID", "1")
-    monkeypatch.setattr(config, "YC_USER_TOKEN", "synthetic-fallback")
-    api, session = client(crm_config, [Response({"success": True, "data": []})])
-    api.request("GET", "records/1", 1)
-    with pytest.raises(YClientsError, match="Missing credentials"):
-        api.request("GET", "records/2", 2)
-    assert len(session.calls) == 1
+def test_legacy_env_user_tokens_are_ignored_even_for_matching_branch(crm_config, monkeypatch):
+    monkeypatch.setenv("YC_COMPANY_ID", "1")
+    monkeypatch.setenv("YC_USER_TOKEN", "synthetic-fallback")
+    monkeypatch.setenv("YC_USER_TOKEN_1", "synthetic-branch-fallback")
+    session=Session([])
+    api=YClientsClient(session=session,branches=crm_config,pace=lambda:None)
+    for branch in (1,2):
+        with pytest.raises(YClientsError,match="Missing credentials"):
+            api.request("GET","records/"+str(branch),branch)
+    assert session.calls==[]
 
 
 def test_disabled_integration_has_no_transport_call(crm_config, monkeypatch):
@@ -176,7 +175,8 @@ def test_bad_total_count_never_looks_like_complete_snapshot(crm_config, total):
 def test_eligible_clients_does_not_fabricate_missing_contact_fields():
     at = datetime(2026, 11, 5, 12, tzinfo=ZoneInfo("Europe/Moscow"))
     records = [{"id": 1, "company_id": 1, "datetime": "2026-11-05T13:00:00+03:00", "client": {"id": 9}}]
-    assert eligible_clients(records, 1, at, "Europe/Moscow") == {"9": {"id": 9}}
+    assert eligible_clients(records, 1, at, "Europe/Moscow") == {
+        "9": {"id": 9, "_access_expires": "2026-11-05T23:59:59.999999+03:00"}}
 
 
 @pytest.mark.parametrize("data", [{"id": 8, "company_id": 1}, {"id": 7, "company_id": 2}])

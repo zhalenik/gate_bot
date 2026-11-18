@@ -1,6 +1,6 @@
 # Контейнер, TrueNAS и Nginx Proxy Manager
 
-Первичная приёмка выполняется на Windows в polling. Образ `gatebot:0.2.0-alpha.14` собран локально для `linux/amd64`; запуск на конкретном TrueNAS, домен и доставка Push принимаются отдельно. Образ пока не опубликован в контейнерном registry.
+Первичная приёмка выполняется на Windows в polling. Образ `gatebot:0.2.0-alpha.14` собран локально для `linux/amd64`; запуск на конкретном TrueNAS, домен и доставка Push принимаются отдельно. Публикация в GHCR настроена workflow `.github/workflows/publish-image.yml`: push в `main` при изменении Docker-контекста и ручной `workflow_dispatch` собирают linux/amd64 образ. Фактический успешный push и права доступа пакета необходимо проверить на странице Actions/Packages. До подтверждения успешной сборки не считать образ доступным.
 
 ## Испытания на bot.zhvakin.space
 
@@ -21,7 +21,7 @@ docker compose --env-file .env.server -f compose.server.yaml logs --tail 100 gat
 
 В Nginx Proxy Manager подключите контейнер прокси к сети `gatebot_proxy`, затем создайте Proxy Host `bot.zhvakin.space` → scheme `http`, hostname `gatebot`, port `5000`. Назначьте действующий сертификат для домена и включите Force SSL. Укажите DNS домена на сервер. Не включайте Cache Assets/CDN-кеширование для `/pwa/`, `/opn/`, `/preferences/`, `/open-gate` и клиентских API. Для PWA не нужны WebSocket и отдельный входящий Push webhook: браузер использует собственную push-службу, сервер делает исходящий HTTPS-запрос к ней.
 
-Порт 30550 в этом Compose доступен только с localhost сервера; интернет-трафик идёт через NPM. Если NPM работает отдельно от Docker-сети, используйте существующий внутренний маршрут сервера и ограничьте доступ к порту сетевыми правилами вместо публикации его в Интернет. В TrueNAS аналогичные домен, secure cookie и данные задаются в YAML Custom App; имя dataset/устройства остаётся параметром конкретного сервера.
+Порт 30550 в этом Compose доступен только с localhost сервера; интернет-трафик идёт через NPM. Если NPM работает отдельно от Docker-сети, используйте существующий внутренний маршрут сервера и ограничьте доступ к порту сетевыми правилами вместо публикации его в Интернет. В TrueNAS аналогичные домен, secure cookie и данные задаются в YAML Custom App; путь dataset `/mnt/ssd-pool/apps-data/gatebot` и порт `31500` уже заданы; путь устройства SIM800C остаётся параметром конкретного сервера.
 
 После запуска проверьте `/healthz`, вход администратора, палитру/бренд, персональную страницу и [мобильную приёмку PWA](PWA.md). VAPID и подписки хранятся в `/state/application.sqlite3` с шифрованием через `/state/integration.key`; постоянный volume обязателен. Локальная сборка не подтверждает доступность домена и Push на физическом телефоне.
 
@@ -74,7 +74,17 @@ development поверх production env. Не переносите тестов�
 
 ## TrueNAS SCALE ElectricEel 24.10.2.3
 
-Используется Custom App → Install via YAML. Основа — `examples/truenas.example.yaml`. Перед применением нужны:
+Используется Apps → Discover Apps → ⋮ → Install via YAML с именем приложения `gatebot`.
+Файл `examples/truenas.example.yaml` подготовлен специально для этого сервера:
+- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.14` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
+- только внутренний HTTP `31500:5000`; TLS завершается существующим Nginx Proxy Manager с Let's Encrypt. В NPM: `bot.zhvakin.space` → `http://<LAN-IP-TRUENAS>:31500`, Force SSL, без прямого внешнего доступа к порту;
+- приватный файл `/mnt/ssd-pool/apps-data/gatebot/gatebot.env`; данные `state/` и `system-config/` в том же каталоге на SSD;
+- первые испытания в `development` с отключёнными настоящими отправками и модемом; production включается отдельно после приёмки.
+- перед установкой убедитесь, что GitHub Actions выполнил публикацию образа, а пакет GHCR доступен TrueNAS (публичный пакет либо доступ через registry credentials).
+
+**Расположение образов и контейнеров.** Путь volume на SSD не определяет местонахождение Docker layers. TrueNAS 24.10 использует скрытый `ix-apps` на выбранном общем Apps pool (`/mnt/.ix-apps`). Чтобы образы и writable layers также были на SSD, глобальный Apps pool должен быть `ssd-pool`. Переключение Apps pool повлияет на другие уже установленные Apps: не менять его без плана миграции/backup. Не редактируйте `ix-apps` вручную.
+
+Перед применением нужны:
 
 - фактически опубликованный и проверенный version tag образа;
 - отдельный dataset приложения, каталоги state/system-config и права записи для UID/GID 568;
@@ -83,7 +93,7 @@ development поверх production env. Не переносите тестов�
 - фиксированный `/dev/serial/by-id/...` и правильный host group ID для устройства;
 - внешний HTTPS через Nginx Proxy Manager.
 
-Строка `REPLACE_WITH_TESTED_VERSION` намеренно не является существующим тегом. Начальный коммит не публикует контейнер автоматически. YAML не содержит реальные пути dataset, имена устройств или ключи владельца.
+В YAML зафиксирован тег `0.2.0-alpha.14`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
 
 Шаблон содержит два обязательных mount: данные в `/state` и bootstrap-настройки
 в `/app/private/system-config`. Для второго задайте отдельный постоянный host path;
@@ -110,3 +120,10 @@ MAX официально предназначает long polling для разр
 ## Обновление
 
 Сначала backup приватного состояния, затем неизменяемый image tag и проверка миграций на копии. Копия включает application БД и `integration.key`, журнал телефонии/состояние ботов, а также согласованную пару `private/system-config/settings.enc` и `settings.key`. Потеря bootstrap-ключа или повреждение конфигурации останавливает запуск, а не возвращает незаметно настройки `.env`. `stable` присваивается только принятой версии. `pull_policy: always` не гарантирует автоматическое переключение уже работающего контейнера; на TrueNAS может требоваться остановка/запуск или пересоздание. Для rollback сохранить предыдущий tag и согласованную копию данных и настроек. Изменения Compose/YAML здесь подготовлены, но контейнер и доменные webhooks на сервере ещё не приняты.
+
+
+## Публикация GHCR (GitHub Actions)
+
+Workflow: `.github/workflows/publish-image.yml`. Права: `contents: read`, `packages: write`; вход в GHCR по штатному `GITHUB_TOKEN`, не требуется добавлять приватный PAT в проект. Сборка `linux/amd64` выполняется из существующего `Dockerfile`. Push в main создаёт/обновляет `main`, версию из `VERSION` и неизменяемый SHA-тег `sha-<shortsha>`. Также возможен ручной запуск Actions → Publish GateBot image to GHCR → Run workflow. Git tag `v<version>` публикует соответствующий тег при совпадении содержимого `VERSION`.
+
+Для релиза увеличивайте `VERSION` при изменениях образа; после теста закрепляйте рабочую версию в YAML и при необходимости SHA digest. Не считайте правку YAML автоматическим обновлением запущенного контейнера: применяйте Edit/Save в TrueNAS с согласованной копией state и system-config. Если новый GHCR package приватный, настройте видимость пакета Public либо registry credentials в TrueNAS. Не публикуйте токены в GitHub.

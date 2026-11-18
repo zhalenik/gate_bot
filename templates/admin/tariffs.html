@@ -1,0 +1,12 @@
+{% extends 'base.html' %}{% set admin_page = true %}
+{% block title %}Тарифы — GateBot{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/billing.css">{% endblock %}
+{% block content %}
+<main class="admin-container billing-page" id="billingCatalogPage" data-billing-page data-view="plans" data-super="{{ 'true' if is_super else 'false' }}">
+<div class="page-heading"><div><div class="page-eyebrow">GateBot · Тарифы</div><h1>{{ 'Управление тарифами' if is_super else 'Тариф для вашего филиала' }}</h1><p class="page-description">{{ 'Название, срок и ресурсы — в одном каталоге. Изменения действуют для новых подключений.' if is_super else 'Выберите срок и объём ресурсов. Текущие условия сохраняются до подтверждённой смены тарифа.' }}</p></div>{% if is_super %}<button type="button" class="btn-primary" id="createCatalogItem">Создать тариф</button>{% endif %}</div>
+{% include 'components/billing_nav.html' %}<div id="productNotice" role="status" aria-live="polite" hidden></div><div class="billing-catalog-context" id="catalogContext"></div>
+{% if is_super %}<div class="billing-catalog-toolbar"><p class="billing-catalog-context">Скрытые тарифы доступны суперадминистратору. Архивные нельзя подключить до восстановления.</p><label class="billing-check billing-archive-toggle"><input type="checkbox" id="showArchived">Показать архивные тарифы <span id="archiveCount" class="badge"></span></label></div>{% endif %}
+<section class="billing-catalog-grid" id="catalogCards" aria-label="Тарифы"></section>
+{% if is_super %}<section class="panel billing-offer-panel"><div><div class="page-eyebrow">Документы</div><h2>Договор оферты</h2><p>Загрузите PDF с реквизитами и условиями сервиса. При первой оплате клиент принимает опубликованную версию. Прежние версии сохраняются вместе с историей согласий.</p><p id="offerCurrent"></p></div><form id="offerUploadForm"><label>Новая версия · PDF до 10 МБ<input type="file" name="document" accept="application/pdf,.pdf" required></label><button type="submit" class="btn-action">Опубликовать оферту</button></form></section>{% else %}<section class="billing-catalog-note"><p>Остатки тарифа и дополнительных пакетов действуют до окончания выбранного периода. При немедленной смене остатки обнуляются только после вашего явного подтверждения.</p><a href="/admin/billing-rules">Правила тарификации и условия подписки ↗</a></section>{% endif %}
+{% include 'components/billing_dialogs.html' %}</main>{% endblock %}
+{% block scripts %}<script src="/static/js/billing.js"></script>{% endblock %}

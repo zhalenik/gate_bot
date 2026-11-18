@@ -13,7 +13,14 @@ START=datetime(2026,1,31,12,tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def billing(tmp_path):return BillingService(tmp_path/'application.sqlite3')
+def billing(tmp_path):
+    service=BillingService(tmp_path/'application.sqlite3')
+    service.catalog.publish_offer({'filename':'offer.pdf','url':'/admin/billing-assets/'+'a'*32+'.pdf','sha256':'b'*64},actor='owner',at=START)
+    return service
+
+
+def paid_order(service,plan,**kwargs):
+    return service.create_order('12',plan,offer_version=service.catalog.offer()['id'],accept_offer=True,**kwargs)
 
 
 def gift(service,quota=2,branch='12',days=90):
@@ -127,8 +134,8 @@ def test_gift_does_not_clear_usage_or_automatically_resume_suspension(billing):
 
 def test_payment_stub_and_order_idempotency_never_activate_paid_access(billing):
     billing.activate_trial('12',at=START)
-    first=billing.create_order('12','pro',actor='admin',idempotency_key='abc',at=START)
-    second=billing.create_order('12','pro',actor='admin',idempotency_key='abc',at=START)
+    first=paid_order(billing,'pro',actor='admin',idempotency_key='abc',at=START)
+    second=paid_order(billing,'pro',actor='admin',idempotency_key='abc',at=START)
     assert first['id']==second['id'] and first['amount_kopecks']==350000
     assert billing.checkout(first['id'],branch_id='12',at=START)['status']=='payment_unavailable'
     assert billing.subscription_view('12',at=START)['status']=='trial'
@@ -190,20 +197,21 @@ def test_future_gifts_append_and_prevent_false_expiry_notices(billing):
     assert billing.subscription_view('12',at=second['starts_at'])['quota']==500
 
 
-def test_verified_payment_hook_is_atomic_and_upgrade_preserves_usage(billing):
-    order=billing.create_order('12','start',actor='admin',idempotency_key='paid-start',at=START)
+def test_verified_payment_hook_is_atomic_and_switch_preserves_historical_usage(billing):
+    order=paid_order(billing,'start',actor='admin',idempotency_key='paid-start',at=START)
     with pytest.raises(ValueError):billing.apply_payment(order['id'],'provider1',49999,at=START)
     assert not billing.history('12')['payments']
     assert billing.apply_payment(order['id'],'provider1',50000,at=START)['applied']
     assert billing.apply_payment(order['id'],'provider1',50000,at=START)['duplicate']
     first=admit(billing);billing.finalize(first['command_id'],'command_sent',at=START)
     before=billing.subscription_view('12',at=START)
-    upgrade=billing.create_order('12','business',actor='admin',idempotency_key='paid-upgrade',at=START)
-    assert upgrade['kind']=='upgrade' and upgrade['amount_kopecks']==50000
-    billing.apply_payment(upgrade['id'],'provider2',50000,at=START)
+    upgrade=paid_order(billing,'business',actor='admin',idempotency_key='paid-upgrade',mode='now',confirm_burn=True,at=START)
+    assert upgrade['kind']=='tariff' and upgrade['amount_kopecks']==100000
+    billing.apply_payment(upgrade['id'],'provider2',100000,at=START)
     after=billing.subscription_view('12',at=START)
-    assert after['spent']==1 and after['quota']==500 and after['ends_at']==before['ends_at']
-    with pytest.raises(ValueError):billing.apply_payment(upgrade['id'],'provider2',100000,at=START)
+    assert after['spent']==0 and after['quota']==500 and after['period_id']!=before['period_id']
+    with billing.store.connect() as db:assert billing._usage(db,before['period_id'])['spent']==1
+    with pytest.raises(ValueError):billing.apply_payment(upgrade['id'],'provider2',50000,at=START)
     for table in ('billing_payments',):
         with pytest.raises(sqlite3.IntegrityError):
             with billing.store.connect() as db:db.execute('DELETE FROM '+table)
@@ -212,7 +220,7 @@ def test_verified_payment_hook_is_atomic_and_upgrade_preserves_usage(billing):
 def test_bad_request_identity_and_stale_order_are_rejected(billing):
     with pytest.raises(ValueError):billing.create_order('12','start',actor='admin',idempotency_key=None,at=START)
     with pytest.raises(ValueError):admit(billing,request=None)
-    order=billing.create_order('12','start',actor='admin',idempotency_key='start',at=START)
+    order=paid_order(billing,'start',actor='admin',idempotency_key='start',at=START)
     with pytest.raises(ValueError):billing.apply_payment(order['id'],'late',50000,at=START+timedelta(hours=2))
     assert not billing.history('12')['payments']
 
@@ -240,7 +248,7 @@ def test_deny_audit_does_not_create_account_or_charge(billing):
 
 
 def test_gift_preview_does_not_grant_and_paid_shortening_needs_confirmation(billing):
-    order=billing.create_order('12','start',actor='a',idempotency_key='purchase',at=START)
+    order=paid_order(billing,'start',actor='a',idempotency_key='purchase',at=START)
     billing.apply_payment(order['id'],'payment',50000,at=START)
     preview=billing.grant_gift('12',500,actor='owner',days=1,mode='replace',preview=True,at=START)
     assert preview['shortens_paid_term'] and billing.subscription_view('12',at=START)['source']=='paid'

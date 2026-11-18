@@ -94,7 +94,7 @@ def main():
         web = threading.Thread(target=server.run, name='gatebot-web', daemon=True)
         web.start()
         print(f'GateBot: {config.BASE_URL} | gate mode: {"DRY RUN" if config.GATE_DRY_RUN else "HARDWARE"}')
-        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.11'})
+        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.14'})
         while not stop.wait(0.5):
             if not web.is_alive():
                 raise RuntimeError('Web server stopped')

@@ -1,7 +1,7 @@
 {% set is_admin_view = admin_page | default(false) %}
-<header class="app-bar" data-shared-header>
+<header class="app-bar{% if client_page | default(false) or centered_brand | default(false) %} app-bar-centered{% endif %}" data-shared-header>
   {% if client_page | default(false) %}<div class="brand" aria-label="GateBot">{% else %}<a class="brand" href="{{ '/admin/users' if is_admin_view else '/' }}" aria-label="GateBot — главная">{% endif %}
-    <img src="/static/images/logo.svg" alt="GateBot" width="152" height="36">
+    <img src="{{ branding.logo_url if branding is defined else '/static/images/logo.svg' }}" alt="GateBot" width="152" height="36" data-brand-logo>
     {% if is_admin_view %}<span class="brand-scope">{{ 'Все филиалы · Суперадминистратор' if is_super else (admin_branch_name or 'Администратор филиала') }}</span>{% endif %}
   {% if client_page | default(false) %}</div>{% else %}</a>{% endif %}
   {% if is_admin_view %}
@@ -18,7 +18,7 @@
     <div class="menu-heading">Управление</div>
     <a href="/admin/add-user">Добавить клиента</a><a href="/admin/invitations">Администраторы</a>
     <a href="/admin/notifications">Уведомления</a><a href="/admin/notification-settings">Настройки уведомлений</a>{% if admin_yclients_enabled | default(true) %}<a href="/admin/integrations">Интеграции</a>{% endif %}
-    {% if is_super %}<a href="/admin/branch-plans">Тарифы филиалов</a><a href="/admin/system-settings">Системные настройки</a><a href="/admin/palette">Цвета интерфейса</a><a href="/admin/logs">Журнал событий</a>{% endif %}
+    {% if is_super %}<a href="/admin/branch-plans">Тарифы филиалов</a><a href="/admin/tariffs">Тарифы</a><a href="/admin/packages">Пакеты</a><a href="/admin/system-settings">Системные настройки</a><a href="/admin/palette">Цвета и логотип</a><a href="/admin/logs">Журнал событий</a>{% endif %}
     <a href="/admin/change-password">Сменить пароль</a>
     <a href="/admin/help">Помощь</a>
     <form method="POST" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Выйти</button></form>

@@ -66,6 +66,8 @@ class BranchManager:
         timezone(data.get('timezone'))
         if type(data.get('yclients_enabled',True)) is not bool:
             raise ValueError('yclients_enabled must be boolean')
+        if type(data.get('sms_notifications_enabled',False)) is not bool:
+            raise ValueError('sms_notifications_enabled must be boolean')
         if data.get('id_origin') == 'internal' and data.get('yclients_enabled',True):
             raise ValueError('A standalone internal ID cannot be used as a YCLIENTS company ID')
         seen = set()
@@ -89,7 +91,7 @@ class BranchManager:
     def _dict_to_branch_object(self, branch_dict):
         data = deepcopy(self._validate(branch_dict))
         buttons = [SimpleNamespace(id=self._button_id(button), stable_id=button.get('stable_id') or hashlib.sha256((str(data['branch_id'])+':gate:'+str(index)).encode()).hexdigest()[:24], type=button['type'], label=str(button.get('label', '')), phone=button['phone']) for index,button in enumerate(data.get('buttons', []))]
-        return SimpleNamespace(branch_id=int(data['branch_id']), name=str(data.get('name', '')), logo=str(data.get('logo', '')), timezone=data.get('timezone', 'Europe/Moscow'), enabled=data.get('enabled', True) is True, yclients_enabled=data.get('yclients_enabled',True), id_origin=data.get('id_origin','yclients'), buttons=buttons)
+        return SimpleNamespace(branch_id=int(data['branch_id']), name=str(data.get('name', '')), logo=str(data.get('logo', '')), timezone=data.get('timezone', 'Europe/Moscow'), enabled=data.get('enabled', True) is True, yclients_enabled=data.get('yclients_enabled',True), sms_notifications_enabled=data.get('sms_notifications_enabled',False), id_origin=data.get('id_origin','yclients'), buttons=buttons)
 
     def allocate_internal_id(self, db=None):
         if db is not None:
@@ -137,7 +139,7 @@ class BranchManager:
             return branches.pop(str(branch_id), None) is not None
 
     def update_settings(self, branch_id, settings, create=False):
-        allowed = {'name', 'timezone', 'enabled', 'buttons', 'logo', 'yclients_enabled'}
+        allowed = {'name', 'timezone', 'enabled', 'buttons', 'logo', 'yclients_enabled', 'sms_notifications_enabled'}
         if set(settings) - allowed:
             raise ValueError('Unsupported branch settings')
         key = str(branch_id)

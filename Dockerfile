@@ -15,6 +15,7 @@ COPY *.py ./
 COPY storage ./storage
 COPY templates ./templates
 COPY static ./static
+COPY resources ./resources
 COPY examples ./examples
 USER 568:568
 EXPOSE 5000

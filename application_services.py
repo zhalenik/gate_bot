@@ -19,6 +19,8 @@ class ApplicationServices:
         self.billing = BillingService(self.store)
         self.analytics = AnalyticsService(self.store)
         self.identity = IdentityService(self.store)
+        from pwa_service import PwaService
+        self.pwa = PwaService(self.identity)
         from yclients_client_sync import YClientsClientSync
         from yclients_client_sync_jobs import YClientsClientSyncJobs
         self.yclients_client_sync = YClientsClientSync(self.identity, branches)
@@ -26,7 +28,7 @@ class ApplicationServices:
         if is_sql_active(directory):
             self.identity.import_legacy()
         self.notifications = ProductNotifications(self.identity, links, branches, self.billing,
-                                                  telephony=TelephonyStore(directory / 'telephony.json'))
+                                                  telephony=TelephonyStore(directory / 'telephony.json'), pwa=self.pwa)
         self.identity.sender = self.notifications.send
         self.identity.event_sink = self.notifications.event
         self.identity.delivery_status = self.notifications.effect_status
@@ -45,6 +47,7 @@ class ApplicationServices:
         return {'service': self.identity, 'auth': auth, 'links': self.links, 'branches': self.branches,
                 'billing': self.billing, 'analytics': self.analytics,
                 'gate_qr': self.gate_qr, 'support': self.support,
+                'pwa': self.pwa,
                 'notifications': self.notifications, 'check_yclients': check_yclients,
                 'yclients_client_sync': self.yclients_client_sync, 'yclients_client_jobs': self.yclients_client_jobs,
                 'authorize_yclients': lambda login, password, code=None, challenge=None:

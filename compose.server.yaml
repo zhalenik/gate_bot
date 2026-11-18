@@ -1,0 +1,45 @@
+# HTTPS acceptance at bot.zhvakin.space. No application state enters the image.
+services:
+  gatebot:
+    build: .
+    image: gatebot:server-test
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    user: "568:568"
+    env_file:
+      - .env.server
+    environment:
+      BASE_URL: https://bot.zhvakin.space
+      SESSION_COOKIE_SECURE: "true"
+      HOST: "0.0.0.0"
+      PORT: "5000"
+      GATEBOT_DATA_DIR: /state
+      GATEBOT_LOG_DIR: /state/logs
+    ports:
+      - "127.0.0.1:30550:5000"
+    networks:
+      - proxy
+    volumes:
+      - ./data:/state
+      - ./private/system-config:/app/private/system-config
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Enable a reviewed SIM800 mapping only on the host owning this modem:
+    # devices:
+    #   - /dev/serial/by-id/ACTUAL_DEVICE:/dev/ttyGATE
+    # group_add:
+    #   - "ACTUAL_HOST_SERIAL_GID"
+networks:
+  proxy:
+    name: gatebot_proxy

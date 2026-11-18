@@ -40,7 +40,10 @@ def read_document(db, name):
 def write_document(db, name, value):
     if name == 'links.json':
         from storage.client_index import sync_client_index
-        sync_client_index(db,value,read_document(db,name))
+        from storage.pass_changes import stamp_pass_changes
+        previous=read_document(db,name)
+        sync_client_index(db,value,previous)
+        stamp_pass_changes(value,previous)
     elif name == 'admins.json':
         from storage.client_index import sync_admin_roles
         sync_admin_roles(db,value)
@@ -72,6 +75,11 @@ class DocumentStore:
         if not isinstance(value, dict):
             raise ValueError('State must be an object')
         if not is_sql_active(self.path.parent):
+            if self.path.name=='links.json':
+                from storage.pass_changes import stamp_pass_changes
+                with self.lock:
+                    stamp_pass_changes(value,self.legacy.read())
+                    return self.legacy.replace(value)
             return self.legacy.replace(value)
         with self.product().connect() as db:
             write_document(db, self.path.name, value)
@@ -88,7 +96,12 @@ class DocumentStore:
     def transaction(self):
         if not is_sql_active(self.path.parent):
             with self.legacy.transaction() as value:
+                from copy import deepcopy
+                previous=deepcopy(value) if self.path.name=='links.json' else None
                 yield value
+                if previous is not None:
+                    from storage.pass_changes import stamp_pass_changes
+                    stamp_pass_changes(value,previous)
             return
         with self.lock, self.product().connect() as db:
             value = read_document(db, self.path.name)

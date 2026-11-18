@@ -1,5 +1,5 @@
 {
-  "catalog_version": "8009add6ec201319cd5001d018fcecc7396d0ea2db0d9ef319ecd2463722a5ab",
+  "catalog_version": "1b5bf8337a39bef38ded6fc557f006073e8c1fb40b44f52157f1ba733605d1d6",
   "entries": [
     {
       "id": "theme-sidebar-0e4ee20f4ddc",
@@ -129,9 +129,191 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav a",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter-value span",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter-foot",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-renewal p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-package-row small",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-table-subtitle",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-tabs button",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-history-filters label",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-pagination span",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-empty",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-catalog-context",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-card-price span",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-card-resources svg",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-card-note",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-catalog-note",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-offer-panel p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-choice small",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-purchase-summary p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-hero.is-inactive #subscriptionPeriod",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-field-hint",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-catalog-card.is-archived .billing-card-price,.billing-catalog-card.is-archived .billing-card-resources",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-panel>p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-card p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-card [data-branding-reset]",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 9,
           "selector": ".preference-channel-status",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 3,
+          "selector": ".client-install-card p,.client-pwa-dialog p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 12,
+          "selector": ".client-pwa-tabs a",
           "property": "color",
           "context": ""
         },
@@ -146,6 +328,62 @@
           "file": "static/css/help.css",
           "line": 11,
           "selector": ".help-group",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-copy h1 span",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-intro",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-customer-note",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-method-number",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-method-list small",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-benefits article>span",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-benefits p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-footer",
           "property": "color",
           "context": ""
         },
@@ -585,9 +823,58 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav a[aria-current]",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-hero",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter progress::-webkit-progress-value",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter progress::-moz-progress-bar",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-catalog-card.is-current",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-choice:has(input:checked)",
+          "property": "border-color",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 6,
           "selector": ".help-category[aria-pressed=true]",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-product",
           "property": "background",
           "context": ""
         },
@@ -754,9 +1041,58 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter progress",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter progress::-webkit-progress-bar",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-dialog input:not([type=checkbox]):not([type=radio]),.billing-dialog select",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-burn",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-preview",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 6,
           "selector": ".preference-channel-icon",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 13,
+          "selector": ".client-pwa-tabs a[aria-current=page]",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-copy .landing-actions>.btn-action",
           "property": "background",
           "context": ""
         },
@@ -937,6 +1273,90 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav a[aria-current]",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav a:hover",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-branch-filter select",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-text-button",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-document-links a,.billing-catalog-note a",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-row-link",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-tabs button[aria-selected=true],.billing-tabs button[aria-pressed=true]",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-history-filters input",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-check",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-check a",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-dialog",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-dialog input:not([type=checkbox]):not([type=radio]),.billing-dialog select",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 2,
           "selector": ".client-preferences .preference-state",
@@ -958,6 +1378,48 @@
           "context": ""
         },
         {
+          "file": "static/css/client-pwa.css",
+          "line": 2,
+          "selector": ".client-install-card h2",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 5,
+          "selector": ".client-pwa-dialog",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 8,
+          "selector": ".client-pwa-dialog ol",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 10,
+          "selector": ".client-pwa-dialog [role=status]",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 13,
+          "selector": ".client-pwa-tabs a[aria-current=page]",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 17,
+          "selector": "#clientOfflineNotice",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 2,
           "selector": ".help-search input",
@@ -975,6 +1437,20 @@
           "file": "static/css/integrations.css",
           "line": 3,
           "selector": ".integration-branch select",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-product-dot",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-footer a",
           "property": "color",
           "context": ""
         },
@@ -1278,6 +1754,27 @@
           "line": 3,
           "selector": ":root",
           "property": "--accent",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-text-button:hover",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-check input[type=checkbox],.billing-choice input[type=radio]",
+          "property": "accent-color",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-eyebrow",
+          "property": "color",
           "context": ""
         },
         {
@@ -1689,6 +2186,20 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter.is-low progress::-webkit-progress-value,.billing-meter.is-low progress::-moz-progress-bar",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-notice.is-error",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/palette.css",
           "line": 3,
           "selector": ".palette-notice[data-error=true]",
@@ -1802,6 +2313,76 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-branch-filter select",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-hero .btn-action",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-catalog-card",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-dialog",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-hero.is-inactive",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-archive-toggle",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-panel",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-card input[type=file]",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 4,
           "selector": ".preference-channel",
@@ -1816,9 +2397,58 @@
           "context": ""
         },
         {
+          "file": "static/css/client-pwa.css",
+          "line": 1,
+          "selector": ".client-install-card",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 5,
+          "selector": ".client-pwa-dialog",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 11,
+          "selector": ".client-pwa-tabs",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 17,
+          "selector": "#clientOfflineNotice",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 2,
           "selector": ".help-search input",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-page",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-page .app-bar",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-method-list>div",
           "property": "background",
           "context": ""
         },
@@ -2034,9 +2664,128 @@
           "context": ""
         },
         {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-branch-filter select",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-meter",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-package-row",
+          "property": "border-bottom",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-scheduled",
+          "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-tabs",
+          "property": "border-bottom",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-history-filters input",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-catalog-card",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-dialog",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-dialog input:not([type=checkbox]):not([type=radio]),.billing-dialog select",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-choice",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-burn",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-hero.is-inactive",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 5,
+          "selector": ".billing-archive-toggle",
+          "property": "border",
+          "context": ""
+        },
+        {
           "file": "static/css/branch-hours.css",
           "line": 4,
           "selector": ".branch-hours-day",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-panel",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-card",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branding.css",
+          "line": 1,
+          "selector": ".branding-card input[type=file]",
           "property": "border",
           "context": ""
         },
@@ -2062,6 +2811,27 @@
           "context": ""
         },
         {
+          "file": "static/css/client-pwa.css",
+          "line": 1,
+          "selector": ".client-install-card",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 5,
+          "selector": ".client-pwa-dialog",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 11,
+          "selector": ".client-pwa-tabs",
+          "property": "border-top",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 2,
           "selector": ".help-search input",
@@ -2073,6 +2843,20 @@
           "line": 3,
           "selector": ".integration-branch select",
           "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-benefits",
+          "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/landing.css",
+          "line": 1,
+          "selector": ".landing-footer",
+          "property": "border-top",
           "context": ""
         },
         {
@@ -2417,6 +3201,48 @@
           "line": 3,
           "selector": ":root",
           "property": "--soft-lavender",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-nav a:hover",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-logo",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-resource-icon",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-tabs button[aria-selected=true],.billing-tabs button[aria-pressed=true]",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-choice:has(input:checked)",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/billing.css",
+          "line": 1,
+          "selector": ".billing-purchase-summary",
+          "property": "background",
           "context": ""
         },
         {
@@ -2938,6 +3764,72 @@
           "file": "static/css/ui.css",
           "line": 1,
           "selector": ":root",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "client-pwa-color-97cb60e3f44a",
+      "css_var": "--gb-color-client-pwa-color-97cb60e3f44a",
+      "label": "Текст · #clientOfflineNotice",
+      "group": "client-pwa",
+      "source_value": "#0c0f14",
+      "default": "#0C0F14",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 17,
+          "selector": "#clientOfflineNotice",
+          "property": "color",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "client-pwa-background-c0c99b8eac90",
+      "css_var": "--gb-color-client-pwa-background-c0c99b8eac90",
+      "label": "Фон · #clientOfflineNotice",
+      "group": "client-pwa",
+      "source_value": "#fff",
+      "default": "#FFFFFF",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 17,
+          "selector": "#clientOfflineNotice",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "client-pwa-background-4f145797ac92",
+      "css_var": "--gb-color-client-pwa-background-4f145797ac92",
+      "label": "Фон · .client-pwa-dialog::backdrop",
+      "group": "client-pwa",
+      "source_value": "rgb(12 15 20 / .38)",
+      "default": "#0C0F1461",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 6,
+          "selector": ".client-pwa-dialog::backdrop",
           "property": "background",
           "context": ""
         }

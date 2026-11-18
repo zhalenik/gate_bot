@@ -29,7 +29,7 @@ ADMIN_EVENTS = ('gate_requested', 'gate_denied', 'gate_error', 'admin_contact_re
                 'modem_error', 'modem_recovered', 'delivery_failed', 'subscription_expiring',
                 'subscription_expired', 'quota_warning', 'quota_exhausted', 'sms_received', 'call_received')
 CHANNELS = ('email', 'telegram', 'max', 'chatpush', 'sms')
-CLIENT_CHANNELS = ('email', 'telegram', 'max', 'messengers')
+CLIENT_CHANNELS = ('email', 'telegram', 'max', 'messengers', 'sms', 'push')
 ADMIN_CHANNELS = ('email', 'telegram', 'max')
 DEFAULT_ADMIN_EVENTS = frozenset(('subscription_expiring', 'subscription_expired', 'quota_warning', 'quota_exhausted'))
 
@@ -372,7 +372,7 @@ class IdentityService:
             db.execute('INSERT INTO identity_otp(id,subject,phone,code_hash,expires,state,created,ip_hash) VALUES(?,?,?,?,?,"sending",?,?)',(challenge,subject,phone,self._code_hash(challenge,code),now+300,now,ip_hash))
         # Keep the code in ONE UCS2 segment. Waiting for a second segment can
         # hide the whole message on the phone even after the network accepted it.
-        delivery=self._send('sms',recipient,'GateBot: '+code+'. Код действует 5 минут. Никому не сообщайте.',{'event':'verification_code','purpose':'otp','idempotency_key':challenge,'branch_id':row['branch_id']})
+        delivery=self._send('sms',recipient,'GateBot: '+code+'. Код действует 5 минут. Никому не сообщайте.',{'event':'verification_code','purpose':'otp','billing_exempt':'registration','idempotency_key':challenge,'branch_id':row['branch_id']})
         delivery={key:value for key,value in delivery.items() if key!='_development_redirect'}
         # Queued means the concrete transport durably owns the send; unknown/failed
         # never activate the challenge. A real code remains necessary in all cases.
@@ -682,22 +682,25 @@ class IdentityService:
         prefs=json.loads(row['payload']) if row else {'channels':defaults}
         selected=prefs.get('channels',{})
         # Only a previous explicit ChatPush opt-in carries over to Messengers.
-        # Removing SMS must not opt somebody into a different delivery route.
+        # Old SMS choices predate paid SMS and must not become a new paid opt-in.
         channels={channel:bool(selected.get(channel,False)) for channel in CLIENT_CHANNELS}
+        channels['sms']=bool(prefs.get('sms_consent_version')==1 and selected.get('sms',False))
+        channels['push']=bool(prefs.get('push_consent_version')==1 and selected.get('push',False))
         if 'messengers' not in selected:channels['messengers']=bool(selected.get('chatpush',False))
         return {**prefs,'enabled':bool(client.get('mailing_enabled')),'channels':channels}
 
     def _client_allowed_channels(self,db,branch_id):
         branch=read_document(db,'branches.json').get(str(branch_id))
         return tuple(channel for channel in CLIENT_CHANNELS
-                     if channel!='messengers' or (branch and branch.get('yclients_enabled',True) is not False))
+                     if (channel!='messengers' or (branch and branch.get('yclients_enabled',True) is not False))
+                     and (channel!='sms' or (branch and branch.get('sms_notifications_enabled') is True)))
 
     def prefs_for_token(self,token):
         with self.product.connect() as db:
             person_id,branch_id,legacy,client=self._preference_identity(db,token)
-            return self._prefs_for_client(db,person_id,branch_id,client)
+            return self._prefs_for_client(db,person_id,branch_id,client,client_token=legacy)
 
-    def _prefs_for_client(self,db,person_id,branch_id,client):
+    def _prefs_for_client(self,db,person_id,branch_id,client,*,client_token=None):
         """Shared preference rules for a resolved client, without rereading links."""
         person=dict(db.execute('SELECT * FROM persons WHERE id=?',(person_id,)).fetchone())
         prefs=self._client_prefs(db,person_id,branch_id,client)
@@ -706,7 +709,11 @@ class IdentityService:
         except ValueError:email=''
         verified=bool(email and (prefs.get('verified_email')==email or (person['email_verified'] and person['email']==email)))
         allowed=self._client_allowed_channels(db,branch_id)
-        connected={'email':verified,'telegram':bool(client.get('tg_id')),'max':bool(client.get('max_id'))}
+        connected={'email':verified,'telegram':bool(client.get('tg_id')),'max':bool(client.get('max_id')),
+                   'push':self._push_connected(db,person_id,branch_id,client_token)}
+        if 'sms' in allowed:
+            try:connected['sms']=bool(valid_phone(client.get('phone')))
+            except ValueError:connected['sms']=False
         messenger=self._client_messengers_state(db,branch_id,client) if 'messengers' in allowed else None
         if messenger is not None:connected['messengers']=bool(messenger.get('connected'))
         result={**prefs,'channels':{channel:prefs['channels'][channel] for channel in allowed},
@@ -717,6 +724,13 @@ class IdentityService:
             'bound':{'telegram':bool(client.get('tg_id')),'max':bool(client.get('max_id'))}}
         if messenger is not None:result['messengers']={'connected':connected['messengers'],'reason':messenger.get('reason','')}
         return result
+
+    @staticmethod
+    def _push_connected(db,person_id,branch_id,client_token):
+        if not client_token or not db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="pwa_subscriptions"').fetchone():
+            return False
+        return bool(db.execute('SELECT 1 FROM pwa_subscriptions WHERE person_id=? AND branch_id=? AND client_token=?',
+                               (person_id,str(branch_id),client_token)).fetchone())
 
     def _person_admins(self,db,person_id):
         result=[]
@@ -747,6 +761,8 @@ class IdentityService:
             person_id,branch_id,legacy,client=self._preference_identity(db,token)
             allowed=self._client_allowed_channels(db,branch_id)
             if enabled and any(selected and channel not in allowed for channel,selected in channels.items()):
+                if channels.get('sms') and 'sms' not in allowed:
+                    raise ValueError('SMS-уведомления выключены в настройках филиала')
                 raise ValueError('Канал «Мессенджеры» недоступен для филиала без YCLIENTS')
             person=db.execute('SELECT email FROM persons WHERE id=?',(person_id,)).fetchone()
             email=valid_email(payload['email']) if 'email' in payload else client.get('email',person['email'])
@@ -755,7 +771,12 @@ class IdentityService:
                 if not actor or not (actor.get('is_super') or actor['person_id']==person_id):
                     raise PermissionError('Измените email административного профиля в своём кабинете')
             old_prefs=self._client_prefs(db,person_id,branch_id,client)
+            if enabled and channels.get('push') and not self._push_connected(db,person_id,branch_id,legacy):
+                raise ValueError('Сначала разрешите push-уведомления на своём устройстве')
             prefs={'enabled':enabled,'channels':{channel:channels.get(channel,False) if channel in allowed else old_prefs['channels'][channel] for channel in CLIENT_CHANNELS}}
+            if 'sms' in channels and 'sms' in allowed:prefs['sms_consent_version']=1
+            elif old_prefs.get('sms_consent_version')==1:prefs['sms_consent_version']=1
+            if channels.get('push') or old_prefs.get('push_consent_version')==1:prefs['push_consent_version']=1
             if old_prefs.get('verified_email')==email:prefs['verified_email']=email
             db.execute('INSERT INTO notification_preferences(person_id,audience,branch_id,payload) VALUES(?,"client",?,?) ON CONFLICT(person_id,audience,branch_id) DO UPDATE SET payload=excluded.payload',(person_id,branch_id,json.dumps(prefs)))
             links=read_document(db,'links.json');links[legacy]['mailing_enabled']=enabled

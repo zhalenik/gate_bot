@@ -3,7 +3,7 @@
 
 let usersCache = [];
 let branchesCache = [];
-let sortState = { key: null, asc: true };
+let sortState = { key: 'pass_changed_at', asc: false };
 
 function element(tag, className = '', text = null) {
     const value = document.createElement(tag);
@@ -152,6 +152,17 @@ async function loadUsers() {
     } catch (error) { showAlert(error.message, 'error'); }
 }
 
+function passChangedAge(value,current=Date.now()) {
+    const changed=Date.parse(value);
+    if(!Number.isFinite(changed))return '—';
+    const minutes=Math.max(1,Math.floor((current-changed)/60000));
+    return minutes<60?minutes+'м':minutes<1440?Math.floor(minutes/60)+'ч':Math.floor(minutes/1440)+'д';
+}
+
+function refreshPassAges(){
+    document.querySelectorAll('[data-pass-changed-at]').forEach(node=>{node.textContent=passChangedAge(node.dataset.passChangedAt);});
+}
+
 function displayUsers(users) {
     const tbody = document.getElementById('usersTableBody');
     tbody.replaceChildren();
@@ -180,6 +191,13 @@ function displayUsers(users) {
         const passCell=cell('Пропуск');passCell.append(button(pass.text, () => onPassButtonClick(user.token, !!user.gate_access), 'btn-pass ' + pass.className));
         const branchReason={pending_verification:'Филиал ожидает подтверждения',branch_disabled:'Доступ филиала выключен',branch_missing:'Филиал не настроен'}[user.branch_access_reason];
         if(branchReason)passCell.append(element('small','client-branch-access-hint',branchReason));
+        const changedCell=cell('Изменён');
+        if(user.pass_changed_at){
+            const changed=element('time','',passChangedAge(user.pass_changed_at));
+            changed.dateTime=user.pass_changed_at;changed.dataset.passChangedAt=user.pass_changed_at;
+            changed.title='Пропуск изменён: '+new Date(user.pass_changed_at).toLocaleString('ru-RU');
+            changedCell.append(changed);
+        }else changedCell.textContent='—';
         cell('Боты', [user.has_telegram ? 'TG' : '', user.has_max ? 'MAX' : ''].filter(Boolean).join(' · ') || '—');
         cell('YCLIENTS', user.has_yclients ? '✓' : '').hidden=hideCrm;
         cell('Уведомления').append(clientNotificationStatusButton(user));
@@ -205,6 +223,12 @@ function filterUsers() {
     });
     if (sortState.key) {
         users = [...users].sort((a, b) => {
+            if(sortState.key==='pass_changed_at'){
+                const left=Date.parse(a.pass_changed_at),right=Date.parse(b.pass_changed_at);
+                if(!Number.isFinite(left))return Number.isFinite(right)?1:0;
+                if(!Number.isFinite(right))return -1;
+                return (left-right)*(sortState.asc?1:-1);
+            }
             const getValue = u => sortState.key === 'pass_label' ? passInfo(u).text : sortState.key === 'notification_channels' ? Object.entries(u.notification_status?.effective_channels||{}).filter(([,active])=>active).map(([key])=>key).join(',') : (u[sortState.key] ?? '');
             return String(getValue(a)).localeCompare(String(getValue(b)), 'ru', { numeric: true }) * (sortState.asc ? 1 : -1);
         });
@@ -213,7 +237,7 @@ function filterUsers() {
 }
 
 function sortUsersBy(key) {
-    sortState = { key, asc: sortState.key === key ? !sortState.asc : true };
+    sortState = { key, asc: sortState.key === key ? !sortState.asc : key!=='pass_changed_at' };
     filterUsers();
     document.querySelectorAll('.users-table th[onclick]').forEach(th=>th.setAttribute('aria-sort',th.getAttribute('onclick').includes("'"+key+"'")?(sortState.asc?'ascending':'descending'):'none'));
 }
@@ -262,6 +286,7 @@ async function loadBranches() {
             });
         }
         if(document.getElementById('usersTableBody'))filterUsers();
+        window.dispatchEvent(new Event('gatebot:branches-loaded'));
     } catch (error) { showAlert(error.message, 'error'); }
 }
 
@@ -424,27 +449,58 @@ function copyLink() {
     return copyToClipboard(document.getElementById('generatedLink').value);
 }
 
-function openSendLinkModal(token) {
-    const user = usersCache.find(value => value.token === token) || {};
+async function openSendLinkModal(token) {
+    let user = usersCache.find(value => value.token === token);
+    if(!user){
+        try{user=(await api('/admin/api/users')).users.find(value=>value.token===token);}catch(error){showAlert(error.message,'error');return;}
+    }
+    if(!user){showAlert('Клиент больше недоступен','error');return;}
     const view = createModal('Отправить ссылку');
     view.body.append(element('p', '', 'Ссылка будет передана подключенному сервису уведомлений.'));
     const phone = formField(view.body, 'Номер телефона', user.phone || '', 'tel');
+    const channelLabel=element('label','','Канал отправки'),channel=element('select');
+    for(const [value,title,available] of [['messengers','Мессенджеры',user.yclients_enabled!==false],['sms','СМС — расходуется лимит филиала',user.sms_notifications_enabled===true],['email','Email',Boolean(user.email)]]){
+        if(!available)continue;const option=element('option','',title);option.value=value;channel.append(option);
+    }
+    channelLabel.append(channel);view.body.append(channelLabel);
+    if(!channel.options.length)view.body.append(element('p','form-hint','Укажите Email в карточке клиента или включите SMS-уведомления филиала.'));
     const confirm = button('Отправить', async () => {
         confirm.disabled = true;
         try {
-            const result = await post('/admin/api/send-link', { token, phone: phone.value });
+            const result = await post('/admin/api/send-link', { token, phone: phone.value,channel:channel.value });
             view.close();
             showAlert(result.message || 'Сообщение принято сервисом отправки', 'success');
             if (document.getElementById('usersTableBody')) await loadUsers();
         } catch (error) { showAlert(error.message, 'error'); }
         finally { confirm.disabled = false; }
     });
+    confirm.disabled=!channel.options.length;
     view.actions.append(button('Отмена', view.close), confirm);
 }
 
 function notifyDelivery(delivery) {
     if (delivery?.status === 'sent') showAlert(delivery.message, 'success');
     else if (delivery && delivery.status !== 'not_requested') showAlert('Ссылка создана, но не отправлена: ' + delivery.message, 'info');
+}
+
+function setupPassDelivery(send,channel,hint,branchSelector,emailInput) {
+    if(!send||!channel)return;
+    function sync(){
+        const branch=branchesCache.find(value=>String(value.id)===String(branchSelector?.value||window.DEFAULT_BRANCH_ID));
+        const selected=channel.value, choices=[];
+        if(branch?.yclients_enabled!==false&&branch)choices.push(['messengers','Мессенджеры']);
+        if(branch?.sms_notifications_enabled===true)choices.push(['sms','СМС — расходуется лимит филиала']);
+        if(branch)choices.push(['email','Email']);
+        channel.replaceChildren();
+        for(const [value,title] of choices){const option=element('option','',title);option.value=value;channel.append(option);}
+        if(choices.some(([value])=>value===selected))channel.value=selected;
+        send.disabled=!choices.length;if(send.disabled)send.checked=false;
+        channel.disabled=!send.checked||!choices.length;
+        if(emailInput)emailInput.required=send.checked&&channel.value==='email';
+        if(hint)hint.textContent=channel.value==='email'?'Укажите Email получателя. Письмо отправляется с адреса сервиса.':channel.value==='sms'?'SMS расходуют лимит тарифа и пакетов. Длинная ссылка может занимать несколько SMS-частей.':'Ссылка отправляется через подключённый сервис мессенджеров филиала.';
+    }
+    send.addEventListener('change',sync);channel.addEventListener('change',sync);branchSelector?.addEventListener('change',sync);
+    window.addEventListener('gatebot:branches-loaded',sync);sync();return sync;
 }
 
 function checkPasswordStrength() {
@@ -619,6 +675,7 @@ async function initializeBranchSettings() {
         logoUpload.disabled = creating;
         logoStatus.textContent = creating ? 'Сначала сохраните новый филиал, затем загрузите логотип.' : '';
         document.getElementById('settingsEnabled').checked = value.enabled === true;
+        document.getElementById('settingsSmsNotifications').checked = value.sms_notifications_enabled === true;
         rows.replaceChildren();
         (value.buttons || []).forEach(addRow);
         rows.querySelectorAll('input,select,button').forEach(control=>control.disabled=false);
@@ -680,6 +737,7 @@ async function initializeBranchSettings() {
                 name: document.getElementById('settingsName').value,
                 timezone: document.getElementById('settingsTimezone').value,
                 enabled: document.getElementById('settingsEnabled').checked,
+                sms_notifications_enabled:document.getElementById('settingsSmsNotifications').checked,
                 logo: document.getElementById('settingsLogo').value, buttons
             });
             creating = false;
@@ -706,6 +764,7 @@ function initialize() {
         if (nav && burger && !nav.contains(event.target) && !burger.contains(event.target)) nav.classList.remove('active');
     });
     if (document.getElementById('usersTableBody')) {
+        window.setInterval(refreshPassAges,60000);
         loadBranches();
         loadUsers();
         ['searchInput', 'filterBranch', 'filterStatus'].forEach(id => {
@@ -738,6 +797,7 @@ function initialize() {
         const expiryDays = document.getElementById('expiresDays');
         const send = document.getElementById('sendLink');
         const phone = document.getElementById('phone');
+        const syncDelivery=setupPassDelivery(send,document.getElementById('createDeliveryChannel'),document.getElementById('createDeliveryHint'),document.getElementById('branchId'),document.getElementById('clientEmail'));
         const syncInputs = () => {
             expiryDays.disabled = !expiry.checked;
             expiryDays.style.display = expiry.checked ? 'block' : 'none';
@@ -759,6 +819,7 @@ function initialize() {
                     email: document.getElementById('clientEmail').value,
                     branch_id: document.getElementById('branchId') ? Number(document.getElementById('branchId').value) : window.DEFAULT_BRANCH_ID,
                     send_link: send.checked,
+                    channel:document.getElementById('createDeliveryChannel').value||'auto',
                     expires_days: expiry.checked ? Number(expiryDays.value) : null
                 });
                 document.getElementById('generatedLink').value = fullLink(data.link);
@@ -767,6 +828,7 @@ function initialize() {
                 notifyDelivery(data.delivery);
                 createForm.reset();
                 syncInputs();
+                syncDelivery?.();
             } catch (error) { showAlert(error.message, 'error'); }
             finally { submit.disabled = false; }
         });
@@ -776,14 +838,17 @@ function initialize() {
         loadBranches();
         const send = document.getElementById('sendLinkCheckbox');
         const phone = document.getElementById('tempPhone');
+        const email=document.getElementById('tempEmail');
+        setupPassDelivery(send,document.getElementById('tempDeliveryChannel'),document.getElementById('tempDeliveryHint'),document.getElementById('tempBranch'),email);
         phone.required = true;
         createTemp.addEventListener('click', async () => {
             if(!phone.value.trim() || !phone.checkValidity()){phone.reportValidity();return;}
+            if(!email.checkValidity()){email.reportValidity();return;}
             createTemp.disabled = true;
             try {
                 const data = await post('/admin/api/create-temp-link', {
                     branch_id: document.getElementById('tempBranch') ? Number(document.getElementById('tempBranch').value) : window.DEFAULT_BRANCH_ID,
-                    phone: phone.value, send_link: send.checked
+                    phone: phone.value,email:email.value,send_link: send.checked,channel:document.getElementById('tempDeliveryChannel').value||'auto'
                 });
                 const link = fullLink(data.link);
                 await copyToClipboard(link, false);

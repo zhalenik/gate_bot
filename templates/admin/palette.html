@@ -1,15 +1,16 @@
 {% extends 'base.html' %}
 {% set admin_page = true %}
-{% block title %}Цвета интерфейса — GateBot{% endblock %}
+{% block title %}Цвета и логотип — GateBot{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/css/palette.css">{% endblock %}
 {% block content %}
 <main class="admin-container palette-page" id="palettePage" data-defaults="{{ 'true' if palette_defaults | default(false) else 'false' }}">
   <section class="admin-content">
     <div class="page-heading palette-heading">
-      <div><p class="page-eyebrow">GateBot · Настройки сервиса</p><h1>Цвета интерфейса</h1><p class="page-description">Общая палитра клиентских страниц и кабинетов. Выберите оттенок, проверьте его в предпросмотре и сохраните для всех филиалов.</p></div>
+      <div><p class="page-eyebrow">GateBot · Настройки сервиса</p><h1>Цвета и логотип</h1><p class="page-description">Оформление клиентских страниц и кабинетов. Логотип, иконка и палитра применяются ко всему сервису.</p></div>
       <span class="palette-total" id="paletteTotal">Загрузка…</span>
     </div>
     {% if palette_defaults | default(false) %}<div class="palette-notice">Редактор открыт в исходных цветах. Сохранённая палитра не применяется к этой странице, пока вы не включите предпросмотр.</div>{% endif %}
+    <section class="branding-panel" id="brandingPanel" aria-labelledby="brandingTitle"><h2 id="brandingTitle">Логотип и иконка приложения</h2><p>Логотип отображается в шапке сайта. Иконка используется во вкладке браузера и при добавлении GateBot на главный экран телефона. Настройки логотипов отдельных филиалов сохраняются отдельно.</p><div class="branding-grid"><form class="branding-card" data-branding-kind="logo"><h3>Логотип в шапке</h3><div class="branding-preview"><img id="brandingLogoPreview" src="{{ branding.logo_url if branding is defined else '/static/images/logo.svg' }}" alt="Текущий логотип"></div><label>Изображение логотипа<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" required></label><p>PNG, JPEG, WebP до 5 МБ или SVG до 512 КБ. Для шапки лучше подходит горизонтальный логотип.</p><div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить логотип</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартный логотип</button></div></form><form class="branding-card" data-branding-kind="icon"><h3>Иконка приложения</h3><div class="branding-preview is-icon"><img id="brandingIconPreview" src="{{ branding.icon_url if branding is defined else '/static/images/favicon.svg' }}" alt="Текущая иконка"></div><label>Изображение иконки<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" required></label><p>Выберите квадратное изображение. Версии для iPhone и Android создаются автоматически. В SVG текст нужно преобразовать в кривые.</p><div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить иконку</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартная иконка</button></div></form></div><p class="branding-notice" id="brandingNotice" role="status" aria-live="polite" hidden></p></section>
     <div id="paletteNotice" class="palette-notice" role="status" hidden></div>
     <div class="palette-toolbar">
       <div class="palette-save-state"><strong id="paletteChangeCount">Загружаем палитру</strong><span id="paletteSavedAt">Изменения появятся у всех после сохранения.</span></div>
@@ -44,4 +45,4 @@
 </main>
 <dialog id="paletteResetDialog" class="palette-reset-dialog"><h2>Вернуть стандартные цвета?</h2><p>Все настроенные цвета будут заменены исходной палитрой GateBot. Сначала вы увидите результат в предпросмотре; для публикации нажмите «Сохранить палитру».</p><div class="palette-dialog-actions"><button class="btn-action" type="button" id="paletteCancelReset">Оставить как есть</button><button class="btn-primary" type="button" id="paletteConfirmReset">Вернуть стандартные</button></div></dialog>
 {% endblock %}
-{% block scripts %}<script src="/static/js/palette.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/palette.js"></script><script src="/static/js/branding.js"></script>{% endblock %}

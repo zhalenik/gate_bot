@@ -1,5 +1,16 @@
 {% extends "base.html" %}
+{% set hide_admin_signin = true %}
+{% set centered_brand = true %}
 {% block title %}GateBot — доступ, который всегда рядом{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/landing.css">{% endblock %}
+{% block body_class %}landing-page{% endblock %}
 {% block content %}
-<main class="guest-container"><section class="guest-card"><span class="guest-symbol" aria-hidden="true"><img src="/static/images/favicon.svg" width="42" height="42" alt=""></span><p class="page-eyebrow">Парковка вашего филиала</p><h1>Доступ, который<br>всегда рядом.</h1><p>Открывайте ворота по персональной ссылке, QR-коду или в удобном мессенджере. Пропуск действует в сроки, назначенные вашим филиалом.</p><div class="landing-actions"><a href="/register-branch" class="btn-primary">Зарегистрировать филиал</a><a href="/admin/login" class="btn-action">Войти в кабинет</a></div></section><p class="guest-footer">Есть пропуск? Откройте ссылку, полученную от вашего филиала.</p></main>
+<main class="landing-shell">
+  <section class="landing-hero" aria-labelledby="landingTitle">
+    <div class="landing-copy"><p class="landing-eyebrow">Доступ для клиентов. Контроль для бизнеса.</p><h1 id="landingTitle">Ворота открываются.<br><span>Всё остальное —<br>под контролем.</span></h1><p class="landing-intro">Управляйте пропусками, открывайте въезд по ссылке или в мессенджере и смотрите историю в одном кабинете.</p><div class="landing-actions"><a href="/register-branch" class="btn-primary">Зарегистрировать филиал <span aria-hidden="true">↗</span></a><a href="/admin/login" class="btn-action">Войти</a></div><p class="landing-customer-note">Уже есть пропуск? Перейдите по персональной ссылке от вашего филиала.</p></div>
+    <aside class="landing-product" aria-label="Возможности GateBot"><div class="landing-product-top"><span class="landing-product-label">Ваш сервис доступа</span><span class="landing-product-dot" aria-hidden="true"></span></div><div class="landing-preview-title">Один пропуск.<br>Несколько способов войти.</div><div class="landing-method-list"><div><span class="landing-method-number">01</span><span><strong>Персональная ссылка</strong><small>Открытие ворот в браузере</small></span><span aria-hidden="true">↗</span></div><div><span class="landing-method-number">02</span><span><strong>Telegram и MAX</strong><small>Пропуск в привычном мессенджере</small></span><span aria-hidden="true">↗</span></div><div><span class="landing-method-number">03</span><span><strong>QR-код у въезда</strong><small>Доступ по номеру телефона</small></span><span aria-hidden="true">↗</span></div></div><div class="landing-product-footer"><span>Доступ действует<br>по правилам вашего филиала</span><span class="landing-product-seal">GB</span></div></aside>
+  </section>
+  <section class="landing-benefits" aria-label="Для вашего бизнеса"><article><span>Пропуска</span><h2>Нужным людям.<br>В нужное время.</h2><p>Постоянные и временные пропуска, гости и расписание работы — в одном месте.</p></article><article><span>Интеграция</span><h2>С YCLIENTS<br>или самостоятельно.</h2><p>Выдавайте доступ перед записью на услуги или управляйте клиентами без CRM.</p></article><article><span>Управление</span><h2>Каждый филиал —<br>под вашим контролем.</h2><p>Роли администраторов, уведомления и подробная история открываний.</p></article></section>
+  <footer class="landing-footer"><span>GateBot · доступ без лишних действий</span></footer>
+</main>
 {% endblock %}

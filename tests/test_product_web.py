@@ -71,7 +71,8 @@ def test_replaced_auth_and_revoked_role_apply_on_next_request(web):
 
 def test_super_gift_order_and_payment_stub(web):
     client,services=web;services['auth'].current={'is_super':True}
-    gift=client.post('/admin/api/subscriptions/gifts',json={'branch_id':123,'quota':300,'days':10,'mode':'replace'})
+    assert client.post('/admin/api/subscriptions/gifts',json={'branch_id':123,'quota':300,'days':10}).status_code==410
+    gift=client.post('/admin/api/subscriptions/gifts/tariff',json={'branch_id':123,'plan_id':'start','quota':300,'days':10,'mode':'replace','confirm_burn':True})
     assert gift.status_code==200
     assert client.get('/admin/subscription').status_code==302
     page=client.get('/admin/branch-plans')
@@ -79,7 +80,8 @@ def test_super_gift_order_and_payment_stub(web):
     for endpoint in ('quote','orders'):
         assert client.post('/admin/api/subscriptions/'+endpoint,json={'branch_id':123,'plan_id':'start','request_id':'example-order'}).status_code==403
     services['auth'].current={'is_super':False,'branch_id':123}
-    order=client.post('/admin/api/subscriptions/orders',json={'branch_id':123,'plan_id':'start','request_id':'example-order'})
+    offer=services['billing'].catalog.publish_offer({'filename':'offer.pdf','url':'/admin/billing-assets/'+'a'*32+'.pdf','sha256':'a'*64},actor='tester')
+    order=client.post('/admin/api/subscriptions/orders',json={'branch_id':123,'plan_id':'start','request_id':'example-order','offer_version':offer['id'],'accept_offer':True})
     assert order.status_code==201
     key=order.json['order']['id']
     assert client.post('/admin/api/subscriptions/orders/'+key+'/checkout',json={'branch_id':123}).json['status']=='payment_unavailable'

@@ -24,11 +24,16 @@
                 <input type="tel" id="tempPhone" name="tempPhone" placeholder="+7 ··· ··· ·· ··" required autocomplete="tel">
             </div>
             <div class="form-group">
+                <label for="tempEmail">Email гостя</label>
+                <input type="email" id="tempEmail" name="email" maxlength="254" autocomplete="email" placeholder="Для отправки ссылки по почте">
+            </div>
+            <div class="form-group">
                 <label>
                     <input type="checkbox" name="sendLink" id="sendLinkCheckbox">
                     Отправить ссылку
                 </label>
-                <small class="form-hint" style="display:block; margin-top:6px;">(Пользователю будет отправлена ссылка через сервис рассылки, если он подключен)</small>
+                <label for="tempDeliveryChannel">Канал отправки<select id="tempDeliveryChannel"><option value="messengers">Мессенджеры</option></select></label>
+                <small class="form-hint" id="tempDeliveryHint">Выберите доступный канал. SMS расходуют лимит филиала.</small>
             </div>
             
             <div style="margin-top: 10px;">

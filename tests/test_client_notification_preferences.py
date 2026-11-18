@@ -22,7 +22,7 @@ def test_legacy_chatpush_selection_migrates_without_repurposing_sms(identities,m
     monkeypatch.setattr(state.service,'_client_messengers_state',lambda *args:{'connected':True,'provider':'chatpush','reason':'ready'})
     store_legacy_preferences(state,{'chatpush':True,'sms':True,'telegram':False})
     prefs=state.service.prefs_for_token('example-client')
-    assert set(prefs['channels'])==set(CLIENT_CHANNELS)
+    assert set(prefs['channels'])==set(CLIENT_CHANNELS)-{'sms'}
     assert prefs['channels']['messengers'] and prefs['effective_channels']['messengers']
     assert 'chatpush' not in prefs['allowed_channels'] and 'sms' not in prefs['allowed_channels']
     store_legacy_preferences(state,{'sms':True})
@@ -74,9 +74,9 @@ def test_standalone_filters_messenger_option_before_provider_lookup(identities,m
     def unwanted_lookup(*args):raise AssertionError('Standalone must not resolve a messenger provider')
     monkeypatch.setattr(state.service,'_client_messengers_state',unwanted_lookup)
     prefs=state.service.prefs_for_token('example-client')
-    assert prefs['allowed_channels']==['email','telegram','max']
+    assert prefs['allowed_channels']==['email','telegram','max','push']
     for key in ('channels','connected','effective_channels'):
-        assert set(prefs[key])=={'email','telegram','max'}
+        assert set(prefs[key])=={'email','telegram','max','push'}
     assert 'messengers' not in prefs
     before=state.links.load_links()['example-client']
     with pytest.raises(ValueError):

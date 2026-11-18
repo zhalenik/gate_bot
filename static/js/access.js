@@ -6,7 +6,7 @@
     let hours=config.access_hours||{open:true};
     const text=(node,value)=>{node.textContent=value;};
     async function request(path,payload){
-        const response=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify(payload)});
+        let response;try{response=await fetch(path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify(payload)});}catch(error){window.GateBotPWA?.networkLost();throw error;}
         let data;try{data=await response.json();}catch{throw new Error('Нет ответа сервера');}
         return {response,data};
     }
@@ -19,12 +19,13 @@
         if(expires&&Date.now()>=expires)active=false;
         if(hours.next_change_at&&Date.now()>=Date.parse(hours.next_change_at)){hours={...hours,open:false,next_change_at:null};refresh();}
         const closed=hours.open===false;
-        $('gateActions').hidden=!active;
+        const disconnected=navigator.onLine===false||window.GateBotPWA?.online===false;
+        $('gateActions').hidden=!active||disconnected;
         $('accessBadge').textContent=closed?'Вне рабочих часов':active?'Действует':'Неактивен';$('accessBadge').classList.toggle('active',active&&!closed);
         $('accessHeading').textContent=closed?'Сейчас доступ закрыт':active?'Добро пожаловать':'Пропуск сейчас неактивен';
         $('accessDescription').textContent=closed?(hours.message||'Извините, доступ возможен только в рабочие часы. Вы можете связаться с администратором.'):active?'Откройте нужные ворота, когда будете рядом.':'За уточнениями обратитесь к администратору филиала.';
         const seconds=Math.max(0,Math.ceil((deadline-performance.now())/1000));
-        document.querySelectorAll('[data-button-id]').forEach(button=>button.disabled=pending||!active||closed||seconds>0);
+        document.querySelectorAll('[data-button-id]').forEach(button=>button.disabled=pending||!active||closed||seconds>0||disconnected);
         $('gateCooldown').hidden=!active||seconds===0;$('gateCooldown').textContent=seconds?`Следующее открытие через ${seconds} с`:'';
     }
     function applyState(state){
@@ -34,17 +35,17 @@
         if(state.expires_at){const server=state.server_time?new Date(state.server_time).getTime():Date.now();expires=Date.now()+new Date(state.expires_at).getTime()-server;}else expires=0;
         if(Number(state.retry_after)>0)deadline=Math.max(deadline,performance.now()+Number(state.retry_after)*1000);
         if(Array.isArray(state.buttons))applyButtons(state.buttons);
-        for(const [key,id] of [['preferences_url','preferencesLink'],['telegram_url','telegramLink'],['max_url','maxLink']]){const allowed=Boolean(state[key])&&(key!=='preferences_url'||!(state.is_temporary??config.is_temporary));$(id).hidden=!allowed;if(allowed)$(id).href=state[key];}
+        for(const [key,id] of [['preferences_url','preferencesLink'],['telegram_url','telegramLink'],['max_url','maxLink']]){const allowed=Boolean(state[key])&&(key!=='preferences_url'||!(state.is_temporary??config.is_temporary));$(id).hidden=!allowed;if(allowed)$(id).href=key==='preferences_url'&&window.GateBotPWA?.installed&&window.GateBotPWA.preferencesUrl?window.GateBotPWA.preferencesUrl:state[key];}
         render();
     }
     async function refresh(){
-        if(statusBusy)return;statusBusy=true;
+        if(statusBusy||navigator.onLine===false||window.GateBotPWA?.online===false)return;statusBusy=true;
         try{const {response,data}=await request('/api/access/status',{token:config.token});if(response.ok){if(connectionError){$('statusMessage').textContent='';connectionError=false;}applyState(data);}else{active=false;render();}}
         catch{connectionError=true;active=false;render();$('statusMessage').textContent='Не удалось обновить пропуск. Проверяем соединение…';$('statusMessage').className='status-message error';}
         finally{statusBusy=false;}
     }
     async function openGate(buttonId){
-        if(pending||!active||hours.open===false||performance.now()<deadline)return;
+        if(pending||!active||hours.open===false||performance.now()<deadline||navigator.onLine===false||window.GateBotPWA?.online===false)return;
         pending=true;deadline=performance.now()+Math.max(20,Number(config.cooldown)||20)*1000;render();text($('statusMessage'),'Отправляем команду…');$('statusMessage').className='status-message';
         try{
             const requestId=Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,'0')).join('');

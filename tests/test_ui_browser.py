@@ -149,7 +149,10 @@ def test_new_product_and_identity_pages_share_layout_and_remain_usable(web,brows
         if name=='subscription':
             expect(page.locator('#planCards')).to_have_count(0)
             expect(page.locator('#purchaseDialog')).to_have_count(0)
+            page.locator('#billingBranch').select_option('12')
+            page.locator('#openGift').click()
             expect(page.locator('#giftForm')).to_be_visible()
+            page.locator('#giftDialog [data-dismiss]').first.click()
         if name=='statistics':
             expect(page.locator('#statisticsSummary .stat-card')).to_have_count(6)
             grouping=page.locator('.product-filter-field').filter(has=page.locator('select[name=group_by]'))

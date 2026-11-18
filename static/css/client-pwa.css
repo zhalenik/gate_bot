@@ -1,0 +1,20 @@
+.client-install-card{display:grid;gap:14px;padding:20px;margin:20px auto 0;max-width:720px;border:1px solid var(--line);border-radius:22px;background:var(--surface);text-align:left}
+.client-install-card h2{margin:0;font-size:17px;color:var(--ink)}
+.client-install-card p,.client-pwa-dialog p{margin:0;font-size:14px;line-height:1.65;color:var(--muted)}
+.client-install-card button,.client-pwa-dialog button{min-height:46px;border-radius:13px;padding:12px 18px;font-size:14px}
+.client-pwa-dialog{width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 48px);overflow:auto;border:1px solid var(--line);border-radius:24px;padding:27px;background:var(--surface);color:var(--ink)}
+.client-pwa-dialog::backdrop{background:var(--gb-color-client-pwa-background-4f145797ac92, rgb(12 15 20 / .38))}
+.client-pwa-dialog h2{font-size:22px;line-height:1.3;margin:0 0 13px}
+.client-pwa-dialog ol{padding-left:22px;font-size:14px;line-height:1.8;margin:16px 0;color:var(--ink)}
+.client-pwa-dialog-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:22px}
+.client-pwa-dialog [role=status]{margin-top:15px;color:var(--ink);font-size:13px}
+.client-pwa-tabs{position:fixed;bottom:0;left:0;right:0;z-index:40;display:flex;justify-content:center;gap:8px;padding:10px max(14px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));background:var(--surface);border-top:1px solid var(--line)}
+.client-pwa-tabs a{display:flex;align-items:center;justify-content:center;gap:9px;width:min(210px,45%);min-height:48px;border-radius:14px;color:var(--muted);font-size:14px;font-weight:600;text-decoration:none}
+.client-pwa-tabs a[aria-current=page]{background:var(--milk);color:var(--ink)}
+.client-pwa-installed{padding-bottom:calc(86px + env(safe-area-inset-bottom))!important}
+.client-pwa-installed :is(button,input,a){scroll-margin-block:90px}
+.client-pwa-installed .access-main{padding-top:max(12px,env(safe-area-inset-top))}
+#clientOfflineNotice{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:var(--surface,var(--gb-color-client-pwa-background-c0c99b8eac90, #fff));color:var(--ink,var(--gb-color-client-pwa-color-97cb60e3f44a, #0c0f14));font:16px/1.6 system-ui,sans-serif;text-align:center}
+#clientOfflineNotice[hidden]{display:none}
+body.client-pwa-offline>*:not(#clientOfflineNotice){display:none!important}
+@media(max-width:480px){.client-pwa-dialog{padding:23px}.client-pwa-dialog-actions{flex-direction:column-reverse}.client-pwa-dialog-actions button{width:100%}.client-install-card{padding:18px}}

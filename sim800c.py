@@ -435,7 +435,7 @@ class Sim800Modem:
                 raise ModemError("serial_line_too_long")
         raise ModemError("sms_prompt_timeout")
 
-    def send_sms(self, phone, text, *, progress, not_after=None):
+    def send_sms(self, phone, text, *, progress, not_after=None, before_submit=None):
         from sms_submit import encode_submit
         pdus = encode_submit(phone, text)
         segments = [{"sequence": p['sequence'], "status": "pending"} for p in pdus]
@@ -458,6 +458,8 @@ class Sim800Modem:
                 try:
                     if self._stopping.is_set():
                         raise ModemError('stopping')
+                    if segment['sequence']==1 and before_submit is not None:
+                        before_submit()
                     segment['status'] = 'submitting'
                     progress([dict(p) for p in segments])  # durable claim before CTRL-Z
                     command = f"AT+CMGS={pdu['tpdu_length']}\r".encode('ascii')
@@ -658,7 +660,7 @@ class CallQueue:
 
     @staticmethod
     def _public(call):
-        return {k: v for k, v in call.items() if k not in {"phone", "deadline", "text", "segments", "locations", "source_id"}} | {
+        return {k: v for k, v in call.items() if k not in {"phone", "deadline", "text", "segments", "locations", "source_id", "_before_submit"}} | {
             "phone_masked": "***" + call["phone"][-4:]}
 
     def _cleanup_expired(self):
@@ -747,7 +749,7 @@ class CallQueue:
                     "message": "Тестовая команда выполнена" if self.dry_run else "Запрос добавлен в очередь"}
 
     def add_manual(self, kind, phone, *, text='', duration=20, record_id=None, locations=None, source_id=None,
-                   sensitive=False, priority=False, command_id=None):
+                   sensitive=False, priority=False, command_id=None, before_submit=None):
         # Admission is authorized by TelephonyService; shares the gate hardware worker.
         with self.lock:
             if self._closed or (not self.dry_run and not self.enabled):
@@ -760,6 +762,7 @@ class CallQueue:
             if len(self.queue) + bool(self.active) >= self.max_calls_in_queue:
                 return {"status": "error", "code": "queue_full", "message": "Очередь модема заполнена"}
             call = {"kind": kind, "phone": phone, "text": text, "duration": duration,
+                    "_before_submit": before_submit,
                     "locations": locations, "source_id": source_id,
                     "record_id": record_id, 'sensitive': sensitive, "branch_id": None,
                     "command_id": command_id or uuid.uuid4().hex,
@@ -802,8 +805,13 @@ class CallQueue:
                         call["segments"] = segments
                         if call.get('record_id'):
                             self.journal.update(call["record_id"], segments=segments)
-                    result = self.modem.send_sms(call["phone"], call["text"], progress=progress,
-                                                 not_after=call["deadline"])
+                    kwargs={'progress':progress,'not_after':call['deadline']}
+                    if call.get('_before_submit') is not None:
+                        def before_submit():
+                            if not call['_before_submit']():
+                                raise ModemError('authorization_expired')
+                        kwargs['before_submit']=before_submit
+                    result = self.modem.send_sms(call["phone"], call["text"], **kwargs)
                 else:
                     kwargs = {'not_after': call['deadline']}
                     if call.get('managed'):

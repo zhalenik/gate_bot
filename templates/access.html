@@ -4,6 +4,7 @@
 {% block title %}{{ branch_name }} — ваш пропуск{% endblock %}
 {% block body_class %}access-page{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/css/access.css">{% endblock %}
+{% block pwa_head %}{% include 'components/client_pwa_head.html' %}{% endblock %}
 {% block content %}
 <main class="access-main">
   <section class="pass-card" aria-label="Ваш пропуск">
@@ -24,9 +25,11 @@
     <a id="preferencesLink" class="preferences-link" href="{{ preferences_url | default('#', true) }}" {% if not preferences_url | default(false) or is_temporary | default(false) %}hidden{% endif %}>Настроить уведомления <span aria-hidden="true">›</span></a>
   </section>
   <p class="access-footer">Персональная ссылка — ваш ключ к пропуску.</p>
+  <div data-client-pwa-tools></div>
 </main>
 {% endblock %}
 {% block scripts %}
+{% include 'components/client_pwa_scripts.html' %}
 <script id="accessConfig" type="application/json">{{ {'token':token,'cooldown':timeout | default(20),'buttons':buttons,'expires_at':expires_at | default(none),'preferences_url':preferences_url | default(none),'is_temporary':is_temporary | default(false),'telegram_url':telegram_url,'max_url':max_url,'access_hours':working_hours} | tojson }}</script>
 <script src="/static/js/access.js"></script>
 {% endblock %}

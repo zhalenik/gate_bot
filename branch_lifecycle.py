@@ -37,6 +37,8 @@ class BranchLifecycleService:
         busy=False
         if 'hardware_commands' in tables:
             busy=bool(db.execute('SELECT 1 FROM hardware_commands WHERE branch_id=? AND status IN ("queued","started") LIMIT 1',(branch_id,)).fetchone())
+        if 'sms_billing_commands' in tables:
+            busy=busy or bool(db.execute('SELECT 1 FROM sms_billing_commands WHERE branch_id=? AND finished IS NULL LIMIT 1',(branch_id,)).fetchone())
         if 'message_outbox' in tables:
             busy=busy or bool(db.execute('SELECT 1 FROM message_outbox WHERE branch_id=? AND state="sending" LIMIT 1',(branch_id,)).fetchone())
         if 'message_effects' in tables:
@@ -124,7 +126,7 @@ class BranchLifecycleService:
                         remove('marketplace_attempts','intent_hash=?',(row['id_hash'],))
                         remove('marketplace_intents','id_hash=?',(row['id_hash'],))
 
-            triggers=[dict(row) for row in db.execute('SELECT name,sql FROM sqlite_master WHERE type="trigger" AND name IN ("quota_no_delete","product_events_no_delete","payments_no_delete")')]
+            triggers=[dict(row) for row in db.execute('SELECT name,sql FROM sqlite_master WHERE type="trigger" AND name IN ("quota_no_delete","sms_quota_no_delete","product_events_no_delete","payments_no_delete")')]
             for trigger in triggers:db.execute('DROP TRIGGER "'+trigger['name']+'"')
             if 'billing_periods' in tables:remove('quota_ledger','period_id IN (SELECT id FROM billing_periods WHERE branch_id=?)',(branch_id,))
             if 'billing_orders' in tables:remove('billing_payments','order_id IN (SELECT id FROM billing_orders WHERE branch_id=?)',(branch_id,))

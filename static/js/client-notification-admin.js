@@ -1,11 +1,13 @@
 'use strict';
 
-const CLIENT_CHANNEL_TITLES = {email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)'};
+const CLIENT_CHANNEL_TITLES = {email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)',sms:'СМС',push:'Push'};
 const CLIENT_CHANNEL_PATHS = {
     email:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/>',
     telegram:'<path d="m21 3-4 18-5-6-4 3 1-7L21 3 3 10l6 1m3 4 4-8"/>',
     max:'<path d="M5 18 3 21l6-1a9 9 0 1 0-4-2Z"/><path d="M8 15V9l4 4 4-4v6"/>',
-    messengers:'<path d="M13 16H7l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M10 18a3 3 0 0 0 3 3h4l4 2V12a3 3 0 0 0-3-3h-5a3 3 0 0 0-3 3Z"/>'
+    messengers:'<path d="M13 16H7l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6"/><path d="M10 18a3 3 0 0 0 3 3h4l4 2V12a3 3 0 0 0-3-3h-5a3 3 0 0 0-3 3Z"/>',
+    sms:'<path d="M4 4h16v13H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>',
+    push:'<path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Zm4 12h4"/>'
 };
 function clientChannelIcon(channel,className){const icon=element('span',className);icon.setAttribute('aria-hidden','true');icon.title=CLIENT_CHANNEL_TITLES[channel];icon.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+CLIENT_CHANNEL_PATHS[channel]+'</svg>';return icon;}
 
@@ -37,7 +39,7 @@ async function openClientNotifications(token) {
     function selected(channel,value){const choices=Object.fromEntries(allowed().map(key=>[key,Boolean(prefs.enabled&&prefs.channels[key])]));choices[channel]=value;return {enabled:value||prefs.enabled,channels:choices};}
     function closeConnection(){connecting=null;connection.hidden=true;connection.replaceChildren();}
     function syncTable(){const current=usersCache.find(item=>item.token===token);if(!current)return;current.mailing_enabled=prefs.enabled;current.email=prefs.email;current.notification_status={available:true,enabled:prefs.enabled,allowed_channels:prefs.allowed_channels,effective_channels:prefs.effective_channels};filterUsers();}
-    function setBusy(value){busy=value;for(const card of Object.values(cards))card.input.disabled=value;stop.disabled=value;for(const item of connection.querySelectorAll('input,button'))item.disabled=value;refreshButton.disabled=value;}
+    function setBusy(value){busy=value;for(const [channel,card] of Object.entries(cards))card.input.disabled=value||card.card.hidden||(channel==='push'&&!prefs?.connected.push);stop.disabled=value;for(const item of connection.querySelectorAll('input,button'))item.disabled=value;refreshButton.disabled=value;}
     function paint(){
         if(!prefs||!view.modal.isConnected)return;
         for(const channel of allowed()){
@@ -50,9 +52,10 @@ async function openClientNotifications(token) {
         const active=Boolean(prefs.enabled&&allowed().some(channel=>prefs.effective_channels[channel]));
         state.textContent=active?'Уведомления отправляются по включённым каналам.':'Выберите каналы для уведомлений о пропуске.';stop.hidden=!active;
         for(const [channel,card] of Object.entries(cards)){
-            card.card.hidden=!allowed().includes(channel);card.input.checked=Boolean(prefs.effective_channels[channel]);card.input.disabled=busy||card.card.hidden;
+            card.card.hidden=!allowed().includes(channel);card.input.checked=Boolean(prefs.effective_channels[channel]);card.input.disabled=busy||card.card.hidden||(channel==='push'&&!prefs.connected.push);
             const connected=!!prefs.connected[channel];card.description.textContent=connected?(card.input.checked?'Включено':'Выключено'):(channel==='messengers'?'Сервис рассылки пока недоступен':'Включите, чтобы подключить');
             if(channel==='email'&&prefs.email)card.description.textContent+=' · '+prefs.email;
+            if(channel==='push'&&!connected)card.description.textContent='Клиент подключает Push в установленном приложении';
         }
         if(connecting&&!allowed().includes(connecting))closeConnection();
         syncTable();
@@ -83,7 +86,8 @@ async function openClientNotifications(token) {
                 try{await save(selected(channel,true));setBusy(true);const result=await post('/admin/api/client-notifications/bot-link',{token,platform:channel});const box=element('div','link-box'),input=element('input');input.readOnly=true;input.value=result.link;input.setAttribute('aria-label','Ссылка для подключения клиента');box.append(input,iconButton('Копировать ссылку подключения','copy',()=>copyToClipboard(result.link)));connection.querySelector('.link-box')?.remove();connection.append(box);}
                 catch(error){tell(error.message,true);}finally{setBusy(false);}
             }));
-        }else connection.append(element('p','form-hint',prefs.messengers?.reason==='yclients_client_missing'?'У клиента нет ID YCLIENTS. Для отправки по телефону подключите ChatPush в настройках филиала.':'Подключите выбранный сервис рассылки в настройках филиала.'));
+        }else if(channel==='sms')connection.append(element('p','form-hint','Добавьте корректный телефон в карточку клиента. SMS расходуют лимит филиала.'));
+        else connection.append(element('p','form-hint',prefs.messengers?.reason==='yclients_client_missing'?'У клиента нет ID YCLIENTS. Для отправки по телефону подключите ChatPush в настройках филиала.':'Подключите выбранный сервис рассылки в настройках филиала.'));
         connection.append(button('Отмена',closeConnection));
     }
     function confirmUnsubscribe(){

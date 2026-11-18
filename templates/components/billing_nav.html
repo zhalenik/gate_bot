@@ -1,0 +1,4 @@
+<nav class="billing-nav" aria-label="Подписка и тарифы">
+{% for href,label in [('/admin/branch-plans' if is_super else '/admin/subscription','Тарифы филиалов' if is_super else 'Моя подписка'),('/admin/tariffs','Тарифы'),('/admin/packages','Пакеты')] %}<a href="{{ href }}" {% if request.path == href %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+<a href="/admin/billing-rules" {% if request.path == '/admin/billing-rules' %}aria-current="page"{% endif %}>Правила тарификации</a>
+</nav>

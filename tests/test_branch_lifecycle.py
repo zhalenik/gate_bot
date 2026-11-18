@@ -1,5 +1,6 @@
 """Confirmed local cascade; preserves other tenants and global super identity."""
 from datetime import datetime,timezone
+from pathlib import Path
 import json
 import sqlite3
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from gate_qr_service import GateQRService
 from product_notifications import ProductNotifications
 from storage.sql_documents import read_document,write_document
 from support_service import SupportService
+from telephony_store import TelephonyStore
 from test_identity_product import identities,PASSWORD
 from yclients_marketplace import MarketplaceService
 from storage import config
@@ -56,11 +58,17 @@ def test_cascade_all_branch_data_preserves_other_tenant_and_immutable_guards(ide
         s.billing.activate_trial(branch,at=at)
         result=s.billing.admit('request-'+branch,branch,'synthetic-person','gate',at=at)
         s.billing.finalize(result['command_id'],'command_sent',at=at)
-    order=s.billing.create_order('11','pro',actor='north',idempotency_key='delete-fixture-order',at=at)
+        assert s.billing.sms.reserve_sms(branch,'sms-'+branch,2,phone='+15550100999',at=at)['allowed']
+        s.billing.sms.finish_sms('sms-'+branch,'accepted',at=at)
+    offer=s.billing.catalog.publish_offer({'filename':'terms.pdf','url':'/admin/billing-assets/'+'a'*32+'.pdf','sha256':'a'*64},actor='owner',at=at)
+    order=s.billing.create_order('11','pro',actor='north',idempotency_key='delete-fixture-order',at=at,
+                                 offer_version=offer['id'],accept_offer=True)
     message=support.send('north','Synthetic question','support-request-1',branch_id='11')
     with s.product.connect() as db:
         db.execute('INSERT INTO billing_payments VALUES("synthetic-payment",?,350000,"RUB",0)',(order['id'],))
         db.execute('INSERT OR IGNORE INTO support_outbox VALUES("synthetic-support",?,"admin",?,"telegram","pending",0,0,0,NULL)',(message['message_id'],s.service.web_admin('owner')['person_id']))
+    s.billing.activate_test_tariff('11','start',actor='owner',idempotency_key='delete-test-activation',confirm_burn=True,at=at)
+    s.billing.cancel_subscription('11',actor='north',immediate=True,confirm_burn=True,at=at)
     result=delete(service)
     assert result['deleted'] and result['admins']==1 and result['clients']>=2
     assert s.branches.get_branch(11) is None and s.branches.get_branch(12)
@@ -69,13 +77,15 @@ def test_cascade_all_branch_data_preserves_other_tenant_and_immutable_guards(ide
     assert s.service.integration_credentials('11','chatpush')=={}
     assert s.service.integration_credentials('12','chatpush')['token']=='synthetic-other-token'
     with s.product.connect() as db:
-        for table in ('branch_clients','branch_memberships','identity_integrations','billing_accounts','billing_terms','billing_periods','hardware_commands','gate_requests','product_events','support_threads','appointment_schedule','gate_qr_links','client_branch_events'):
+        for table in ('branch_clients','branch_memberships','identity_integrations','billing_accounts','billing_terms','billing_periods','hardware_commands','gate_requests','product_events','support_threads','appointment_schedule','gate_qr_links','client_branch_events','billing_term_details','billing_consents','billing_cancelled_terms','billing_test_activations','sms_billing_commands','sms_quota_ledger'):
             assert db.execute('SELECT count(*) FROM '+table+' WHERE branch_id="11"').fetchone()[0]==0
         assert db.execute('SELECT 1 FROM persons WHERE id=?',(north,)).fetchone()
         assert db.execute('SELECT count(*) FROM marketplace_intents').fetchone()[0]==0
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
         assert db.execute('SELECT count(*) FROM quota_ledger').fetchone()[0]>0
+        assert db.execute('SELECT count(*) FROM sms_quota_ledger WHERE branch_id="12"').fetchone()[0]>0
         with pytest.raises(sqlite3.IntegrityError):db.execute('DELETE FROM quota_ledger')
+        with pytest.raises(sqlite3.IntegrityError):db.execute('DELETE FROM sms_quota_ledger')
         with pytest.raises(sqlite3.IntegrityError):db.execute('DELETE FROM product_events')
     s.service.import_legacy()
     assert s.branches.get_branch(11) is None and not s.auth.verify_admin('north',PASSWORD)
@@ -125,9 +135,11 @@ def test_inflight_direct_message_effect_blocks_deletion(identities, effect_state
 
 def test_queued_sms_blocks_deletion_until_modem_result_is_reconciled(identities, monkeypatch):
     s=identities;service=BranchLifecycleService(s.service)
-    notices=ProductNotifications(s.service,s.links,s.branches,s.billing)
+    s.billing.activate_trial('11')
+    journal=TelephonyStore(Path(s.product.path).parent/'telephony.json')
+    notices=ProductNotifications(s.service,s.links,s.branches,s.billing,telephony=journal)
     monkeypatch.setattr(config,'OUTBOUND_ENABLED',True)
-    queue=Mock();queue.dry_run=False;queue.journal.add.return_value='synthetic-record'
+    queue=Mock();queue.dry_run=False;queue.journal=journal
     queue.add_manual.return_value={'status':'success','delivery':'queued','command_id':'queued-sms'}
     queue.status.return_value={'recent':[]}
     monkeypatch.setattr('sim800c._get_queue',lambda:queue)
@@ -138,9 +150,10 @@ def test_queued_sms_blocks_deletion_until_modem_result_is_reconciled(identities,
     notices.reconcile_hardware()
     with pytest.raises(ValueError):delete(service)
     assert s.branches.get_branch(11)
-    queue.status.return_value={'recent':[{'command_id':'queued-sms','status':'command_sent'}]}
+    journal.update(result['record_id'],status='network_accepted',segments=[{'sequence':1,'status':'network_accepted'}])
+    queue.status.return_value={'recent':[{'command_id':'queued-sms','status':'network_accepted'}]}
     notices.reconcile_hardware()
-    assert notices.effect_status('sms','queued-confirmation')['status']=='command_sent'
+    assert notices.effect_status('sms','queued-confirmation')['status']=='network_accepted'
     assert delete(service)['deleted']
     assert queue.add_manual.call_count==1
 
@@ -197,6 +210,6 @@ def test_real_registration_otp_claim_remains_allowed_before_branch_creation(iden
     monkeypatch.setattr('sim800c._get_queue',lambda:queue)
     with s.product.connect() as db:
         db.execute('INSERT INTO identity_otp(id,subject,phone,code_hash,expires,state,created,ip_hash) VALUES("pending-registration","registration:synthetic","+15550100555","synthetic",9999999999,"sending",0,"synthetic")')
-    result=notices.send('sms','+15550100555','Synthetic test code',{'branch_id':'99','purpose':'otp','idempotency_key':'pending-registration'})
+    result=notices.send('sms','+15550100555','Synthetic test code',{'branch_id':'99','purpose':'otp','billing_exempt':'registration','idempotency_key':'pending-registration'})
     assert result['status']=='success'
     assert queue.add_manual.call_count==1

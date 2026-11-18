@@ -130,7 +130,7 @@ def doctor():
         notifications = {}
         problems.append('invalid_or_unreadable_notification_state')
     return {
-        'version': '0.2.0-alpha.11', 'python': platform.python_version(),
+        'version': '0.2.0-alpha.14', 'python': platform.python_version(),
         'os': platform.system(), 'packages': packages,
         'env_file_present': env_file_present,
         'admin_count': len(admins), 'branch_count': len(branches),

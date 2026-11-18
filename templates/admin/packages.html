@@ -1,0 +1,11 @@
+{% extends 'base.html' %}{% set admin_page = true %}
+{% block title %}Пакеты — GateBot{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/billing.css">{% endblock %}
+{% block content %}
+<main class="admin-container billing-page" id="billingCatalogPage" data-billing-page data-view="packages" data-super="{{ 'true' if is_super else 'false' }}">
+<div class="page-heading"><div><div class="page-eyebrow">GateBot · Ресурсы</div><h1>{{ 'Управление пакетами' if is_super else 'Больше звонков и SMS' }}</h1><p class="page-description">Единые пакеты для всех тарифов. Действуют до конца текущего периода и не переносятся на следующий.</p></div>{% if is_super %}<button type="button" class="btn-primary" id="createCatalogItem">Создать пакет</button>{% endif %}</div>
+{% include 'components/billing_nav.html' %}<div id="productNotice" role="status" aria-live="polite" hidden></div><div class="billing-catalog-context" id="catalogContext"></div>
+<div class="billing-catalog-toolbar"><div class="billing-tabs" role="group" aria-label="Тип пакета"><button type="button" data-package-filter="all" aria-pressed="true">Все пакеты</button><button type="button" data-package-filter="calls" aria-pressed="false">Звонки</button><button type="button" data-package-filter="sms" aria-pressed="false">SMS</button></div>{% if is_super %}<label class="billing-check billing-archive-toggle"><input type="checkbox" id="showArchived">Показать архивные <span id="archiveCount" class="badge"></span></label>{% endif %}</div>
+<section class="billing-catalog-grid" id="catalogCards" aria-label="Дополнительные пакеты"></section><section class="billing-catalog-note"><p>Пакет можно подключить только к действующему тарифу. Покупка пакета не меняет дату окончания тарифа. Для безлимитного ресурса дополнительный пакет не требуется.</p><a href="/admin/billing-rules">Как учитывается расход ресурсов ↗</a></section>
+{% include 'components/billing_dialogs.html' %}</main>{% endblock %}
+{% block scripts %}<script src="/static/js/billing.js"></script>{% endblock %}

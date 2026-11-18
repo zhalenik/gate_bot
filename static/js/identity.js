@@ -73,11 +73,12 @@
   submit(f,'Завершить регистрацию',async values=>{if(sending||!challenge||!ready)throw new Error('Сначала запросите SMS-код и дождитесь отправки');await post(registration?'/register-branch/complete':'/invite/'+data.token+'/accept',{...values,registration_token:registrationToken,challenge_id:challenge});finished=true;clearInterval(timer);clearInterval(poll);root.replaceChildren(element('p','','Регистрация завершена. Войдите с указанным email и паролем.'));const link=element('a','btn-primary','Войти');link.href='/admin/login'+(initial.marketplace?'?next=marketplace':'');root.append(link);});
  } else if(boot.kind==='preferences'){
   let prefs=data.preferences,busy=false,version=0,connecting=null;
-  const channelNames={email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)'},icons={email:'@',telegram:'TG',max:'M',messengers:'↗'},cards={};
+  const channelNames={email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)',sms:'СМС',push:'Push'},icons={email:'@',telegram:'TG',max:'M',messengers:'↗',sms:'SMS',push:'◉'},cards={};
   description.textContent=prefs.name+' · '+(prefs.phone || '');root.classList.add('client-preferences');
   const intro=element('p','page-description','Выберите, где получать ссылку на пропуск. Изменения сохраняются автоматически.'),state=element('p','preference-state'),list=element('div','preference-channels');state.id='clientMailingState';state.setAttribute('role','status');root.append(intro,state,list);
   const reasonText={client_id_missing:'Для этого клиента отправка через сервис филиала пока недоступна. Обратитесь к администратору.',credentials_missing:'Администратор ещё не подключил рассылку филиала.',not_configured:'Администратор ещё не подключил рассылку филиала.',chatpush_not_configured:'Администратор ещё не подключил рассылку филиала.',yclients_not_configured:'Администратор ещё не подключил рассылку филиала.',provider_unavailable:'Рассылка филиала пока недоступна.',unsupported_branch:'Рассылка филиала пока недоступна.'};
   function allowedChannels(){return prefs.allowed_channels||Object.keys(channelNames);}
+  function visibleChannels(){return allowedChannels().filter(channel=>channel!=='push'||window.GateBotPWA?.canPush);}
   function channelChange(channel,enabled){
    const channels=Object.fromEntries(allowedChannels().map(key=>[key,Boolean(prefs.enabled&&prefs.channels?.[key])]));
    channels[channel]=enabled;return {enabled:enabled||prefs.enabled,channels};
@@ -91,16 +92,23 @@
     return post(path,payload);
    }
   }
-  for(const [channel,title] of Object.entries(channelNames)){
-   if(!allowedChannels().includes(channel))continue;
+  function ensureCards(){for(const [channel,title] of Object.entries(channelNames)){
+   if(!visibleChannels().includes(channel)||cards[channel])continue;
    const card=element('section','preference-channel'),row=element('div','preference-channel-row'),icon=element('span','preference-channel-icon',icons[channel]),text=element('div','preference-channel-copy'),label=element('label','preference-channel-label',title),status=element('p','preference-channel-status'),input=element('input','preference-switch');
+   if(channel==='push')icon.innerHTML='<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Zm4 12h4"/></svg>';
    input.type='checkbox';input.name=channel;input.id='clientChannel-'+channel;input.setAttribute('role','switch');label.htmlFor=input.id;status.id=input.id+'-status';input.setAttribute('aria-describedby',status.id);icon.setAttribute('aria-hidden','true');text.append(label,status);row.append(icon,text,input);card.append(row);list.append(card);cards[channel]={card,input,status};
    input.addEventListener('change',async()=>{
     if(busy){paint();return;}const requested=input.checked;
+    if(channel==='push'&&requested){
+     const attempt=window.GateBotPWA.enablePush();setBusy(true);++version;
+     try{const result=await attempt;if(result.preferences)prefs=result.preferences;else await refresh();closeConnection();}
+     catch(error){tell(error.message,true);}finally{setBusy(false);}return;
+    }
     if(requested&&!prefs.connected?.[channel]){paint();openConnection(channel);return;}
     try{await save(channelChange(channel,requested));closeConnection();}catch(error){tell(error.message,true);paint();}
    });
-  }
+  }}
+  ensureCards();
   const connection=element('div','preference-connection');connection.hidden=true;connection.id='clientChannelConnection';list.append(connection);
   function closeConnection(){connecting=null;connection.hidden=true;connection.replaceChildren();}
   function openConnection(channel){
@@ -120,6 +128,8 @@
      await save(channelChange(channel,true));setBusy(true);++version;
      try{const result=await preferencePost('/preferences/'+data.token+'/bot-link',{platform:channel});location.assign(result.link);}finally{setBusy(false);}
     });
+   }else if(channel==='sms'){
+    connection.append(element('p','page-description','Номер телефона в карточке недоступен. Обратитесь к администратору филиала.'));
    }else{
     connection.append(element('p','page-description',reasonText[prefs.messengers?.reason]||'Рассылка через сервис филиала пока недоступна для вашего профиля. Обратитесь к администратору.'));
    }
@@ -133,14 +143,17 @@
   const dialogActions=element('div','preference-dialog-actions');confirmation.append(dialogActions);action(dialogActions,'Оставить уведомления',()=>confirmation.close());action(dialogActions,'Не получать уведомления',async()=>{await save({enabled:false});closeConnection();confirmation.close();tell('Вы отписались от уведомлений. Ссылка на пропуск продолжает работать.');});root.append(confirmation);
   function setBusy(value){busy=value;if(value){for(const card of Object.values(cards))card.input.disabled=true;unsubscribe.disabled=true;}else paint();for(const node of connection.querySelectorAll('input,button'))node.disabled=value;for(const node of confirmation.querySelectorAll('button'))node.disabled=value;}
   function paint(){
+   ensureCards();
    const allowed=allowedChannels(),active=Boolean(prefs.enabled&&allowed.some(channel=>prefs.channels?.[channel]&&prefs.connected?.[channel]));
    state.textContent=active?'Вы получаете уведомления по включённым каналам.':'Уведомления отключены. Включите нужный канал, чтобы получать ссылку на пропуск. Ваш пропуск и персональная ссылка сохраняются.';
    for(const [channel,card] of Object.entries(cards)){
-    card.card.hidden=!allowed.includes(channel);
-    const connected=Boolean(prefs.connected?.[channel]),selected=Boolean(prefs.channels?.[channel]);
+    card.card.hidden=!visibleChannels().includes(channel);
+    const connected=Boolean(prefs.connected?.[channel])&&(channel!=='push'||window.GateBotPWA?.deviceSubscribed),selected=Boolean(prefs.channels?.[channel]);
     card.input.checked=Boolean(prefs.enabled&&selected&&connected&&allowed.includes(channel));card.input.disabled=busy||!allowed.includes(channel);
     card.status.textContent=!prefs.enabled?'Уведомления отключены':connected?(selected?'Включено':'Выключено'):(channel==='messengers'?'Сервис филиала пока недоступен':selected?'Подключение не завершено':'Включите, чтобы подключить');
     if(channel==='email'&&connected)card.status.textContent+=(prefs.email?' · '+prefs.email:'');
+    if(channel==='sms'&&connected)card.status.textContent+=(prefs.phone?' · '+prefs.phone:'');
+    if(channel==='push')card.status.textContent=connected?(card.input.checked?'Включено на этом устройстве':'Выключено · можно включить на этом устройстве'):'Включите уведомления на этом устройстве';
     card.card.classList.toggle('preference-channel-active',card.input.checked);
    }
    unsubscribe.hidden=!active;unsubscribe.disabled=busy;
@@ -155,6 +168,7 @@
    try{const result=await api('/preferences/'+data.token+'/status');if(current!==version)return;prefs=result.preferences;paint();if(connecting&&prefs.effective_channels?.[connecting])closeConnection();}catch{}
   }
   addEventListener('focus',refresh);addEventListener('pageshow',event=>{if(event.persisted)refresh();});document.addEventListener('visibilitychange',refresh);paint();
+  addEventListener('gatebot:pwa-change',event=>{if(event.detail?.reason==='subscribed'&&event.detail.preferences)prefs=event.detail.preferences;paint();});
  } else if(boot.kind==='admin_preferences'){
   const prefs=data.preferences;if(prefs.requires_phone){root.append(element('p','','Сначала свяжите аккаунт с телефоном через консоль: admin.py --link-person --username LOGIN --phone PHONE'));return;}
   description.textContent='Email берётся из вашей карточки клиента. Подключите нужные каналы и выберите события для каждого из них.';

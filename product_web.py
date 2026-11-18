@@ -2,11 +2,12 @@
 import json
 import csv
 import io
+import os
 from functools import wraps
 from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, session
 
 from analytics_service import AnalyticsService
-from billing_service import BillingService, PLANS
+from billing_service import BillingService
 
 
 def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, render_admin=None, *, provider=None):
@@ -38,7 +39,7 @@ def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, re
     def allowed():
         value=admin()
         if value.get('is_super') is True:return None
-        return {str(x) for x in value.get('branch_ids',[]) or [value.get('branch_id')] if x is not None}
+        return {str(value['branch_id'])} if value.get('branch_id') is not None else set()
 
     def branch(value):
         if not isinstance(value,(int,str)) or isinstance(value,bool):abort(400,description='Выберите филиал')
@@ -100,13 +101,16 @@ def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, re
     def subscriptions_list():
         billing=service('billing')
         rows=[{'name':b.name,'operational':b.enabled,**billing.subscription_view(b.branch_id,timezone=b.timezone)} for b in visible_branches()]
-        return jsonify(branches=rows,plans=list(PLANS.values()))
+        is_super=admin().get('is_super') is True
+        return jsonify(branches=rows,test_activation_available=is_super and os.getenv('GATEBOT_ENV')=='development',
+                       **billing.catalog.list(include_archived=is_super,include_hidden=is_super))
 
     @bp.route('/admin/api/subscriptions/<branch_id>')
     @auth_required
     def subscription(branch_id):
         key=branch(branch_id);billing=service('billing')
-        return jsonify(subscription=billing.subscription_view(key),history=billing.history(key),plans=list(PLANS.values()))
+        return jsonify(subscription=billing.subscription_view(key),history=billing.history(key),
+                       **billing.catalog.list(include_archived=admin().get('is_super') is True,include_hidden=admin().get('is_super') is True))
 
     @bp.route('/admin/api/subscriptions/export')
     @auth_required
@@ -123,13 +127,16 @@ def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, re
     @auth_required
     def quote():
         purchaser()
-        data=body();return jsonify(service('billing').quote(branch(data.get('branch_id')),data.get('plan_id')))
+        data=body();return jsonify(service('billing').quote(branch(data.get('branch_id')),data.get('plan_id'),mode=data.get('mode','period_end')))
 
     @bp.route('/admin/api/subscriptions/orders',methods=['POST'])
     @auth_required
     def order():
         purchaser()
-        data=body();return jsonify(order=service('billing').create_order(branch(data.get('branch_id')),data.get('plan_id'),actor=session['admin_username'],idempotency_key=data.get('request_id'))),201
+        data=body();return jsonify(order=service('billing').create_order(branch(data.get('branch_id')),data.get('plan_id'),
+            actor=session['admin_username'],idempotency_key=data.get('request_id'),mode=data.get('mode','period_end'),
+            offer_version=data.get('offer_version'),accept_offer=data.get('accept_offer') is True,
+            auto_renew=data.get('auto_renew') is True,confirm_burn=data.get('confirm_burn') is True)),201
 
     @bp.route('/admin/api/subscriptions/orders/<order_id>/checkout',methods=['POST'])
     @auth_required
@@ -141,15 +148,12 @@ def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, re
     @bp.route('/admin/api/subscriptions/gifts/preview',methods=['POST'])
     @super_required
     def gift():
-        data=body()
-        return jsonify(gift=service('billing').grant_gift(branch(data.get('branch_id')),data.get('quota'),actor=session['admin_username'],
-            days=data.get('days'),starts_at=data.get('starts_at'),ends_at=data.get('ends_at'),mode=data.get('mode','extend'),reason=str(data.get('reason',''))[:1000],
-            preview=request.path.endswith('/preview'),confirm_shorten=data.get('confirm_shorten') is True))
+        return jsonify(status='error',message='Обновите страницу: подарки теперь оформляются из каталога тарифов и пакетов.'),410
 
     @bp.route('/admin/api/subscriptions/credits',methods=['POST'])
     @super_required
     def credit():
-        data=body();return jsonify(subscription=service('billing').add_quota(branch(data.get('branch_id')),data.get('amount'),actor=session['admin_username'],reason=str(data.get('reason',''))[:1000]))
+        return jsonify(status='error',message='Обновите страницу: дополнительная квота предоставляется подарком пакета.'),410
 
     @bp.route('/admin/api/subscriptions/suspend',methods=['POST'])
     @super_required
@@ -172,4 +176,8 @@ def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, re
         analytics=service('analytics');result=analytics.query(body(),allowed_branches=allowed())
         return Response(analytics.csv(result),mimetype='text/csv; charset=utf-8',headers={'Content-Disposition':'attachment; filename=gatebot-statistics.csv'})
 
+    from billing_portal_web import register_routes
+    register_routes(bp,service=service,auth_required=auth_required,super_required=super_required,
+        admin=admin,allowed=allowed,branch=branch,body=body,visible_branches=visible_branches,
+        render=render,purchaser=purchaser)
     return bp

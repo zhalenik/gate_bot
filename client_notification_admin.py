@@ -44,7 +44,7 @@ class ClientNotificationAdmin:
                 result[token] = {'available': False, 'enabled': False, 'effective_channels': {}, 'reason': 'guest'}
                 continue
             person_id = self.identity._client(db, token, client)
-            preferences = self.identity._prefs_for_client(db, person_id, str(client['branch_id']), client)
+            preferences = self.identity._prefs_for_client(db, person_id, str(client['branch_id']), client, client_token=token)
             result[token] = {'available': True, 'enabled': preferences['enabled'],
                              'effective_channels': preferences['effective_channels'],
                              'allowed_channels': preferences['allowed_channels']}

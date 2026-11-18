@@ -78,6 +78,30 @@ def test_standalone_has_no_messengers_and_no_unsubscribe_until_channel_active(we
     assert web.calls==[] and client_preferences.sent==[] and not errors
 
 
+def test_sms_optin_is_visible_only_for_enabled_branch_and_manual_guest_form(web,browser_ui,client_preferences):
+    from test_ui_browser import sign_in
+    page,origin,expect,errors=browser_ui;identity=client_preferences.identity
+    web.branches.update_settings(12,{'yclients_enabled':False})
+    page.goto(origin+'/preferences/'+web.token_a)
+    expect(page.locator('input[name=sms]')).to_have_count(0)
+    web.branches.update_settings(12,{'sms_notifications_enabled':True})
+    page.reload();toggle=page.get_by_role('switch',name='СМС',exact=True)
+    expect(toggle).not_to_be_checked()
+    with page.expect_response('**/preferences/'+web.token_a):toggle.check()
+    expect(toggle).to_be_checked()
+    assert identity.prefs_for_token(web.token_a)['effective_channels']['sms']
+    sign_in(page,origin,'tenant-a')
+    page.goto(origin+'/admin/temp-link')
+    expect(page.locator('#sendLinkCheckbox')).to_be_enabled()
+    expect(page.locator('#tempDeliveryChannel')).to_be_disabled()
+    page.locator('#sendLinkCheckbox').check()
+    expect(page.locator('#tempDeliveryChannel')).to_have_value('sms')
+    expect(page.locator('#tempDeliveryChannel')).to_be_enabled()
+    page.goto(origin+'/admin/settings')
+    expect(page.locator('#settingsSmsNotifications')).to_be_checked()
+    assert web.calls==[] and client_preferences.sent==[] and not errors
+
+
 def test_unsubscribe_recovers_expired_form_session_without_losing_access(web,browser_ui,client_preferences):
     page,origin,expect,errors=browser_ui;identity=client_preferences.identity
     web.links.bind_identity('telegram','81001',token=web.token_a)

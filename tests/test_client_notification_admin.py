@@ -30,7 +30,7 @@ def test_standalone_modal_schema_and_one_channel_resume(identities):
     state.links.bind_identity('telegram','72001',token='example-client')
     state.links.bind_identity('max','72002',token='example-client')
     prefs=service.get('north','example-client')
-    assert prefs['allowed_channels']==['email','telegram','max']
+    assert prefs['allowed_channels']==['email','telegram','max','push']
     with pytest.raises(ValueError):service.save('north','example-client',{'enabled':True,'channels':{'messengers':True}})
     service.save('north','example-client',{'enabled':False,'channels':{'telegram':True,'max':True}})
     prefs=service.save('north','example-client',{'enabled':True,'channels':{'max':True}})

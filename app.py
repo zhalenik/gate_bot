@@ -76,13 +76,23 @@ def _csrf_token():
 
 @app.context_processor
 def inject_context():
+    from branding import BrandingSettings
     admin = admin_auth.get_current_admin()
     branch_ids = {str(v) for v in (admin or {}).get('branch_ids', [])}
     choices = [{'id': str(b.branch_id), 'name': b.name} for b in branch_manager.get_all_branches()
                if str(b.branch_id) in branch_ids] if len(branch_ids) > 1 else []
     active_branch = branch_manager.get_branch((admin or {}).get('branch_id'))
+    pwa = None
+    if request.endpoint in {'open_barrier', 'identity.preferences_page', 'pwa_gate', 'pwa_preferences'}:
+        try:
+            pwa = product_services().pwa.metadata((request.view_args or {}).get('token', ''))
+            pwa.update(manifest_url=pwa['scope']+'manifest.webmanifest', allow_push=not pwa['guest'])
+        except (ValueError, PermissionError):
+            pass
     return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token,
-            'client_page': request.path.startswith(('/opn/', '/gate/', '/preferences/', '/verify-email/', '/unsubscribe')),
+            'branding': BrandingSettings(product_services().identity).public_view(),
+            'client_pwa': pwa,
+            'client_page': request.path.startswith(('/opn/', '/gate/', '/preferences/', '/pwa/', '/verify-email/', '/unsubscribe')),
             'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
             'admin_branch_choices': choices, 'active_branch_id': str((admin or {}).get('branch_id') or '')}
 
@@ -254,19 +264,45 @@ def _full_link(token):
     return base + url_for("open_barrier", token=token)
 
 
-def _send_link(phone, token, user):
+def _pass_delivery_channel(value):
+    if value not in ('auto','messengers','sms','email'):
+        abort(400,description='Выберите канал отправки ссылки')
+    return value
+
+
+def _send_link(phone, token, user, channel='auto'):
     if not config.OUTBOUND_ENABLED:
         return {"status": "disabled", "message": "Отправка уведомлений отключена"}
     try:
         branch = branch_manager.get_branch(user.get('branch_id'))
-        if branch is not None and not branch.yclients_enabled:
+        if branch is None:
+            return {'status':'unavailable','message':'Филиал недоступен'}
+        if channel=='auto':
+            channel='messengers' if branch.yclients_enabled else 'sms'
+        if channel=='email':
+            email=_client_email(user.get('email',''))
+            if not email:
+                return {'status':'unavailable','message':'Укажите Email в карточке клиента для отправки ссылки.'}
+            result=product_services().notifications.send('email',email,
+                'Ваш пропуск GateBot: '+_full_link(token),
+                {'branch_id':str(branch.branch_id),'event':'manual_pass','client_token':token,
+                 'idempotency_key':secrets.token_hex(16)})
+            if result.get('status') in {'success','accepted','sent'}:
+                return {'status':'sent','message':'Письмо со ссылкой принято почтовым сервисом'}
+            return {'status':'unknown' if result.get('status')=='unknown' else 'failed',
+                    'message':result.get('message') or 'Не удалось отправить письмо. Проверьте Email и настройку почты сервиса.'}
+        if channel=='sms':
+            if not getattr(branch,'sms_notifications_enabled',False):
+                return {'status':'unavailable','message':'SMS-уведомления выключены в настройках филиала'}
             result = product_services().notifications.send('sms', phone,
                 'Ваш пропуск GateBot: ' + _full_link(token),
                 {'branch_id': str(branch.branch_id), 'event': 'manual_pass',
+                 'client_token': token, 'preference_channel':'sms',
                  'idempotency_key': secrets.token_hex(16)})
             if result.get('status') in {'success', 'accepted', 'sent'} and result.get('delivery') != 'simulated':
                 return {'status': 'sent', 'message': 'SMS принята в очередь отправки'}
-            return {'status': 'failed', 'message': 'SMS не отправлена: проверьте модем и разрешение исходящих сообщений'}
+            return {'status': 'unknown' if result.get('status')=='unknown' else 'failed',
+                    'message':result.get('message') or 'SMS не отправлена: проверьте остаток SMS, модем и разрешение исходящих сообщений'}
         from messenger_service import MessengerService
         services = product_services()
         with services.store.connect() as db:
@@ -313,7 +349,7 @@ def open_barrier(token):
                     contacts.append({"label": button.label, "phone": phone})
             return render_template("403.html", branch_name=branch.name, admin_contacts=contacts,
                                    access_hours=access_hours_state(branch_manager,branch.branch_id),
-                                   preferences_url=None if known_user.get('is_temporary') else '/preferences/' + token,
+                                   preferences_url=None if known_user.get('is_temporary') else _client_preferences_url(token),
                                    is_temporary=bool(known_user.get('is_temporary')),
                                    client_page=True), 403
         abort(403)
@@ -343,9 +379,56 @@ def open_barrier(token):
                            token=token, timeout=config.timeout,
                            expires_at=None if user.get('admin_role_active') else user.get('access_expires'),
                            is_temporary=bool(user.get('is_temporary')),
-                           preferences_url=None if user.get('is_temporary') else '/preferences/' + token,
+                           preferences_url=None if user.get('is_temporary') else _client_preferences_url(token),
                            telegram_url=bot_url("t.me", config.BOT_USERNAME),
                            max_url=bot_url("max.ru", config.MAX_BOT_USERNAME))
+
+
+def _client_preferences_url(token):
+    return '/pwa/' + token + '/preferences' if request.endpoint == 'pwa_gate' else '/preferences/' + token
+
+
+@app.get('/pwa/<token>/gate')
+def pwa_gate(token):
+    return open_barrier(token)
+
+
+@app.get('/pwa/<token>/preferences')
+def pwa_preferences(token):
+    # Reuse the same identity and permissions as the ordinary preferences page.
+    try:
+        return app.view_functions['identity.preferences_page'](token)
+    except (ValueError, PermissionError):
+        abort(403)
+
+
+@app.get('/pwa/<token>/manifest.webmanifest')
+def pwa_manifest(token):
+    from branding import BrandingSettings
+    try:
+        metadata = product_services().pwa.metadata(_token(token))
+    except (ValueError, PermissionError):
+        abort(404)
+    brand = BrandingSettings(product_services().identity).public_view()
+    manifest = {'id': metadata['scope'], 'name': 'GateBot · ' + metadata['branch_name'][:100],
+                'short_name': 'GateBot', 'lang': 'ru', 'dir': 'ltr',
+                'description': 'Ваш пропуск и настройки уведомлений',
+                'start_url': metadata['gate_url'], 'scope': metadata['scope'],
+                'display': 'standalone', 'background_color': '#EFF0E8', 'theme_color': '#FFFFFF',
+                'prefer_related_applications': False, 'categories': ['utilities'],
+                'icons': [{'src': brand['icon192_url'], 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+                          {'src': brand['icon512_url'], 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'}]}
+    if metadata['preferences_url']:
+        manifest['shortcuts'] = [{'name': 'Настройки уведомлений', 'short_name': 'Уведомления',
+                                  'url': metadata['preferences_url']}]
+    return Response(json.dumps(manifest, ensure_ascii=False), mimetype='application/manifest+json')
+
+
+@app.get('/pwa/sw.js')
+def pwa_worker():
+    response = send_file(os.path.join(app.static_folder, 'pwa', 'sw.js'), mimetype='application/javascript')
+    response.headers['Service-Worker-Allowed'] = '/pwa/'
+    return response
 
 
 @app.route("/open-gate", methods=["POST"])
@@ -680,6 +763,7 @@ def _public_branch_settings(branch):
         "branch_id": branch.branch_id, "name": branch.name, "timezone": branch.timezone,
         "enabled": branch.enabled, "logo": branch.logo,
         "yclients_enabled": branch.yclients_enabled, "id_origin": branch.id_origin,
+        "sms_notifications_enabled": getattr(branch,'sms_notifications_enabled',False),
         "hardware_routes_verified": raw.get('hardware_routes_verified', True),
         "buttons": [{"type": button.type, "label": button.label, "phone": button.phone,
                      "stable_id": button.stable_id}
@@ -711,7 +795,7 @@ def api_branch_settings():
         branch = _choose_branch(value)
         return jsonify(settings=_public_branch_settings(branch))
     data = _json_body()
-    allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons", "yclients_enabled"}
+    allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons", "yclients_enabled", "sms_notifications_enabled"}
     if set(data) - allowed:
         abort(400, description="Недопустимые поля настроек филиала")
     create = _boolean(data.get("create", False), "Создать филиал")
@@ -760,7 +844,8 @@ def api_branch_settings():
     settings = {"name": _text(data.get("name"), "Название филиала", required=True),
                 "timezone": zone, "enabled": _boolean(data.get("enabled"), "Филиал активен"),
                 "logo": _logo_url(data.get("logo")), "buttons": validated_buttons,
-                "yclients_enabled": yclients_enabled}
+                "yclients_enabled": yclients_enabled,
+                "sms_notifications_enabled": _boolean(data.get('sms_notifications_enabled',raw_branch.get('sms_notifications_enabled',False)), 'Разрешить SMS-уведомления')}
     try:
         if create:
             billing = product_services().billing
@@ -801,6 +886,7 @@ def _users_in_scope():
 @app.route("/admin/api/users")
 @admin_auth.require_auth
 def api_get_users():
+    from storage.pass_changes import changed_at
     users = []
     branch_states = branch_manager.load_branches()
     for user in _users_in_scope():
@@ -818,6 +904,7 @@ def api_get_users():
             except (ValueError, TypeError):
                 days, active = None, False
         user.update(branch_name=branch.name if branch else "Филиал не настроен",
+                    pass_changed_at=changed_at(user),
                     access_expires_days=days, gate_access=active,
                     access_available=bool(active and branch is not None and branch.enabled),
                     branch_access_reason=('branch_missing' if branch is None else
@@ -826,6 +913,7 @@ def api_get_users():
                     has_bot=bool(user.get("tg_id") or user.get("max_id")),
                     has_telegram=bool(user.get("tg_id")), has_max=bool(user.get("max_id")),
                     yclients_enabled=bool(branch and branch.yclients_enabled),
+                    sms_notifications_enabled=bool(branch and getattr(branch,'sms_notifications_enabled',False)),
                     has_yclients=user.get("id_ycl") not in (None, ""))
         users.append(user)
     if is_sql_active(link_manager.store.path.parent):
@@ -843,6 +931,7 @@ def api_get_users():
         # create a second SQL writer just to render notification controls.
         for user in users:
             user['notification_status']={'available':False,'enabled':False,'effective_channels':{},'reason':'startup_required'}
+    users.sort(key=lambda user:(user.get('pass_changed_at') or '',user['token']),reverse=True)
     return jsonify(users=users)
 
 
@@ -850,7 +939,8 @@ def api_get_users():
 @admin_auth.require_auth
 def api_get_branches():
     scope = _scope()
-    return jsonify(branches=[{"id": b.branch_id, "name": b.name, "yclients_enabled": b.yclients_enabled}
+    return jsonify(branches=[{"id": b.branch_id, "name": b.name, "yclients_enabled": b.yclients_enabled,
+                              "sms_notifications_enabled":getattr(b,'sms_notifications_enabled',False)}
                              for b in branch_manager.get_all_branches()
                              if scope is None or str(b.branch_id) == str(scope)])
 
@@ -892,12 +982,15 @@ def api_create_link():
             "email": _client_email(data.get("email", "")),
             "mailing_enabled": False, "gate_access": True, "access_source": "manual"}
     send = _boolean(data.get("send_link", False), "Отправить ссылку")
+    channel = _pass_delivery_channel(data.get('channel','auto'))
+    if send and channel=='email' and not user['email']:
+        abort(400,description='Укажите Email для отправки ссылки')
     if not user["phone"]:
         abort(400, description="Номер телефона клиента обязателен")
     days = _days(data.get("expires_days"))
     token = link_manager.create_link(user, expires_days=days)
     _audit("CREATE_LINK", branch.branch_id, expires_days=days)
-    delivery = _send_link(user["phone"], token, user) if send else {"status": "not_requested"}
+    delivery = _send_link(user["phone"], token, user, channel) if send else {"status": "not_requested"}
     return jsonify(status="success" if delivery["status"] in {"sent", "not_requested"} else "partial",
                    created=True, token=token, link=url_for("open_barrier", token=token), delivery=delivery)
 
@@ -909,15 +1002,19 @@ def api_create_temp_link():
     branch = _choose_branch(data.get("branch_id"))
     phone = _phone(data.get("phone"))
     send = _boolean(data.get("send_link", False), "Отправить ссылку")
+    channel = _pass_delivery_channel(data.get('channel','auto'))
+    email=_client_email(data.get('email',''))
+    if send and channel=='email' and not email:
+        abort(400,description='Укажите Email для отправки ссылки')
     if not phone:
         abort(400, description="Номер телефона клиента обязателен")
-    user = {"user_name": "Гость", "phone": phone, "branch_id": branch.branch_id,
+    user = {"user_name": "Гость", "phone": phone, "email":email, "branch_id": branch.branch_id,
             "mailing_enabled": False, "gate_access": True, "is_temporary": True,
             "access_source": "manual"}
     expiry = end_of_day(tz=getattr(branch, "timezone", None) or config.TIMEZONE)
     token = link_manager.create_link(user, expires_at=expiry)
     _audit("CREATE_TEMP_LINK", branch.branch_id, expires_at=expiry.isoformat())
-    delivery = _send_link(phone, token, user) if send else {"status": "not_requested"}
+    delivery = _send_link(phone, token, user, channel) if send else {"status": "not_requested"}
     return jsonify(status="success" if delivery["status"] in {"sent", "not_requested"} else "partial",
                    created=True, token=token, link=url_for("open_barrier", token=token), delivery=delivery)
 
@@ -926,13 +1023,15 @@ def api_create_temp_link():
 @admin_auth.require_auth
 def api_send_link():
     data = _json_body()
+    channel = _pass_delivery_channel(data.get('channel','auto'))
     token, user = _scoped_link(data.get("token"))
     phone = _phone(data.get("phone", user.get("phone")))
     if not phone:
         abort(400, description="Для отправки нужен номер телефона")
     if "phone" in data and phone != user.get("phone"):
         link_manager.set_user_phone(token, phone)
-    result = _send_link(phone, token, user)
+        user=link_manager.load_links()[token]
+    result = _send_link(phone, token, user, channel)
     _audit("SEND_LINK", user["branch_id"], delivery_status=result["status"])
     ok = result["status"] == "sent"
     return jsonify(status="success" if ok else "error", phone=phone,
@@ -1237,6 +1336,10 @@ from gate_qr_web import create_blueprint as gate_qr_blueprint
 from password_recovery_web import create_blueprint as password_recovery_blueprint
 from help_support_web import create_blueprint as help_support_blueprint
 from palette_web import create_blueprint as palette_blueprint
+from branding import create_blueprint as branding_blueprint
+from pwa_web import create_blueprint as pwa_blueprint
+app.register_blueprint(branding_blueprint(product_provider))
+app.register_blueprint(pwa_blueprint(product_provider))
 app.register_blueprint(palette_blueprint(product_provider))
 app.register_blueprint(password_recovery_blueprint(product_provider))
 app.register_blueprint(help_support_blueprint(product_provider))

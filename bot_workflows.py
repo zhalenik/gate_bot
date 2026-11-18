@@ -57,6 +57,24 @@ class BotWorkflows:
             self._set(platform, user_id, {})
             return {'text': 'Действие отменено', 'actions': []}
         admin = self._admin(platform, user_id)
+        match=re.fullmatch(r'x:sms:([a-f0-9]{24})',value)
+        if match:
+            dialog=self._get(platform,user_id)
+            if dialog.get('phase')!='sms_offer' or dialog.get('nonce')!=match[1]:
+                raise ValueError('Предложение отправки истекло. Откройте пропуск в кабинете')
+            branch_id=dialog['branch_id'];self._admin(platform,user_id,branch_id)
+            branch=self.access.branches.get_branch(branch_id)
+            client=self.access.links.load_links().get(dialog['token'])
+            if (not client or str(client.get('branch_id'))!=str(branch_id) or
+                    not access_is_active(client) or not getattr(branch,'sms_notifications_enabled',False)):
+                raise ValueError('SMS или пропуск больше недоступны для этого филиала')
+            self._set(platform,user_id,{})
+            result=self.access.identity._send('sms',client['phone'],'Ваш пропуск GateBot: '+config.BASE_URL+'/opn/'+dialog['token'],
+                {'branch_id':str(branch_id),'client_token':dialog['token'],'preference_channel':'sms',
+                 'event':'manual_pass','idempotency_key':'bot-pass-sms:'+platform+':'+str(user_id)+':'+match[1]})
+            accepted=result.get('status') in {'success','accepted','sent','queued','network_accepted'} and result.get('delivery')!='simulated'
+            return {'text':'Ссылка принята в очередь SMS.' if accepted else result.get('message') or 'Отправку SMS не удалось подтвердить. Проверьте остаток SMS и связь в кабинете.',
+                    'actions':[{'label':'К филиалу','callback':'x:branch:'+str(branch_id)}]}
         match=re.fullmatch(r'x:(support|ticket|reply|close):([0-9]{1,18})',value)
         if match:
             support=getattr(self.access,'support',None)
@@ -152,8 +170,13 @@ class BotWorkflows:
                 token = self.access.links.create_link({'branch_id': int(branch_id), 'phone': phone,
                     'user_name': 'Гость', 'gate_access': True, 'is_temporary': True, 'mailing_enabled': False}, expires_at=expiry)
             self.access._emit('access_changed', branch_id, client_name='Пропуск выдан администратором', event_id=match[1])
+            actions=[{'label': 'К филиалу', 'callback': 'x:branch:' + branch_id}]
+            if getattr(branch,'sms_notifications_enabled',False):
+                nonce=uuid.uuid4().hex[:24]
+                self._set(platform,user_id,{'phase':'sms_offer','branch_id':branch_id,'token':token,'nonce':nonce,'expires':time.time()+300})
+                actions.insert(0,{'label':'Отправить ссылку по СМС','callback':'x:sms:'+nonce})
             return {'text': 'Пропуск готов. Уведомление отправляется по настройкам клиента.\n' + config.BASE_URL + '/opn/' + token,
-                    'actions': [{'label': 'К филиалу', 'callback': 'x:branch:' + branch_id}]}
+                    'actions': actions}
         raise ValueError('Действие устарело. Откройте меню')
 
     def message(self, platform, user_id, text):
@@ -161,6 +184,10 @@ class BotWorkflows:
         if not dialog:
             return None
         self._admin(platform, user_id, dialog.get('branch_id'))
+        if dialog.get('phase')=='sms_offer':
+            return {'text':'Ссылка на пропуск уже создана. Для отправки SMS нажмите кнопку; расходуется лимит филиала.',
+                    'actions':[{'label':'Отправить ссылку по СМС','callback':'x:sms:'+dialog['nonce']},
+                               {'label':'Отмена','callback':'x:cancel'}]}
         if dialog.get('phase')=='support_reply':
             support=getattr(self.access,'support',None)
             if support is None:raise ValueError('Поддержка пока недоступна')

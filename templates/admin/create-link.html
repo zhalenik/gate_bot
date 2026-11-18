@@ -45,7 +45,8 @@
                             <input type="checkbox" name="sendLink" id="sendLink">
                             Отправить ссылку
                         </label>
-                        <small class="form-hint">(Пользователю будет отправлена ссылка через сервис рассылки, если он подключен)</small>
+                        <label for="createDeliveryChannel">Канал отправки<select id="createDeliveryChannel"><option value="messengers">Мессенджеры</option></select></label>
+                        <small class="form-hint" id="createDeliveryHint">Выберите доступный канал. SMS расходуют лимит филиала.</small>
                     </div>
                     
                     <button type="submit" class="btn-primary">Добавить пользователя</button>

@@ -59,6 +59,13 @@ def sync_client_index(db, links, previous=None):
             if not current or str(current.get('branch_id')) != str(old.get('branch_id')) or normalize_phone(current.get('phone')) != normalize_phone(old.get('phone')):
                 db.execute('UPDATE gate_qr_devices SET revoked=1 WHERE client_token=?', (token,))
                 db.execute('UPDATE identity_otp SET state="superseded" WHERE id IN (SELECT challenge_id FROM gate_qr_challenges WHERE client_token=?) AND state IN ("sending","ready")', (token,))
+    if db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="pwa_subscriptions"').fetchone():
+        for token, old in previous.items():
+            current = links.get(token)
+            if not current or str(current.get('branch_id')) != str(old.get('branch_id')) or normalize_phone(current.get('phone')) != normalize_phone(old.get('phone')):
+                # Native notification permission belongs to this exact client
+                # identity. A phone restored later must not revive an old device.
+                db.execute('DELETE FROM pwa_subscriptions WHERE client_token=?', (token,))
     from yclients_client_sync_jobs import enqueue_client_changes
     enqueue_client_changes(db, links, previous)
 

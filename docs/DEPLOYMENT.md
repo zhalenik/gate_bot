@@ -1,6 +1,40 @@
 # Контейнер, TrueNAS и Nginx Proxy Manager
 
-Этот документ описывает подготовленный следующий контур. Первичная приёмка выполняется на Windows в polling. Dockerfile/Compose и YAML-шаблон не являются подтверждением запуска на конкретном TrueNAS или публикации образа.
+Первичная приёмка выполняется на Windows в polling. Образ `gatebot:0.2.0-alpha.14` собран локально для `linux/amd64`; запуск на конкретном TrueNAS, домен и доставка Push принимаются отдельно. Образ пока не опубликован в контейнерном registry.
+
+## Испытания на bot.zhvakin.space
+
+Для этого домена подготовлен отдельный `compose.server.yaml`. Он использует тот же образ, отдельную приватную `.env.server`, HTTPS `BASE_URL`, secure cookies и сеть `gatebot_proxy`. Windows `.env` не меняется. `Dockerfile` включает каталог `resources`, необходимый редактору палитры. Обычный `compose.yaml` сохраняет локальный сценарий.
+
+На сервере создайте `.env.server` из `examples/server.env.example`, задайте собственный `SECRET_KEY` и нужные глобальные credentials. Пример выключает внешние отправки, CRM, ботов и физический модем для первого запуска. Для испытания Push включите `OUTBOUND_ENABLED=true` после проверки существующих настроек других каналов. Серверная среда для этого этапа явно `development`: тестовое подключение тарифов доступно, реальные платежи отсутствуют. Перед промышленным запуском переключите её в `production`.
+
+Сохранённые системные параметры имеют приоритет над Compose. Перед переносом сбросьте к источнику «Окружение» платформенные overrides `GATEBOT_DATA_DIR`, `GATEBOT_LOG_DIR`, `HOST`, `PORT`, `BASE_URL`, `SESSION_COOKIE_SECURE`, `SIM800_PORT`, `MAX_CA_BUNDLE`. Тогда локальная `.env` продолжает задавать Windows-параметры, а `.env.server` и Compose — серверные. Проверьте также окружение и исходящие переключатели: старое сохранённое значение не должно неожиданно включить другой режим. Не удаляйте зашифрованные системные настройки и их ключ.
+
+Подготовьте согласованную копию состояния при остановленном runtime: весь `data` вместе с SQLite и `integration.key`, приватными логотипами/офертами и телефонией; отдельно пару `private/system-config/settings.enc` + `settings.key`. Эти каталоги на сервере должны быть доступны UID/GID 568. Для переноса SQLite с работающего процесса нужен штатный SQLite backup, а не копирование одного файла без WAL. Не запускайте две копии бота с одним polling-токеном или одним модемом.
+
+```sh
+docker compose --env-file .env.server -f compose.server.yaml config --quiet
+docker compose --env-file .env.server -f compose.server.yaml build
+docker compose --env-file .env.server -f compose.server.yaml up -d
+docker compose --env-file .env.server -f compose.server.yaml logs --tail 100 gatebot
+```
+
+В Nginx Proxy Manager подключите контейнер прокси к сети `gatebot_proxy`, затем создайте Proxy Host `bot.zhvakin.space` → scheme `http`, hostname `gatebot`, port `5000`. Назначьте действующий сертификат для домена и включите Force SSL. Укажите DNS домена на сервер. Не включайте Cache Assets/CDN-кеширование для `/pwa/`, `/opn/`, `/preferences/`, `/open-gate` и клиентских API. Для PWA не нужны WebSocket и отдельный входящий Push webhook: браузер использует собственную push-службу, сервер делает исходящий HTTPS-запрос к ней.
+
+Порт 30550 в этом Compose доступен только с localhost сервера; интернет-трафик идёт через NPM. Если NPM работает отдельно от Docker-сети, используйте существующий внутренний маршрут сервера и ограничьте доступ к порту сетевыми правилами вместо публикации его в Интернет. В TrueNAS аналогичные домен, secure cookie и данные задаются в YAML Custom App; имя dataset/устройства остаётся параметром конкретного сервера.
+
+После запуска проверьте `/healthz`, вход администратора, палитру/бренд, персональную страницу и [мобильную приёмку PWA](PWA.md). VAPID и подписки хранятся в `/state/application.sqlite3` с шифрованием через `/state/integration.key`; постоянный volume обязателен. Локальная сборка не подтверждает доступность домена и Push на физическом телефоне.
+
+## Перенос готового образа
+
+Для `0.2.0-alpha.14` подготовлен локальный архив `private/releases/gatebot-0.2.0-alpha.14.tar`. Он содержит образ с тегами `gatebot:0.2.0-alpha.14` и `gatebot:server-test`; приватного состояния приложения в образе нет. Архив не хранится в Git. После копирования архива на Linux-сервер архитектуры amd64:
+
+```sh
+docker load --input gatebot-0.2.0-alpha.14.tar
+docker compose --env-file .env.server -f compose.server.yaml up -d --no-build --pull never
+```
+
+Перед запуском подготовьте `.env.server`, постоянные каталоги, права и согласованную копию данных по инструкции выше. Архив образа не заменяет перенос данных и ключей.
 
 ## Что перенесено из опыта Mail Cloud
 

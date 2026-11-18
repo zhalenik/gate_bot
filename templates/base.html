@@ -6,12 +6,15 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <meta name="theme-color" content="#EFF0E8">
   <title>{% block title %}GateBot{% endblock %}</title>
-  <link rel="icon" href="/static/images/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="{{ branding.icon_url if branding is defined else '/static/images/favicon.svg' }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ branding.apple_icon_url if branding is defined else '/ui/branding/default/apple-touch-icon.png' }}">
+  {% block pwa_head %}{% endblock %}
   <link rel="stylesheet" href="/static/css/ui.css">
   <link rel="stylesheet" href="/static/css/admin.css">
   {% block head %}{% endblock %}
   {% if admin_page | default(false) %}<link rel="stylesheet" href="/static/css/support.css">{% endif %}
   <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/branding.css">
   {% if not palette_defaults | default(false) %}<link rel="stylesheet" href="/ui/palette.css" id="savedPaletteStyles">{% endif %}
 </head>
 <body class="{% block body_class %}{% endblock %}">

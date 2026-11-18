@@ -9,47 +9,17 @@ import uuid
 from zoneinfo import ZoneInfo
 
 from storage.product_store import ProductStore
+from billing_utils import epoch, iso, month_at, identifier
 
-PLANS = {
-    'start': {'id': 'start', 'name': 'Старт', 'quota': 100, 'price_kopecks': 50000, 'version': 1},
-    'business': {'id': 'business', 'name': 'Бизнес', 'quota': 500, 'price_kopecks': 100000, 'version': 1},
-    'pro': {'id': 'pro', 'name': 'Про', 'quota': 1000, 'price_kopecks': 350000, 'version': 1},
-}
 TERMINAL = {'command_sent', 'failed', 'unknown', 'expired', 'cancelled', 'simulated'}
 
 
-def epoch(value=None):
-    if value is None:
-        return datetime.now(timezone.utc).timestamp()
-    if isinstance(value, str):
-        value = datetime.fromisoformat(value.replace('Z', '+00:00'))
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            raise ValueError('Время должно содержать часовой пояс')
-        return value.timestamp()
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        raise ValueError('Некорректное время')
-    return float(value)
 
 
-def iso(value):
-    return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
 
 
-def month_at(anchor, months, zone):
-    value = datetime.fromtimestamp(anchor, ZoneInfo(zone))
-    year, month = divmod(value.year * 12 + value.month - 1 + months, 12)
-    return value.replace(year=year, month=month + 1,
-        day=min(value.day, monthrange(year, month + 1)[1])).timestamp()
 
 
-def identifier(value, label):
-    if value is None or isinstance(value, bool) or not isinstance(value, (str, int)):
-        raise ValueError('Некорректное поле: ' + label)
-    value = str(value)
-    if not value.strip() or len(value) > 200 or any(ord(c) < 32 for c in value):
-        raise ValueError('Некорректное поле: ' + label)
-    return value
 
 
 SCHEMA = '''
@@ -122,7 +92,10 @@ CREATE TABLE IF NOT EXISTS client_branch_events (
 '''
 
 
-class BillingService:
+from billing_v2 import BillingV2Mixin
+
+
+class BillingService(BillingV2Mixin):
     def __init__(self, store=None):
         self.store = store if isinstance(store, ProductStore) else ProductStore(store)
         with self.store.connect() as db:
@@ -132,6 +105,7 @@ class BillingService:
                 if sqlite3.complete_statement(statement):
                     db.execute(statement)
                     statement = ''
+        self._init_commercial()
 
     def _transaction(self, db):
         return nullcontext(db) if db is not None else self.store.connect()
@@ -159,9 +133,11 @@ class BillingService:
 
     def _term(self, db, branch, at):
         # An expired explicit term must never fall back to the legacy unlimited grant.
-        return db.execute('SELECT * FROM billing_terms WHERE branch_id=? AND starts<=? ORDER BY starts DESC,created DESC,rowid DESC LIMIT 1', (branch,at)).fetchone()
+        # Cancelled future grants must not supersede a later reconnection.
+        # Keep an expired explicit grant instead of reviving legacy access.
+        return db.execute('SELECT t.* FROM billing_terms t WHERE t.branch_id=? AND t.starts<=? ORDER BY EXISTS(SELECT 1 FROM billing_cancelled_terms c WHERE c.term_id=t.id),t.starts DESC,t.created DESC,t.rowid DESC LIMIT 1', (branch,at)).fetchone()
 
-    def _period(self, db, account, term, at):
+    def _legacy_period(self, db, account, term, at):
         existing = db.execute('SELECT * FROM billing_periods WHERE branch_id=? AND starts<=? AND ends>? ORDER BY starts DESC LIMIT 1', (account['branch_id'],at,at)).fetchone()
         if existing:
             if existing['term_id'] != term['id']:
@@ -212,7 +188,7 @@ class BillingService:
             self._event(tx,'billing_timezone_scheduled',branch,None,now,timezone=timezone,effective_at=iso(effective),first_end=iso(first_end),actor=actor)
             return {'timezone':timezone,'effective_at':iso(effective),'first_period_ends_at':iso(first_end)}
 
-    def _view(self, db, branch, at, zone='Europe/Moscow'):
+    def _legacy_view(self, db, branch, at, zone='Europe/Moscow'):
         account=self._account(db,branch,at,zone);term=self._term(db,branch,at)
         if term is None:
             return {'branch_id':branch,'status':'pending','available':False,'reason':'subscription_pending',
@@ -260,21 +236,6 @@ class BillingService:
             self._event(tx,'gate_denied',branch,request_id,now,reason=reason,person_id=person,gate_id=gate)
             return True
 
-    def activate_trial(self, branch_id, timezone='Europe/Moscow', *, at=None, db=None):
-        branch=identifier(branch_id,'филиал');now=epoch(at);ZoneInfo(timezone)
-        with self._transaction(db) as tx:
-            account=self._account(tx,branch,now,timezone)
-            if account['trial_used']:
-                return self._view(tx,branch,now)
-            if tx.execute('SELECT 1 FROM gate_requests WHERE branch_id=? LIMIT 1',(branch,)).fetchone():
-                raise ValueError('Пробный период доступен только новому филиалу')
-            tx.execute('UPDATE billing_accounts SET trial_used=1,timezone=?,anchor=? WHERE branch_id=?',(timezone,now,branch))
-            end=month_at(now,2,timezone);key=uuid.uuid4().hex
-            tx.execute('INSERT INTO billing_terms VALUES(?,?,?,?,?,?,?,?,?,?,?)',(key,branch,'trial',None,now,end,None,0,now,None,'Два календарных месяца без квоты'))
-            # Empty legacy periods can have been created by an onboarding preview.
-            tx.execute('UPDATE billing_periods SET term_id=?,source="trial",quota=NULL,price_kopecks=0 WHERE branch_id=? AND ends>?',(key,branch,now))
-            self._event(tx,'trial_activated',branch,key,now,ends_at=iso(end),unlimited=True)
-            return self._view(tx,branch,now)
 
     def admit(self, request_id, branch_id, person_id, gate_id, source='web', *,
               branch_client_id=None, pass_type='manual', command_id=None,
@@ -293,7 +254,7 @@ class BillingService:
             view=self._view(tx,branch,now)
             cooldown_key=json.dumps([branch,person],ensure_ascii=True)
             cooling=tx.execute('SELECT expires FROM billing_cooldowns WHERE key=?',(cooldown_key,)).fetchone()
-            reason='branch_disabled' if not operational else 'cooldown' if cooling and cooling['expires']>now else view['reason'] if view['status'] in {'expired','suspended','pending'} else None
+            reason='branch_disabled' if not operational else 'cooldown' if cooling and cooling['expires']>now else view['reason'] if view['status'] in {'expired','suspended','pending','cancelled'} else None
             shared=None
             if not reason and coalesce and not simulated:
                 shared=tx.execute('SELECT * FROM hardware_commands WHERE branch_id=? AND gate_id=? AND period_id=? AND status="queued" AND deadline>? ORDER BY created LIMIT 1',(branch,gate,view['period_id'],now)).fetchone()
@@ -309,6 +270,7 @@ class BillingService:
                 if not simulated:
                     tx.execute('INSERT INTO quota_ledger VALUES(?,?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,view['period_id'],command,'reserve',1,0,0,now,None,None))
             tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,status,None,command,int(shared is not None),cooldown_key))
+            self._record_request_details(tx,request_id,branch,gate,branch_client_id)
             tx.execute('INSERT INTO billing_cooldowns VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET expires=excluded.expires,request_id=excluded.request_id',(cooldown_key,now+cooldown_seconds,request_id))
             self._event(tx,'gate_admitted',branch,request_id,now,command_id=command,coalesced=shared is not None,simulated=simulated,person_id=person,branch_client_id=branch_client_id,gate_id=gate,source=source,pass_type=pass_type,period_id=view['period_id'])
             return {'admitted':True,'duplicate':False,'request_id':request_id,'command_id':command,'reservation_id':command,'coalesced':shared is not None,'delivery':status,'cooldown_until':iso(now+cooldown_seconds)}
@@ -321,7 +283,7 @@ class BillingService:
             rows=[dict(r) for r in tx.execute('SELECT * FROM gate_requests WHERE command_id=? AND status="queued"',(command_id,))]
             reason='already_started' if command['status']!='queued' else 'queue_expired' if now>=command['deadline'] else 'no_authorized_requests' if not rows else None
             view=self._view(tx,command['branch_id'],now)
-            if not reason and view['status'] in {'expired','suspended','pending'}:reason=view['reason']
+            if not reason and view['status'] in {'expired','suspended','pending','cancelled'}:reason=view['reason']
             reserve=tx.execute('SELECT COALESCE(SUM(reserved_delta),0) n FROM quota_ledger WHERE command_id=?',(command_id,)).fetchone()['n']
             if not reason and reserve!=1:reason='reservation_missing'
             if reason and command['status']=='queued':self.finalize(command_id,'expired' if reason=='queue_expired' else 'cancelled',error_code=reason,at=now,db=tx)
@@ -378,7 +340,7 @@ class BillingService:
             else:raise ValueError('Укажите дату окончания или срок в днях')
             if end<=start:raise ValueError('Окончание должно быть позже начала')
             if mode=='extend' and start<scheduled_end:raise ValueError('Продление должно начинаться после уже предоставленного срока')
-            if mode=='replace' and tx.execute('SELECT 1 FROM billing_terms WHERE branch_id=? AND starts>? AND starts<?',(branch,now,end)).fetchone():
+            if mode=='replace' and tx.execute('SELECT 1 FROM billing_terms t WHERE branch_id=? AND starts>? AND starts<? AND NOT EXISTS(SELECT 1 FROM billing_cancelled_terms c WHERE c.term_id=t.id)',(branch,now,end)).fetchone():
                 raise ValueError('Подарок пересекается с будущей подпиской; используйте продление')
             current=self._view(tx,branch,now)
             current_limit=max(quota,current['spent']+current['reserved']) if start<=now else quota
@@ -397,7 +359,7 @@ class BillingService:
 
     @staticmethod
     def _scheduled_end(db, branch, now):
-        end=db.execute('SELECT MAX(ends) n FROM billing_terms WHERE branch_id=? AND ends>?',(branch,now)).fetchone()['n']
+        end=db.execute('SELECT MAX(ends) n FROM billing_terms t WHERE branch_id=? AND ends>? AND NOT EXISTS(SELECT 1 FROM billing_cancelled_terms c WHERE c.term_id=t.id)',(branch,now)).fetchone()['n']
         return max(now,end or now)
 
     def add_quota(self, branch_id, amount, *, actor, reason, at=None, db=None):
@@ -418,69 +380,8 @@ class BillingService:
             tx.execute('UPDATE billing_accounts SET suspended=? WHERE branch_id=?',(int(suspended),str(branch_id)))
             self._event(tx,'subscription_suspended' if suspended else 'subscription_resumed',branch_id,None,now,actor=actor,reason=reason)
 
-    def quote(self, branch_id, plan_id, *, at=None, db=None):
-        if plan_id not in PLANS:raise ValueError('Тариф не найден')
-        now=epoch(at);plan=PLANS[plan_id]
-        with self._transaction(db) as tx:
-            view=self._view(tx,str(branch_id),now)
-            base_quota=PLANS.get(view['plan_id'],{}).get('quota',view['quota'])
-            upgrade=view['source']=='paid' and view['status']=='active' and base_quota is not None and plan['quota']>base_quota
-            starts=now if upgrade else self._scheduled_end(tx,str(branch_id),now)
-            account=self._account(tx,str(branch_id),now)
-            ends=epoch(view['ends_at']) if upgrade else month_at(starts,1,self._calendar(tx,account,starts)['timezone'])
-            amount=max(0,plan['price_kopecks']-view['price_kopecks']) if upgrade else plan['price_kopecks']
-            return {'plan':dict(plan),'kind':'upgrade' if upgrade else 'renewal','amount_kopecks':amount,'currency':'RUB','starts_at':iso(starts),'ends_at':iso(ends),'period_id':view['period_id'] if upgrade else None,'current_usage':view['spent'],'payment_available':False}
 
-    def create_order(self, branch_id, plan_id, *, actor, idempotency_key, at=None, db=None):
-        now=epoch(at);branch=identifier(branch_id,'филиал');idempotency_key=identifier(idempotency_key,'ключ заказа')
-        with self._transaction(db) as tx:
-            previous=tx.execute('SELECT * FROM billing_orders WHERE branch_id=? AND idempotency_key=?',(branch,idempotency_key)).fetchone()
-            if previous:
-                if previous['plan_id']!=plan_id:raise ValueError('Ключ заказа уже использован для другого тарифа')
-                return dict(previous)
-            quote=self.quote(branch,plan_id,at=now,db=tx);key=uuid.uuid4().hex
-            tx.execute('INSERT INTO billing_orders VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(key,branch,plan_id,quote['amount_kopecks'],'RUB',quote['kind'],'awaiting_payment',quote['period_id'],epoch(quote['starts_at']),epoch(quote['ends_at']),now,now+3600,actor,json.dumps(quote,ensure_ascii=False),idempotency_key))
-            self._event(tx,'order_created',branch,key,now,amount_kopecks=quote['amount_kopecks'],plan_id=plan_id,actor=actor)
-            return dict(tx.execute('SELECT * FROM billing_orders WHERE id=?',(key,)).fetchone())
 
-    def apply_payment(self, order_id, event_id, amount_kopecks, currency='RUB', *, at=None, db=None):
-        """Trusted future gateway hook, deliberately not exposed as an HTTP route.
-
-        A verified provider event must call this method. Checkout never does so.
-        Late or stale orders need reconciliation; they cannot silently grant access.
-        """
-        now=epoch(at);event_id=identifier(event_id,'событие оплаты')
-        if type(amount_kopecks) is not int or amount_kopecks<0:raise ValueError('Некорректная сумма')
-        with self._transaction(db) as tx:
-            old=tx.execute('SELECT * FROM billing_payments WHERE event_id=?',(event_id,)).fetchone()
-            if old:
-                if (old['order_id'],old['amount_kopecks'],old['currency'])!=(order_id,amount_kopecks,currency):raise ValueError('Событие оплаты уже использовано')
-                return {'applied':True,'duplicate':True,'order_id':order_id}
-            order=tx.execute('SELECT * FROM billing_orders WHERE id=?',(order_id,)).fetchone()
-            if not order:raise ValueError('Заказ не найден')
-            if order['status']!='awaiting_payment':raise ValueError('Заказ уже обработан')
-            if (amount_kopecks,currency)!=(order['amount_kopecks'],order['currency']):raise ValueError('Сумма или валюта не соответствует заказу')
-            if now>=order['expires']:raise ValueError('Срок заказа истёк; требуется сверка платежа')
-            view=self._view(tx,order['branch_id'],now);snapshot=json.loads(order['snapshot']);plan=snapshot['plan']
-            if order['kind']=='upgrade':
-                if view['source']!='paid' or view['status']!='active' or view['period_id']!=order['period_id'] or view['price_kopecks']+amount_kopecks!=plan['price_kopecks']:
-                    raise ValueError('Подписка изменилась после создания заказа; требуется сверка платежа')
-                start=now;end=order['ends']
-            else:
-                # An immediate order starts at settlement, preserving a full month.
-                scheduled=self._scheduled_end(tx,order['branch_id'],now)
-                if order['starts']>order['created'] and abs(scheduled-order['starts'])>0.001:
-                    raise ValueError('Срок подписки изменился после создания заказа; требуется сверка платежа')
-                if order['starts']<=order['created'] and scheduled>now:
-                    raise ValueError('Подписка изменилась после создания заказа; требуется сверка платежа')
-                start=max(now,order['starts']);account=self._account(tx,order['branch_id'],now)
-                end=month_at(start,1,self._calendar(tx,account,start)['timezone'])
-            term_id=uuid.uuid4().hex
-            tx.execute('INSERT INTO billing_terms VALUES(?,?,?,?,?,?,?,?,?,?,?)',(term_id,order['branch_id'],'paid',plan['id'],start,end,plan['quota'],plan['price_kopecks'],now,order['actor'],'Оплата заказа '+order_id))
-            tx.execute('INSERT INTO billing_payments VALUES(?,?,?,?,?)',(event_id,order_id,amount_kopecks,currency,now))
-            tx.execute('UPDATE billing_orders SET status=? WHERE id=?',('paid',order_id))
-            self._event(tx,'payment_applied',order['branch_id'],order_id,now,event_id=event_id,amount_kopecks=amount_kopecks,term_id=term_id)
-            return {'applied':True,'duplicate':False,'order_id':order_id,'term_id':term_id}
 
     def checkout(self, order_id, *, branch_id, at=None):
         with self.store.connect() as db:
@@ -488,25 +389,29 @@ class BillingService:
             if row is None:raise ValueError('Заказ не найден')
             return {'status':'payment_unavailable','order_id':order_id,'message':'Приём платежей ещё не подключён. Заказ сохранён, подписка не изменена.','amount_kopecks':row['amount_kopecks'],'expired':epoch(at)>=row['expires']}
 
-    def history(self, branch_id):
+    def _legacy_history(self, branch_id):
         with self.store.connect() as db:
             return {'orders':[dict(r) for r in db.execute('SELECT * FROM billing_orders WHERE branch_id=? ORDER BY created DESC LIMIT 100',(str(branch_id),))],
                 'terms':[dict(r) for r in db.execute('SELECT * FROM billing_terms WHERE branch_id=? ORDER BY starts DESC',(str(branch_id),))],
                 'payments':[dict(r) for r in db.execute('SELECT p.* FROM billing_payments p JOIN billing_orders o ON o.id=p.order_id WHERE o.branch_id=? ORDER BY p.happened_at DESC',(str(branch_id),))]}
 
-    def due_notices(self, *, at=None, db=None):
+    def _legacy_due_notices(self, *, at=None, db=None):
         """Durable domain notices; adapter fans out ONLY to current branch admins."""
         now=epoch(at)
         with self._transaction(db) as tx:
             for account in tx.execute('SELECT * FROM billing_accounts').fetchall():
                 view=self._view(tx,account['branch_id'],now);events=[]
-                if view['ends_at']:
+                if view['ends_at'] and view['status'] != 'cancelled':
                     days=math.ceil((epoch(view['ends_at'])-now)/86400)
-                    successor=tx.execute('SELECT 1 FROM billing_terms WHERE branch_id=? AND starts>? AND starts<=? AND ends>?',(account['branch_id'],now,epoch(view['ends_at']),epoch(view['ends_at']))).fetchone()
+                    successor=tx.execute('SELECT 1 FROM billing_terms t WHERE branch_id=? AND starts>? AND starts<=? AND ends>? AND NOT EXISTS(SELECT 1 FROM billing_cancelled_terms c WHERE c.term_id=t.id)',(account['branch_id'],now,epoch(view['ends_at']),epoch(view['ends_at']))).fetchone()
                     if not successor and days in {14,7,3,1,0,-3,-7}:events.append(('subscription_expired' if days<=0 else 'subscription_expiring',view['term_id']+':'+str(days),{'term_id':view['term_id'],'days_remaining':days,'ends_at':view['ends_at']}))
-                if view['quota'] is not None and view['quota']>0:
+                if view['status'] != 'cancelled' and view['quota'] is not None and view['quota']>0:
                     for threshold in (80,95,100):
-                        if view['spent']*100>=view['quota']*threshold:events.append(('quota_exhausted' if threshold==100 else 'quota_warning',view['period_id']+':'+str(threshold),{'period_id':view['period_id'],'threshold':threshold,'spent':view['spent'],'quota':view['quota']}))
+                        if view['spent']*100>=view['quota']*threshold:events.append(('quota_exhausted' if threshold==100 else 'quota_warning',view['period_id']+':'+str(threshold),{'period_id':view['period_id'],'threshold':threshold,'spent':view['spent'],'quota':view['quota'],'resource':'calls'}))
+                sms=view['sms']
+                if view['status'] != 'cancelled' and sms['quota'] is not None and sms['quota']>0:
+                    for threshold in (80,95,100):
+                        if sms['spent']*100>=sms['quota']*threshold:events.append(('quota_exhausted' if threshold==100 else 'quota_warning',view['period_id']+':sms:'+str(threshold),{'period_id':view['period_id'],'threshold':threshold,'spent':sms['spent'],'quota':sms['quota'],'resource':'sms'}))
                 valid_ids={account['branch_id']+':'+kind+':'+key for kind,key,_ in events}
                 # Never deliver an old expiry/usage warning after renewal or a gift.
                 for pending in tx.execute('SELECT id FROM billing_notice_claims WHERE branch_id=? AND delivered=0',(account['branch_id'],)).fetchall():

@@ -56,8 +56,11 @@ def parse_redirect(args, partner_token):
         for key in ('name', 'email', 'phone', 'salon_name'):
             if isinstance(data.get(key), str):
                 profile[key] = data[key][:254]
-        # The signature authenticates the profile, NOT salon_id. Automatic
-        # onboarding also checks the user against the installed company's users.
+        identifiers = {positive_id(data[key]) for key in ('user_id', 'id') if key in data}
+        if len(identifiers) > 1:
+            raise MarketplaceError('Неоднозначный идентификатор пользователя YCLIENTS')
+        if identifiers:
+            profile['user_id'] = identifiers.pop()
     return ids, profile
 
 
@@ -70,7 +73,7 @@ class MarketplaceAPI:
         self.session = session or requests.Session()
         self.installation_enabled = installation_enabled
 
-    def _request(self, method, path, payload=None):
+    def _request(self, method, path, payload=None, *, consent=None):
         if not self.partner_token:
             raise MarketplaceError('Не настроен партнёрский ключ YCLIENTS')
         try:
@@ -89,6 +92,11 @@ class MarketplaceAPI:
                 data = response.json()
                 status = data['data']['connection_status']['status'] if data.get('success') is True else None
                 if status in {'active', 'pending', 'uninstalled', 'frozen'}:
+                    if consent and status == 'active':
+                        from marketplace_consent import current_installer
+                        branch_id, user_id = consent
+                        installer = current_installer(data['data'], branch_id, self.application_id)
+                        return {'state': status, 'installer_matches': installer is not None and installer == user_id}
                     return {'state': status}
             except (ValueError, TypeError, KeyError, AttributeError):
                 pass
@@ -103,8 +111,10 @@ class MarketplaceAPI:
         return self._request('POST', '/marketplace/partner/callback',
                              {'salon_id': int(positive_id(branch_id)), 'application_id': int(self.application_id)})
 
-    def status(self, branch_id):
-        return self._request('GET', '/marketplace/salon/' + positive_id(branch_id) + '/application/' + self.application_id)
+    def status(self, branch_id, *, user_id=None):
+        branch_id = positive_id(branch_id)
+        return self._request('GET', '/marketplace/salon/' + branch_id + '/application/' + self.application_id,
+                             consent=(branch_id, positive_id(user_id)) if user_id is not None else None)
 
     def verify_user(self, branch_id, profile, system_user_token):
         """Bind signed contact data to this company before granting a local role."""
@@ -117,9 +127,11 @@ class MarketplaceAPI:
                 timeout=(5, 20), allow_redirects=False, verify=True)
         except requests.RequestException:
             raise MarketplaceError('Не удалось проверить пользователя филиала. Повторите проверку состояния подключения.') from None
+        if response.status_code == 403:
+            raise MarketplaceError('Откройте исходную ссылку подключения из YCLIENTS ещё раз. '
+                                   'Для продолжения нужен новый переход с данными пользователя.')
         if response.status_code != 200:
-            raise MarketplaceError('Приложение активировано, но YCLIENTS не разрешил проверить пользователей филиала. '
-                                   'Проверьте права системного пользователя на чтение пользователей и повторите проверку.')
+            raise MarketplaceError('Не удалось проверить пользователя в YCLIENTS (HTTP %d).' % response.status_code)
         try:
             payload = response.json()
             users = payload.get('data') if payload.get('success') is True else None
@@ -302,8 +314,20 @@ class MarketplaceService:
             db.execute('INSERT INTO marketplace_attempts VALUES(?,?,"installing",?,NULL) '
                        'ON CONFLICT(intent_hash,branch_id) DO UPDATE SET state="installing",updated=excluded.updated',
                        (intent['id_hash'], branch_id, self.clock()))
+        signed_user = intent['profile'].get('user_id')
+        lookup = {'user_id': signed_user} if signed_user else {}
         try:
-            result = api.status(branch_id) if reconcile else api.install(branch_id)
+            if reconcile or signed_user:
+                result = api.status(branch_id, **lookup)
+                if not reconcile and result['state'] in {'pending', 'uninstalled'}:
+                    with self.store.connect() as db:
+                        current = db.execute('SELECT generation,state FROM marketplace_branches WHERE branch_id=?',
+                                             (branch_id,)).fetchone()
+                        if not current or current['generation'] != generation or current['state'] != 'installing':
+                            return {'state': 'unknown', 'code': 'connection_changed'}
+                    result = api.install(branch_id)
+            else:
+                result = api.install(branch_id)
         except Exception:
             result = {'state': 'unknown', 'code': 'provider_result_unknown'}
         with self.store.connect() as db:
@@ -318,8 +342,15 @@ class MarketplaceService:
             self._deactivate_local(db, branch_id, result['state'])
         if result['state'] != 'active':
             return result
-        # The hand-off signature alone cannot authorize the query-string salon.
-        if api.verify_user(branch_id, intent['profile'], self.system_user_token) is not True:
+        # For new hand-offs, the partner's installation history binds the signed
+        # person to this salon without requiring access to the staff directory.
+        if signed_user:
+            consent = result if 'installer_matches' in result else api.status(branch_id, **lookup)
+            if consent.get('state') != 'active':
+                raise MarketplaceError('YCLIENTS пока не подтвердил активное подключение. Нажмите «Проверить состояние».')
+            if consent.get('installer_matches') is not True:
+                raise MarketplaceError('YCLIENTS не подтвердил, что этот пользователь подключил приложение к выбранному филиалу.')
+        elif api.verify_user(branch_id, intent['profile'], self.system_user_token) is not True:
             raise MarketplaceError('YCLIENTS не подтвердил пользователя филиала')
         with self.store.connect() as db:
             intent = self._intent(db, raw, browser)

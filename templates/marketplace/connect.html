@@ -3,9 +3,7 @@
 {% block content %}
 <main class="admin-container" style="max-width:760px"><section class="admin-content">
   <div class="page-eyebrow">GateBot + YCLIENTS</div><h1>Подключение филиала</h1>
-  {% if state.auto_onboarding %}
-  <p class="page-description">Получили ваши данные из YCLIENTS. Подключим филиал автоматически — подтверждение по SMS и одобрение суперадминистратора не нужны.</p>
-  {% else %}
+  {% if not state.auto_onboarding %}
   <p class="page-description">Завершите подключение после входа в GateBot. Разрешение YCLIENTS действует один час.</p>
   {% endif %}
   <div id="marketplaceNotice" role="status" aria-live="polite" class="info-box" hidden></div>

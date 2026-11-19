@@ -30,6 +30,66 @@ def auto_begin(state):
     return state.service.begin(signed_args(), state.browser)
 
 
+@pytest.mark.parametrize('local_legacy_attempt,provider_pending,field',
+                         [(True, False, 'id'), (False, False, 'user_id'), (False, True, 'id')])
+def test_signed_installer_completes_without_directory_permission(marketplace, local_legacy_attempt, provider_pending, field):
+    s = marketplace
+    if local_legacy_attempt:
+        # alpha.15 has installed the app but failed its directory check.
+        with s.service.store.connect() as db:
+            db.execute('INSERT INTO marketplace_branches VALUES(?, "active", 0, ?)', ('99', s.identity.clock[0]))
+    get_calls = []
+    history = {'logs': [{'source': 'marketplace', 'status_from': 'uninstalled', 'status_to': 'active',
+                         'user_id': 112, 'changed_at': '2026-10-01 11:20:45'}],
+               'connection_status': {'salon_id': 99, 'marketplace_application_id': 123, 'status': 'active'}}
+    def request(method, url, **kwargs):
+        if method == 'POST':
+            assert provider_pending and url.endswith('/marketplace/partner/callback')
+            return SimpleNamespace(status_code=201)
+        assert url.endswith('/marketplace/salon/99/application/123')
+        get_calls.append(url)
+        data = history
+        if provider_pending and len(get_calls) == 1:
+            data = {'connection_status': {'status': 'pending'}}
+        return SimpleNamespace(status_code=200, json=lambda: {'success': True, 'data': data})
+    transport = Mock()
+    transport.request.side_effect = request
+    s.service.api = MarketplaceAPI('offline-partner-key', '123', session=transport, installation_enabled=True)
+    raw = s.service.begin(signed_args(profile={**PROFILE, field: 112}), s.browser)
+    result = s.service.onboard(raw, s.browser, '99')
+    assert result['state'] == 'active' and result['account']['can_set_password']
+    assert s.identity.branches.get_branch('99').enabled
+    assert transport.request.call_count == (3 if provider_pending else 1)
+
+
+def test_signed_user_with_wrong_installation_never_gets_role(marketplace):
+    s = marketplace
+    args = signed_args(profile={**PROFILE, 'user_id': 27})
+    args['user_id'] = '999'  # untrusted, outside user_data
+    raw = s.service.begin(args, s.browser)
+    s.api.status.return_value = {'state': 'active', 'installer_matches': False}
+    with pytest.raises(MarketplaceError):
+        s.service.onboard(raw, s.browser, '99')
+    s.api.status.assert_called_once_with('99', user_id='27')
+    s.api.verify_user.assert_not_called()
+    s.api.install.assert_not_called()
+    assert s.identity.branches.get_branch('99') is None
+    with pytest.raises(MarketplaceError):
+        s.service.begin(signed_args(profile={**PROFILE, 'id': 11, 'user_id': 12}), s.browser)
+
+
+def test_disconnect_during_first_status_read_cancels_install(marketplace):
+    s = marketplace
+    raw = s.service.begin(signed_args(profile={**PROFILE, 'id': 112}), s.browser)
+    def status(branch_id, **kwargs):
+        s.service.disconnect({'salon_id': branch_id, 'application_id': 123,
+                              'partner_token': 'offline-partner-key', 'event': 'uninstall'})
+        return {'state': 'uninstalled'}
+    s.api.status.side_effect = status
+    assert s.service.onboard(raw, s.browser, '99')['code'] == 'connection_changed'
+    s.api.install.assert_not_called()
+
+
 def test_signed_install_creates_active_branch_admin_client_trial_and_system_credentials(marketplace):
     s = marketplace
     raw = auto_begin(s)

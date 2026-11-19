@@ -3,14 +3,31 @@
 {% block content %}
 <main class="admin-container" style="max-width:760px"><section class="admin-content">
   <div class="page-eyebrow">GateBot + YCLIENTS</div><h1>Подключение филиала</h1>
+  {% if state.auto_onboarding %}
+  <p class="page-description">Получили ваши данные из YCLIENTS. Подключим филиал автоматически — подтверждение по SMS и одобрение суперадминистратора не нужны.</p>
+  {% else %}
   <p class="page-description">Завершите подключение после входа в GateBot. Разрешение YCLIENTS действует один час.</p>
-  <div id="marketplaceNotice" role="status" class="panel" hidden></div>
-  {% if not state.authenticated %}
+  {% endif %}
+  <div id="marketplaceNotice" role="status" aria-live="polite" class="info-box" hidden></div>
+  {% if not state.authenticated and not state.auto_onboarding %}
   <section class="panel"><h2>Добро пожаловать</h2><p>Войдите в свой аккаунт или зарегистрируйте новый филиал. Телефон подтверждается кодом из SMS.</p>
     <a class="btn-primary" href="/admin/login?next=marketplace">Войти</a> <a class="btn-action" href="/register-branch?marketplace=1">Зарегистрировать филиал</a>
   </section>
   {% endif %}
+  {% if state.auto_onboarding and state.branches|length > 1 %}
+  <p class="info-box">Выберите филиал для регистрации. Один аккаунт администратора управляет одним филиалом; остальные филиалы не будут подключены автоматически.</p>
+  {% endif %}
   <div id="marketplaceBranches"></div>
+  <section id="marketplaceAccount" class="panel" hidden>
+    <h2 id="marketplaceAccountTitle"></h2>
+    <p id="marketplaceAccountText" class="page-description"></p>
+    <form id="marketplacePasswordForm" class="admin-form" hidden>
+      <div class="form-group"><label for="marketplacePassword">Пароль для входа в GateBot</label><input id="marketplacePassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required><small>Не менее 12 символов. Логин — ваш email из YCLIENTS.</small></div>
+      <div class="form-group"><label for="marketplacePasswordConfirm">Повторите пароль</label><input id="marketplacePasswordConfirm" name="confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div>
+      <button id="marketplacePasswordSave" class="btn-primary" type="submit">Сохранить пароль и открыть кабинет</button>
+    </form>
+    <p id="marketplaceAccountAction" hidden><a id="marketplaceAccountLink" class="btn-primary" href="/admin/login?next=marketplace">Войти в GateBot</a></p>
+  </section>
   <p id="marketplaceDeadline" class="page-description"></p>
   <p><a href="https://support.yclients.ru/67-68-191" target="_blank" rel="noopener">Как работает подключение YCLIENTS ↗</a></p>
 </section></main>

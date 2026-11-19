@@ -23,6 +23,7 @@ def create_blueprint(provider):
             raise MarketplaceError('Начните подключение из карточки GateBot в YCLIENTS')
         return marketplace, raw, browser, username, admin
 
+    @bp.errorhandler(ValueError)
     @bp.errorhandler(MarketplaceError)
     def invalid(error):
         if request.method == 'GET':
@@ -62,6 +63,30 @@ def create_blueprint(provider):
         if not isinstance(body,dict) or set(body)-{'branch_id','reconcile'}:
             abort(400)
         return jsonify(marketplace.connect(raw, browser, username, body.get('branch_id'), reconcile=body.get('reconcile') is True))
+
+    @bp.post('/yclients/marketplace/onboard')
+    def onboard():
+        marketplace, raw, browser, _, _ = current()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or set(body) - {'branch_id', 'reconcile'}:
+            abort(400)
+        return jsonify(marketplace.onboard(raw, browser, body.get('branch_id'),
+                                          reconcile=body.get('reconcile') is True))
+
+    @bp.post('/yclients/marketplace/password')
+    def password():
+        marketplace, raw, browser, _, _ = current()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or set(body) - {'password', 'confirm'}:
+            abort(400)
+        try:
+            username = marketplace.set_onboarding_password(raw, browser, body.get('password'), body.get('confirm'))
+        except ValueError as error:
+            raise MarketplaceError(str(error)) from None
+        dependencies, _ = services()
+        if not dependencies['auth'].login_admin(username, body.get('password')):
+            raise MarketplaceError('Пароль сохранён. Войдите в кабинет с email и новым паролем.')
+        return jsonify(status='success', redirect_url='/admin/integrations')
 
     @bp.post('/webhook/yclients/marketplace')
     def lifecycle():

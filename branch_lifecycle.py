@@ -124,6 +124,7 @@ class BranchLifecycleService:
                     payload=json.loads(self.identity._fernet().decrypt(row['payload'].encode()))
                     if branch_id in [str(value) for value in payload.get('branches',[])]:
                         remove('marketplace_attempts','intent_hash=?',(row['id_hash'],))
+                        remove('marketplace_registrations','intent_hash=?',(row['id_hash'],))
                         remove('marketplace_intents','id_hash=?',(row['id_hash'],))
 
             triggers=[dict(row) for row in db.execute('SELECT name,sql FROM sqlite_master WHERE type="trigger" AND name IN ("quota_no_delete","sms_quota_no_delete","product_events_no_delete","payments_no_delete")')]

@@ -1,7 +1,7 @@
 """YCLIENTS marketplace consent/installation; separate from the GET-only CRM reader.
 
-No network on import, redirect, or registration. An explicit scoped connection
-uses the documented installation endpoint only when enabled by the operator.
+No network on import or GET redirects. The browser completes marketplace consent
+with a CSRF-protected POST; installation uses the dedicated marketplace API.
 """
 import base64
 import binascii
@@ -56,8 +56,8 @@ def parse_redirect(args, partner_token):
         for key in ('name', 'email', 'phone', 'salon_name'):
             if isinstance(data.get(key), str):
                 profile[key] = data[key][:254]
-        # This signature authenticates user_data, NOT the salon_id query. It is
-        # exclusively a form hint; never grants a local role or bypasses OTP.
+        # The signature authenticates the profile, NOT salon_id. Automatic
+        # onboarding also checks the user against the installed company's users.
     return ids, profile
 
 
@@ -106,6 +106,42 @@ class MarketplaceAPI:
     def status(self, branch_id):
         return self._request('GET', '/marketplace/salon/' + positive_id(branch_id) + '/application/' + self.application_id)
 
+    def verify_user(self, branch_id, profile, system_user_token):
+        """Bind signed contact data to this company before granting a local role."""
+        from identity_service import valid_email, valid_phone
+        phone, email = valid_phone(profile.get('phone')), valid_email(profile.get('email'))
+        try:
+            response = self.session.request('GET', self.ROOT + '/api/v1/company/' + positive_id(branch_id) + '/users',
+                headers={'Authorization': 'Bearer ' + self.partner_token + ', User ' + system_user_token,
+                         'Accept': 'application/vnd.yclients.v2+json'},
+                timeout=(5, 20), allow_redirects=False, verify=True)
+        except requests.RequestException:
+            raise MarketplaceError('Не удалось проверить пользователя филиала. Повторите проверку состояния подключения.') from None
+        if response.status_code != 200:
+            raise MarketplaceError('Приложение активировано, но YCLIENTS не разрешил проверить пользователей филиала. '
+                                   'Проверьте права системного пользователя на чтение пользователей и повторите проверку.')
+        try:
+            payload = response.json()
+            users = payload.get('data') if payload.get('success') is True else None
+            if not isinstance(users, list) or not all(isinstance(user, dict) for user in users):
+                raise ValueError()
+            matches = []
+            for user in users:
+                if user.get('is_approved') not in (True, 1):
+                    continue
+                try:
+                    if valid_phone(user.get('phone')) == phone and valid_email(user.get('email')) == email:
+                        matches.append(user)
+                except ValueError:
+                    continue
+            if len(matches) != 1:
+                raise MarketplaceError('YCLIENTS не подтвердил пользователя в выбранном филиале. '
+                                       'Проверьте телефон, email и принятый доступ пользователя в YCLIENTS.')
+        except (ValueError, TypeError, AttributeError):
+            raise MarketplaceError('Не удалось подтвердить пользователя филиала по ответу YCLIENTS. '
+                                   'Проверьте его телефон, email и доступ к филиалу.') from None
+        return True
+
 
 class MarketplaceService:
     def __init__(self, identity, *, api=None, clock=None, application_id=None,
@@ -121,6 +157,9 @@ class MarketplaceService:
             db.execute('CREATE TABLE IF NOT EXISTS marketplace_intents(id_hash TEXT PRIMARY KEY,browser_hash TEXT NOT NULL,created REAL NOT NULL,expires REAL NOT NULL,payload TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS marketplace_attempts(intent_hash TEXT NOT NULL,branch_id TEXT NOT NULL,state TEXT NOT NULL,updated REAL NOT NULL,code TEXT,PRIMARY KEY(intent_hash,branch_id))')
             db.execute('CREATE TABLE IF NOT EXISTS marketplace_branches(branch_id TEXT PRIMARY KEY,state TEXT NOT NULL,generation INTEGER NOT NULL DEFAULT 0,updated REAL NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS marketplace_registrations(intent_hash TEXT NOT NULL,branch_id TEXT NOT NULL,username TEXT NOT NULL,created_account INTEGER NOT NULL,PRIMARY KEY(intent_hash,branch_id))')
+            if 'auth_proof' not in {row['name'] for row in db.execute('PRAGMA table_info(marketplace_registrations)')}:
+                db.execute('ALTER TABLE marketplace_registrations ADD COLUMN auth_proof TEXT NOT NULL DEFAULT ""')
 
     @staticmethod
     def _hash(value):
@@ -143,6 +182,7 @@ class MarketplaceService:
             # Bound retention; expired intent bodies contain only encrypted hints.
             old = stamp - 86400
             db.execute('DELETE FROM marketplace_attempts WHERE intent_hash IN (SELECT id_hash FROM marketplace_intents WHERE expires<?)', (old,))
+            db.execute('DELETE FROM marketplace_registrations WHERE intent_hash IN (SELECT id_hash FROM marketplace_intents WHERE expires<?)', (old,))
             db.execute('DELETE FROM marketplace_intents WHERE expires<?', (old,))
             db.execute('INSERT INTO marketplace_intents VALUES(?,?,?,?,?)',
                        (self._hash(raw), self._hash(browser), stamp, stamp + 3600, payload))
@@ -163,17 +203,148 @@ class MarketplaceService:
             admin = self.identity._admin(db, username) if username else None
             branches = read_document(db, 'branches.json')
             result = []
+            auto = self._automatic_profile(intent)
             for branch_id in intent['branches']:
                 accessible = bool(admin and (admin.get('is_super') or branch_id in admin['branch_ids']))
                 branch = branches.get(branch_id) if accessible else None
-                attempt = db.execute('SELECT state,code FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?', (intent['id_hash'], branch_id)).fetchone() if accessible else None
+                attempt = db.execute('SELECT state,code FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?', (intent['id_hash'], branch_id)).fetchone() if accessible or auto else None
                 current = db.execute('SELECT state FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone() if accessible else None
                 result.append({'id': branch_id, 'name': branch.get('name') if branch else None,
                     'accessible': accessible, 'pending_verification': bool(branch and branch.get('onboarding_status') == 'pending_verification'),
                     'state': current['state'] if current else attempt['state'] if attempt else 'pending'})
             return {'branches': result, 'profile': intent['profile'], 'expires_at': intent['expires'],
                     'expired': intent['expires'] <= self.clock(), 'configured': self.configured(), 'enabled': self.enabled,
-                    'authenticated': bool(admin)}
+                    'authenticated': bool(admin), 'auto_onboarding': auto,
+                    'account': self._onboarding_account(db, intent)}
+
+    @staticmethod
+    def _automatic_profile(intent):
+        from identity_service import valid_email, valid_phone
+        try:
+            return bool(valid_phone(intent['profile'].get('phone')) and valid_email(intent['profile'].get('email')))
+        except ValueError:
+            return False
+
+    def _onboarding_account(self, db, intent, branch_id=None):
+        query = 'SELECT * FROM marketplace_registrations WHERE intent_hash=?'
+        params = [intent['id_hash']]
+        if branch_id is not None:
+            query += ' AND branch_id=?'
+            params.append(branch_id)
+        row = db.execute(query, params).fetchone()
+        if not row:
+            return None
+        try:
+            admin = self.identity._admin(db, row['username'])
+        except PermissionError:
+            return None
+        if admin.get('is_super') or str(admin.get('branch_id')) != row['branch_id']:
+            return None
+        required = bool(admin.get('marketplace_password_setup_required'))
+        proof = self._hash(str(admin.get('person_id')) + '|' + str(admin.get('password_hash')) + '|' + str(admin.get('session_version', 0)))
+        return {'username': row['username'], 'password_setup_required': required,
+                'can_set_password': bool(required and row['created_account'] and intent['expires'] > self.clock()
+                                         and hmac.compare_digest(row['auth_proof'], proof))}
+
+    def _deactivate_local(self, db, branch_id, state):
+        if state not in {'uninstalled', 'frozen'}:
+            return
+        branches = read_document(db, 'branches.json')
+        branch = branches.get(branch_id)
+        if branch and branch.get('yclients_connection_source') != 'direct':
+            branch['yclients_marketplace_state'] = state
+            write_document(db, 'branches.json', branches)
+            if state == 'uninstalled':
+                db.execute('DELETE FROM identity_integrations WHERE branch_id=? AND kind="yclients"', (branch_id,))
+
+    def onboard(self, raw, browser, branch_id, *, reconcile=False):
+        """Accept YC consent automatically without a GateBot superadmin review.
+
+        Durable claims prevent duplicate installations. An uncertain POST is
+        reconciled with GET, never blindly retried. No DB lock spans the network.
+        """
+        from marketplace_onboarding import provision_marketplace, validate_marketplace_target
+        branch_id = positive_id(branch_id)
+        api = self._api()
+        if not self.enabled:
+            raise MarketplaceError('Активация в YCLIENTS пока выключена владельцем GateBot')
+        with self.store.connect() as db:
+            intent = self._intent(db, raw, browser)
+            if branch_id not in intent['branches']:
+                raise PermissionError('Филиал отсутствует в текущем подключении')
+            if not self._automatic_profile(intent):
+                raise MarketplaceError('Для автоматического подключения включите передачу данных пользователя '
+                                       'в карточке приложения YCLIENTS и укажите телефон и email пользователя.')
+            validate_marketplace_target(self.identity, db, branch_id, intent['profile'])
+            attempt = db.execute('SELECT state FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?',
+                                 (intent['id_hash'], branch_id)).fetchone()
+            current = db.execute('SELECT * FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
+            if reconcile and not current and not attempt:
+                raise MarketplaceError('Сначала начните подключение из карточки GateBot в YCLIENTS')
+            account = self._onboarding_account(db, intent, branch_id)
+            if attempt and account and not reconcile:
+                return {'state': current['state'] if current else attempt['state'], 'account': account, 'replayed': True}
+            if current and current['state'] == 'installing':
+                # A concurrent request must not verify/provision before the first
+                # POST has returned. A stale claim can be checked after its timeout.
+                if self.clock() - current['updated'] < 60:
+                    return {'state': 'installing', 'code': 'installation_in_progress'}
+                reconcile = True
+            if current and current['state'] in {'unknown', 'active'}:
+                reconcile = True
+            if attempt and attempt['state'] in {'unknown', 'rejected'}:
+                reconcile = True
+            generation = current['generation'] if current else 0
+            if not reconcile:
+                db.execute('INSERT INTO marketplace_branches VALUES(?,"installing",?,?) '
+                           'ON CONFLICT(branch_id) DO UPDATE SET state="installing",updated=excluded.updated',
+                           (branch_id, generation, self.clock()))
+            db.execute('INSERT INTO marketplace_attempts VALUES(?,?,"installing",?,NULL) '
+                       'ON CONFLICT(intent_hash,branch_id) DO UPDATE SET state="installing",updated=excluded.updated',
+                       (intent['id_hash'], branch_id, self.clock()))
+        try:
+            result = api.status(branch_id) if reconcile else api.install(branch_id)
+        except Exception:
+            result = {'state': 'unknown', 'code': 'provider_result_unknown'}
+        with self.store.connect() as db:
+            current = db.execute('SELECT generation FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
+            if current and current['generation'] != generation:
+                return {'state': 'unknown', 'code': 'connection_changed'}
+            db.execute('INSERT INTO marketplace_branches VALUES(?,?,?,?) '
+                       'ON CONFLICT(branch_id) DO UPDATE SET state=excluded.state,updated=excluded.updated',
+                       (branch_id, result['state'], generation, self.clock()))
+            db.execute('UPDATE marketplace_attempts SET state=?,code=?,updated=? WHERE intent_hash=? AND branch_id=?',
+                       (result['state'], result.get('code'), self.clock(), intent['id_hash'], branch_id))
+            self._deactivate_local(db, branch_id, result['state'])
+        if result['state'] != 'active':
+            return result
+        # The hand-off signature alone cannot authorize the query-string salon.
+        if api.verify_user(branch_id, intent['profile'], self.system_user_token) is not True:
+            raise MarketplaceError('YCLIENTS не подтвердил пользователя филиала')
+        with self.store.connect() as db:
+            intent = self._intent(db, raw, browser)
+            current = db.execute('SELECT generation,state FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
+            if not current or current['generation'] != generation or current['state'] != 'active':
+                return {'state': 'unknown', 'code': 'connection_changed'}
+            result = provision_marketplace(self.identity, db, branch_id, intent['profile'],
+                                           {'name': intent['profile'].get('salon_name')})
+            self._activate_local(db, result['username'], branch_id, generation)
+            admin = self.identity._admin(db, result['username'])
+            proof = self._hash(str(admin.get('person_id')) + '|' + str(admin.get('password_hash')) + '|' + str(admin.get('session_version', 0)))
+            db.execute('INSERT INTO marketplace_registrations VALUES(?,?,?,?,?) '
+                       'ON CONFLICT(intent_hash,branch_id) DO NOTHING',
+                       (intent['id_hash'], branch_id, result['username'], int(result['created']), proof))
+            return {'state': 'active', 'account': self._onboarding_account(db, intent, branch_id)}
+
+    def set_onboarding_password(self, raw, browser, password, confirm):
+        from marketplace_onboarding import set_marketplace_password
+        with self.store.connect() as db:
+            intent = self._intent(db, raw, browser)
+            account = self._onboarding_account(db, intent)
+            if not account or not account['can_set_password']:
+                raise PermissionError('Установка пароля недоступна. Войдите в свой аккаунт или восстановите пароль.')
+            set_marketplace_password(self.identity, db, account['username'], password, confirm)
+            return account['username']
 
     def _authorize(self, db, username, branch_id):
         self.identity._scope(db, username, branch_id)
@@ -260,10 +431,10 @@ class MarketplaceService:
         state = 'uninstalled' if payload['event'] == 'uninstall' else 'frozen'
         with self.store.connect() as db:
             branches = read_document(db, 'branches.json')
-            if branch_id not in branches:
-                return {'status': 'success'}
             db.execute('INSERT INTO marketplace_branches VALUES(?,?,1,?) ON CONFLICT(branch_id) DO UPDATE SET state=excluded.state,generation=generation+1,updated=excluded.updated',
                        (branch_id, state, self.clock()))
+            if branch_id not in branches:
+                return {'status': 'success'}
             if branches[branch_id].get('yclients_connection_source') != 'direct':
                 branches[branch_id]['yclients_marketplace_state'] = state
                 write_document(db, 'branches.json', branches)

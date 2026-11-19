@@ -197,7 +197,7 @@ def test_actual_app_preserves_handoff_through_login_and_authenticates_callback(m
     s=marketplace
     provider=lambda auth,access=None:{'service':s.identity.service,'auth':auth,'marketplace':s.service,
         'branches':s.identity.branches,'billing':s.identity.billing}
-    monkeypatch.setattr(module,'product_services',lambda:SimpleNamespace(provider=provider))
+    monkeypatch.setattr(module,'product_services',lambda:SimpleNamespace(provider=provider,identity=s.identity.service))
     monkeypatch.setattr(module,'admin_auth',s.identity.auth)
     monkeypatch.setattr(module,'branch_manager',s.identity.branches)
     monkeypatch.setattr(module,'link_manager',s.identity.links)

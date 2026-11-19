@@ -25,6 +25,39 @@ docker compose --env-file .env.server -f compose.server.yaml logs --tail 100 gat
 
 После запуска проверьте `/healthz`, вход администратора, палитру/бренд, персональную страницу и [мобильную приёмку PWA](PWA.md). VAPID и подписки хранятся в `/state/application.sqlite3` с шифрованием через `/state/integration.key`; постоянный volume обязателен. Локальная сборка не подтверждает доступность домена и Push на физическом телефоне.
 
+## Один файл доверенных сертификатов для MAX и YCLIENTS
+
+Оба клиента могут использовать один PEM-файл: копировать его под вторым именем не
+нужно. Файл должен содержать обычные доверенные корни и необходимые российские УЦ,
+находиться в смонтированном каталоге и быть доступен UID 568. В приватном env-файле,
+который фактически подключён к контейнеру, укажите **путь внутри контейнера**:
+
+```dotenv
+MAX_CA_BUNDLE=/state/certs/shared-ca-bundle.pem
+REQUESTS_CA_BUNDLE=${MAX_CA_BUNDLE}
+```
+
+Первую переменную определяйте выше второй, без одинарных кавычек вокруг ссылки.
+`${MAX_CA_BUNDLE}` поддерживают используемый GateBot `python-dotenv` и обычный
+`env_file` Docker Compose. Запись `REQUESTS_CA_BUNDLE=MAX_CA_BUNDLE` передаст имя
+файла буквально. `docker run --env-file` не выполняет такую подстановку: для него
+задайте одинаковый абсолютный путь явно в обеих строках. В TrueNAS используйте
+Compose `env_file`; если значения задаются отдельными полями интерфейса, передайте
+туда уже готовый путь, не рассчитывая на раскрытие `${…}`.
+
+`REQUESTS_CA_BUNDLE` применяется к HTTP-клиентам Requests, в том числе YCLIENTS,
+и не отключает проверку TLS. MAX использует `MAX_CA_BUNDLE`. Подстановка происходит
+при загрузке окружения, а не при каждом запросе: поздний override `MAX_CA_BUNDLE`
+из системных настроек не изменит `REQUESTS_CA_BUNDLE`. Для общей настройки сбросьте
+override MAX к источнику «Окружение». После изменения env-файла пересоздайте
+контейнер; обычный restart не перечитывает его окружение. На Windows используйте
+абсолютный Windows-путь; серверный `/state/…` относится только к контейнеру.
+
+Проверено офлайн на установленном `python-dotenv` и через `docker compose config`
+с отдельными вымышленными env/YAML: обе переменные получили один путь, контейнер
+не запускался. Описание синтаксиса: [python-dotenv](https://bbc2.github.io/python-dotenv/#variable-expansion),
+[Docker Compose](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
+
 ## Перенос готового образа
 
 Для `0.2.0-alpha.14` подготовлен локальный архив `private/releases/gatebot-0.2.0-alpha.14.tar`. Он содержит образ с тегами `gatebot:0.2.0-alpha.14` и `gatebot:server-test`; приватного состояния приложения в образе нет. Архив не хранится в Git. После копирования архива на Linux-сервер архитектуры amd64:
@@ -76,7 +109,7 @@ development поверх production env. Не переносите тестов�
 
 Используется Apps → Discover Apps → ⋮ → Install via YAML с именем приложения `gatebot`.
 Файл `examples/truenas.example.yaml` подготовлен специально для этого сервера:
-- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.14` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
+- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.15` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
 - только внутренний HTTP `31500:5000`; TLS завершается существующим Nginx Proxy Manager с Let's Encrypt. В NPM: `bot.zhvakin.space` → `http://<LAN-IP-TRUENAS>:31500`, Force SSL, без прямого внешнего доступа к порту;
 - приватный файл `/mnt/ssd-pool/apps-data/gatebot/gatebot.env`; данные `state/` и `system-config/` в том же каталоге на SSD;
 - первые испытания в `development` с отключёнными настоящими отправками и модемом; production включается отдельно после приёмки.
@@ -93,7 +126,7 @@ development поверх production env. Не переносите тестов�
 - фиксированный `/dev/serial/by-id/...` и правильный host group ID для устройства;
 - внешний HTTPS через Nginx Proxy Manager.
 
-В YAML зафиксирован тег `0.2.0-alpha.14`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
+В YAML зафиксирован тег `0.2.0-alpha.15`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
 
 Шаблон содержит два обязательных mount: данные в `/state` и bootstrap-настройки
 в `/app/private/system-config`. Для второго задайте отдельный постоянный host path;

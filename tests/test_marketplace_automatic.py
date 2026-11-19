@@ -20,13 +20,15 @@ PROFILE = {'name': 'Marketplace owner', 'phone': '+15550100444',
 
 
 def signed_args(branch='99', profile=None):
-    raw = json.dumps(profile or PROFILE, ensure_ascii=False, separators=(',', ':')).encode()
+    raw = json.dumps(profile if profile is not None else {**PROFILE, 'user_id': 112},
+                     ensure_ascii=False, separators=(',', ':')).encode()
     return MultiDict({'salon_id': branch, 'user_data': base64.b64encode(raw).decode(),
                      'user_data_sign': hmac.new(b'offline-partner-key', raw, hashlib.sha256).hexdigest()})
 
 
 def auto_begin(state):
-    state.api.verify_user.return_value = True
+    state.api.status.side_effect = lambda *args, **kwargs: (
+        {'state': 'active', 'installer_matches': True} if state.api.install.called else {'state': 'pending'})
     return state.service.begin(signed_args(), state.browser)
 
 
@@ -71,7 +73,6 @@ def test_signed_user_with_wrong_installation_never_gets_role(marketplace):
     with pytest.raises(MarketplaceError):
         s.service.onboard(raw, s.browser, '99')
     s.api.status.assert_called_once_with('99', user_id='27')
-    s.api.verify_user.assert_not_called()
     s.api.install.assert_not_called()
     assert s.identity.branches.get_branch('99') is None
     with pytest.raises(MarketplaceError):
@@ -109,9 +110,9 @@ def test_signed_install_creates_active_branch_admin_client_trial_and_system_cred
     assert len(clients) == 1 and clients[0]['admin_role_active'] and clients[0]['email'] == PROFILE['email']
     assert not s.identity.sent
     assert s.api.install.call_args.args == ('99',)
-    assert s.api.verify_user.call_args.args == ('99', PROFILE, 'offline-system-user-token')
+    assert s.api.status.call_args.kwargs == {'user_id': '112'}
     s.service.onboard(raw, s.browser, '99')
-    assert s.api.install.call_count == 1 and s.api.verify_user.call_count == 1
+    assert s.api.install.call_count == 1 and s.api.status.call_count == 2
 
 
 def test_new_password_requires_original_browser_and_cannot_reset_existing_account(marketplace):
@@ -136,16 +137,17 @@ def test_new_password_requires_original_browser_and_cannot_reset_existing_accoun
 def test_wrong_company_profile_never_creates_branch_or_local_rights(marketplace):
     s = marketplace
     raw = auto_begin(s)
-    s.api.verify_user.side_effect = MarketplaceError('User not in company')
+    s.api.status.side_effect = [
+        {'state': 'pending'}, {'state': 'active', 'installer_matches': False},
+        {'state': 'active', 'installer_matches': True}]
     with pytest.raises(MarketplaceError):
         s.service.onboard(raw, s.browser, '99')
     assert s.identity.branches.get_branch('99') is None
     assert PROFILE['email'] not in s.identity.auth.load_admins()
     assert s.identity.service.integration_credentials('99', 'yclients') == {}
     # Fixing the verification failure checks the installation; no second POST.
-    s.api.verify_user.side_effect = None
     assert s.service.onboard(raw, s.browser, '99', reconcile=True)['state'] == 'active'
-    assert s.api.install.call_count == 1 and s.api.status.call_count == 1
+    assert s.api.install.call_count == 1
 
 
 def test_unknown_install_reconciles_by_get_and_keeps_local_state_uncreated(marketplace):
@@ -155,17 +157,19 @@ def test_unknown_install_reconciles_by_get_and_keeps_local_state_uncreated(marke
     assert s.service.onboard(raw, s.browser, '99')['state'] == 'unknown'
     assert s.identity.branches.get_branch('99') is None
     assert s.service.onboard(raw, s.browser, '99', reconcile=True)['state'] == 'active'
-    assert s.api.install.call_count == 1 and s.api.status.call_count == 1
+    assert s.api.install.call_count == 1 and s.api.status.call_count == 2
 
 
-@pytest.mark.parametrize('during', ['install', 'verify_user'])
+@pytest.mark.parametrize('during', ['install', 'status'])
 def test_uninstall_wins_before_local_branch_even_exists(marketplace, during):
     s = marketplace
     raw = auto_begin(s)
-    def disconnect(*args):
+    def disconnect(*args, **kwargs):
+        if during == 'status' and not s.api.install.called:
+            return {'state': 'pending'}
         s.service.disconnect({'salon_id': 99, 'application_id': 123,
                               'partner_token': 'offline-partner-key', 'event': 'uninstall'})
-        return {'state': 'active'} if during == 'install' else True
+        return {'state': 'active', 'installer_matches': True}
     getattr(s.api, during).side_effect = disconnect
     assert s.service.onboard(raw, s.browser, '99')['code'] == 'connection_changed'
     assert s.identity.branches.get_branch('99') is None
@@ -217,6 +221,7 @@ def test_automatic_reconcile_stops_reader_and_preserves_local_access(marketplace
     raw = auto_begin(s)
     s.service.onboard(raw, s.browser, '99')
     links = s.identity.links.load_links()
+    s.api.status.side_effect = None
     s.api.status.return_value = {'state': state}
     assert s.service.onboard(raw, s.browser, '99', reconcile=True)['state'] == state
     assert s.identity.branches.load_branches()['99']['yclients_marketplace_state'] == state
@@ -244,26 +249,46 @@ def test_first_onboarding_cannot_skip_consent_install_by_requesting_reconcile(ma
     s.api.install.assert_not_called()
 
 
-def test_provider_users_wire_contract_and_unapproved_or_mismatched_contacts():
+def test_old_signed_profile_without_identity_never_queries_directory_or_installs(marketplace):
+    s = marketplace
     transport = Mock()
-    user = {**PROFILE, 'id': 123, 'is_approved': True}
-    transport.request.return_value = SimpleNamespace(status_code=200, json=lambda: {'success': True, 'data': [user]})
-    api = MarketplaceAPI('offline-partner-key', '123', session=transport)
-    assert api.verify_user('99', PROFILE, 'offline-system-user-token') is True
-    args, kwargs = transport.request.call_args
-    assert args == ('GET', 'https://api.yclients.ru/api/v1/company/99/users')
-    assert kwargs['headers']['Authorization'] == 'Bearer offline-partner-key, User offline-system-user-token'
-    assert kwargs['verify'] is True and kwargs['allow_redirects'] is False
-    for changes in ({'is_approved': False}, {'phone': '+15550100666'}, {'email': 'different@example.invalid'}):
-        user.update(PROFILE, is_approved=True)
-        user.update(changes)
-        with pytest.raises(MarketplaceError): api.verify_user('99', PROFILE, 'offline-system-user-token')
+    s.service.api = MarketplaceAPI('offline-partner-key', '123', session=transport, installation_enabled=True)
+    args = signed_args(profile=PROFILE)
+    args['user_id'] = '112'  # A query parameter cannot replace a field in signed data.
+    raw = s.service.begin(args, s.browser)
+    state = s.service.view(raw, s.browser)
+    assert state['needs_fresh_redirect'] and not state['auto_onboarding']
+    with pytest.raises(MarketplaceError):
+        s.service.onboard(raw, s.browser, '99')
+    transport.request.assert_not_called()
+    assert s.identity.branches.get_branch('99') is None
+    assert PROFILE['email'] not in s.identity.auth.load_admins()
+
+
+@pytest.mark.parametrize('selected', ['99', '98'])
+def test_signed_salon_id_binds_contact_profile_to_one_branch(marketplace, selected):
+    s = marketplace
+    profile = {**PROFILE, 'salon_id': 99}
+    if selected != '99':
+        with pytest.raises(MarketplaceError):
+            raw = s.service.begin(signed_args(branch=selected, profile=profile), s.browser)
+            s.service.onboard(raw, s.browser, selected)
+        assert s.api.method_calls == []
+        assert s.identity.branches.get_branch(selected) is None
+        return
+    raw = s.service.begin(signed_args(branch=selected, profile=profile), s.browser)
+    s.api.status.return_value = {'state': 'active'}
+    result = s.service.onboard(raw, s.browser, selected)
+    assert result['state'] == 'active' and result['account']['username'] == PROFILE['email']
+    assert s.identity.branches.get_branch(selected).enabled
+    s.api.status.assert_called_once_with(selected)
+    s.api.install.assert_not_called()
 
 
 def test_real_app_automatic_post_is_csrf_bound_and_first_password_logs_in(marketplace, monkeypatch):
     import app as module
     s = marketplace
-    s.api.verify_user.return_value = True
+    s.api.status.return_value = {'state': 'active', 'installer_matches': True}
     monkeypatch.setattr(module, 'product_services', lambda: SimpleNamespace(identity=s.identity.service, provider=lambda auth, access=None:
         {'service': s.identity.service, 'auth': auth, 'marketplace': s.service,
          'branches': s.identity.branches, 'billing': s.identity.billing}))

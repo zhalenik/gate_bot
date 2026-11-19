@@ -3,11 +3,14 @@
 {% block content %}
 <main class="admin-container" style="max-width:760px"><section class="admin-content">
   <div class="page-eyebrow">GateBot + YCLIENTS</div><h1>Подключение филиала</h1>
-  {% if not state.auto_onboarding %}
+  {% if state.needs_fresh_redirect %}
+  <p class="page-description">В этом переходе не указан идентификатор пользователя или филиала. Откройте подключение из YCLIENTS ещё раз.</p>
+  {% if not state.authenticated %}<a class="btn-action" href="/admin/login?next=marketplace">Войти в существующий кабинет</a>{% endif %}
+  {% elif not state.auto_onboarding %}
   <p class="page-description">Завершите подключение после входа в GateBot. Разрешение YCLIENTS действует один час.</p>
   {% endif %}
   <div id="marketplaceNotice" role="status" aria-live="polite" class="info-box" hidden></div>
-  {% if not state.authenticated and not state.auto_onboarding %}
+  {% if not state.authenticated and not state.auto_onboarding and not state.needs_fresh_redirect %}
   <section class="panel"><h2>Добро пожаловать</h2><p>Войдите в свой аккаунт или зарегистрируйте новый филиал. Телефон подтверждается кодом из SMS.</p>
     <a class="btn-primary" href="/admin/login?next=marketplace">Войти</a> <a class="btn-action" href="/register-branch?marketplace=1">Зарегистрировать филиал</a>
   </section>

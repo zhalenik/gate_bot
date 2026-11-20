@@ -48,7 +48,6 @@ def create_blueprint(provider):
         if callback is None:
             return jsonify(message='Настройки сохранены. Для перезапуска запустите сервис через run.py.'), 409
         response = jsonify(message='Настройки сохранены. Сервис перезапускается.')
-        response.headers['Connection'] = 'close'
         response.call_on_close(callback)
         return response, 202
 

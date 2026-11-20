@@ -49,6 +49,7 @@ def test_revoked_role_and_stale_revision_cannot_write(system_web):
 
 def test_restart_after_save_and_private_yaml(system_web, monkeypatch):
     from unittest.mock import Mock
+    from wsgiref.util import is_hop_by_hop
     import runtime_control
     web,store=system_web
     client=web.app.test_client();csrf=login(client,'tenant-a')
@@ -64,6 +65,7 @@ def test_restart_after_save_and_private_yaml(system_web, monkeypatch):
     assert post(client,csrf,route+'restart',{'revision':'0'}).status_code==409
     result=post(client,csrf,route+'restart',{'revision':store.read()['revision']})
     assert result.status_code==202
+    assert not any(is_hop_by_hop(name) for name in result.headers.keys())
     result.close()
     callback.assert_called_once()
     yaml=client.get(route+'compose.yaml?network=private-vpn')

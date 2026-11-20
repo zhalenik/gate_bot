@@ -47,6 +47,8 @@ def create_blueprint(provider):
         if isinstance(error, OtpRateLimit):
             return jsonify(status='error', message=str(error), retry_after=error.retry_after), 429, {'Retry-After': str(error.retry_after)}
         if isinstance(error, GateQRUnavailable):
+            if request.method == 'GET' and request.path.startswith('/join/'):
+                return render_template('branch_join.html', client_page=True, unavailable=str(error)), 404
             if request.method == 'GET' and request.path.startswith('/gate/'):
                 return render_template('gate_qr.html', client_page=True, unavailable=str(error), bootstrap={}), 404
             return jsonify(status='error', message=str(error)), 404
@@ -62,21 +64,56 @@ def create_blueprint(provider):
         action = body().get('action', 'create') if request.method == 'POST' else None
         return jsonify(service().admin_view(username, branch_id, gate_id, action))
 
+    @bp.route('/admin/api/branches/<int:branch_id>/registration-qr', methods=['GET', 'POST'])
+    def registration_qr(branch_id):
+        username = admin(branch_id)
+        action = body().get('action', 'create') if request.method == 'POST' else None
+        return jsonify(provider()['branch_join'].admin_view(username, branch_id, action))
+
+    @bp.get('/admin/api/branches/<int:branch_id>/registration-qr.<kind>')
     @bp.get('/admin/api/branches/<int:branch_id>/gates/<gate_id>/qr.<kind>')
-    def qr_image(branch_id, gate_id, kind):
+    def qr_image(branch_id, kind, gate_id=None):
         if kind not in {'svg', 'png'}:
             abort(404)
-        data = service().admin_view(admin(branch_id), branch_id, gate_id)
+        username = admin(branch_id)
+        data = (service().admin_view(username, branch_id, gate_id) if gate_id is not None
+                else provider()['branch_join'].admin_view(username, branch_id))
         if not data['enabled']:
             abort(404)
         image = qrcode.make(data['url'], image_factory=SvgPathImage) if kind == 'svg' else qrcode.make(data['url'])
         output = BytesIO()
         image.save(output)
         response = Response(output.getvalue(), mimetype='image/svg+xml' if kind == 'svg' else 'image/png')
-        response.headers['Content-Disposition'] = 'attachment; filename="gate-qr.' + kind + '"' if request.args.get('download') == '1' else 'inline'
+        filename = 'gate-qr' if gate_id is not None else 'branch-registration-qr'
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}.{kind}"' if request.args.get('download') == '1' else 'inline'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Cache-Control'] = 'no-store'
         return response
+
+    @bp.get('/join/<raw>')
+    def join_page(raw):
+        browser()
+        return render_template('branch_join.html', client_page=True, branch_name=provider()['branch_join'].name(raw))
+
+    @bp.post('/join/<raw>/code')
+    def join_code(raw):
+        result = provider()['branch_join'].code(raw, browser(), body().get('phone'), request.remote_addr or '')
+        return jsonify(challenge_id=result['challenge_id'],ready=result['ready'],retry_after=result['retry_after'])
+
+    @bp.post('/join/<raw>/verify')
+    def join_verify(raw):
+        data = body()
+        provider()['branch_join'].verify(raw, browser(), data.get('challenge_id'), data.get('code'))
+        return jsonify(verified=True)
+
+    @bp.post('/join/<raw>/profile')
+    def join_profile(raw):
+        return jsonify(provider()['branch_join'].profile(raw, browser()))
+
+    @bp.post('/join/<raw>/finish')
+    def join_finish(raw):
+        data = body()
+        return jsonify(provider()['branch_join'].finish(raw, browser(), data.get('name'), data.get('email', '')))
 
     @bp.get('/gate/<raw>')
     def gate_page(raw):

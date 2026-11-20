@@ -13,7 +13,14 @@
     function applyButtons(buttons){
         const gates=(buttons || []).filter(b=>b.type==='gate'),signature=JSON.stringify(gates);
         if(signature!==buttonSignature){buttonSignature=signature;$('gateActions').replaceChildren();for(const item of gates){const control=document.createElement('button');control.type='button';control.className='gate-action button-gate';control.dataset.buttonId=item.id;const title=document.createElement('span');title.textContent=item.label;const arrow=document.createElement('span');arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');control.append(title,arrow);control.onclick=()=>openGate(item.id);$('gateActions').append(control);}}
-        $('adminContacts').replaceChildren();for(const contact of (buttons || []).filter(b=>b.type==='admin')){if(!/^\+?[0-9 ()-]+$/.test(contact.phone || ''))continue;const link=document.createElement('a');link.className='contact-link button-admin';link.href='tel:'+contact.phone;link.textContent=contact.label+' ↗';link.addEventListener('click',()=>{if(contact.id)fetch('/api/access/contact',{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify({token:config.token,button_id:contact.id})}).catch(()=>{});});$('adminContacts').append(link);}
+        $('adminContacts').replaceChildren();
+        for(const contact of (buttons||[]).filter(b=>b.type==='admin')){
+            if(!/^\+?[0-9 ()-]+$/.test(contact.phone||''))continue;
+            const link=document.createElement('a');
+            link.className='contact-link button-admin';link.href='tel:'+contact.phone;
+            link.textContent='Позвонить · '+contact.label;link.dataset.deskPhone=contact.id;
+            $('adminContacts').append(link);
+        }
     }
     function render(){
         if(expires&&Date.now()>=expires)active=false;
@@ -52,6 +59,7 @@
             const {response,data}=await request('/open-gate',{token:config.token,button_id:buttonId,request_id:requestId});const ok=response.ok&&data.status==='success';
             text($('statusMessage'),data.message||(ok?'Команда принята':'Не удалось отправить команду'));$('statusMessage').className='status-message '+(ok?'success':'error');
             if(!ok&&Number(data.retry_after)>0)deadline=Math.max(deadline,performance.now()+Number(data.retry_after)*1000);
+            if(ok)document.dispatchEvent(new CustomEvent('gatebot:gate-command',{detail:requestId}));
             if(!ok&&[403,503].includes(response.status)&&!Number(data.retry_after))deadline=0;
             if(data.code==='outside_working_hours')hours={open:false,message:data.message};
             else if(!ok&&[401,403,404].includes(response.status))active=false;

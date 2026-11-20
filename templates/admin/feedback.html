@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block title %}Отзывы клиентов — GateBot{% endblock %}
+{% block content %}<main class="admin-container"><section class="admin-content">
+  <div class="page-heading"><h1>Пожелания и отзывы</h1></div>
+  {% for review in reviews %}<article class="panel"><p class="page-eyebrow">{{ review.branch }} · {{ review.date }}</p>
+    {% if review.stars %}<strong aria-label="Оценка {{ review.stars }} из 5">{{ '★' * review.stars }}{{ '☆' * (5 - review.stars) }}</strong>{% endif %}
+    {% if review.message %}<p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ review.message }}</p>{% endif %}
+  </article>{% else %}<p>Пока нет отзывов.</p>{% endfor %}
+  <nav>{% if page > 1 %}<a href="?page={{ page-1 }}">Назад</a>{% endif %} {% if has_next %}<a href="?page={{ page+1 }}">Далее</a>{% endif %}</nav>
+</section></main>{% endblock %}

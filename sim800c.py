@@ -78,7 +78,7 @@ class Sim800Modem:
 
     def __init__(self, port: str, baudrate: int = 115200, command_timeout: float = 5,
                  serial_factory=None, startup_delay: float = 3.0, inbox=None):
-        if not math.isfinite(command_timeout) or not 0 < command_timeout <= 60:
+        if not math.isfinite(command_timeout) or not 0 < command_timeout <= 300:
             raise ValueError("Invalid command timeout")
         if not math.isfinite(startup_delay) or not 0 <= startup_delay <= 10:
             raise ValueError("Invalid startup delay")
@@ -331,7 +331,8 @@ class Sim800Modem:
             finally:
                 if sent and self._serial is not None:
                     try:
-                        self._command_locked("ATH", allow_stopping=True)
+                        hangup_timeout = min(5, self.command_timeout) if self._stopping.is_set() else self.command_timeout
+                        self._command_locked("ATH", timeout=hangup_timeout, allow_stopping=True)
                     except ModemError:
                         error = error or ModemError("hangup_unconfirmed", uncertain=True)
                 if error:
@@ -375,6 +376,12 @@ class Sim800Modem:
             return {"state": "error", "error_code": error.code}
         finally:
             self._lock.release()
+
+    def available_now(self):
+        if self._lock.acquire(blocking=False):
+            self._lock.release()
+            return True
+        return False
 
     def _operator_locked(self):
         # Read current network/SIM names; never scan or select a new network.
@@ -458,15 +465,19 @@ class Sim800Modem:
                 try:
                     if self._stopping.is_set():
                         raise ModemError('stopping')
-                    if segment['sequence']==1 and before_submit is not None:
-                        before_submit()
-                    segment['status'] = 'submitting'
-                    progress([dict(p) for p in segments])  # durable claim before CTRL-Z
                     command = f"AT+CMGS={pdu['tpdu_length']}\r".encode('ascii')
                     if self._serial.write(command) != len(command):
                         raise ModemError('serial_partial_write')
                     self._sms_prompt_locked()
                     payload = pdu['pdu'].encode('ascii') + b'\x1a'
+                    if segment['sequence']==1 and before_submit is not None:
+                        before_submit()
+                    segment['status'] = 'submitting'
+                    progress([dict(p) for p in segments])  # durable claim before CTRL-Z
+                    if self._stopping.is_set():
+                        raise ModemError('stopping')
+                    if segment['sequence'] == 1 and not_after is not None and time.monotonic() >= not_after:
+                        raise ModemError('queue_expired')
                     submitted = True
                     if self._serial.write(payload) != len(payload):
                         raise ModemError('serial_partial_write', uncertain=True)
@@ -498,8 +509,8 @@ class Sim800Modem:
                     self._close_locked()
                     progress([dict(p) for p in segments])
                     accepted = sum(p['status'] == 'network_accepted' for p in segments)
-                    return {"status": "partial" if accepted else ('unknown' if uncertain else 'failed'),
-                            "delivery": "partial" if accepted else ('unknown' if uncertain else 'failed'),
+                    outcome = 'partial' if accepted else 'unknown' if uncertain else 'expired' if segment['code'] == 'queue_expired' else 'failed'
+                    return {"status": outcome, "delivery": outcome,
                             "code": segment['code'], "segments": segments, "confirmed": False}
         return {"status": "network_accepted", "delivery": "network_accepted",
                 "segments": segments, "confirmed": False}
@@ -522,7 +533,7 @@ class Sim800Modem:
                     receipts = self.inbox.ingest(parts, storage=storage, observed_at=observations)
                     # Still own the same COM lock and selected storage. An occupied
                     # SIM slot cannot be reused before we delete it. Never bulk-clear.
-                    current = {p.storage_index: part_key(p) for p in parts}
+                    current = {p.storage_index: part_key(p, getattr(self.inbox, 'modem_id', 'legacy')) for p in parts}
                     for location in receipts if cleanup else []:
                         index = location['index']
                         if current.get(index) != location['part_key']:
@@ -569,7 +580,7 @@ class Sim800Modem:
                 self._command_locked(f'AT+CPMS="{storage}"')
                 self._command_locked('AT+CMGF=0')
                 parts, errors = _parse_cmgl(self._command_locked('AT+CMGL=4,1', timeout=30))
-                current = {p.storage_index: part_key(p) for p in parts}
+                current = {p.storage_index: part_key(p, getattr(self.inbox, 'modem_id', 'legacy')) for p in parts}
                 for location in (p for p in locations if p['storage'] == storage):
                     index = location['index']
                     if type(index) is not int or current.get(index) != location['part_key']:
@@ -604,6 +615,15 @@ class Sim800Modem:
         with self._lock:
             self._close_locked()
 
+    def close_within(self, timeout):
+        if not self._lock.acquire(timeout=max(0, timeout)):
+            return False
+        try:
+            self._close_locked()
+            return True
+        finally:
+            self._lock.release()
+
 
 def _parse_cmgl(lines):
     parts, errors, pending = [], [], None
@@ -637,7 +657,7 @@ def _parse_cmgl(lines):
 
 
 class CallQueue:
-    def __init__(self, modem=None, *, enabled=None, dry_run=None, max_calls=None, ttl=None):
+    def __init__(self, modem=None, *, devices=None, enabled=None, dry_run=None, max_calls=None, ttl=None):
         self.enabled = _boolean(_setting("SIM800_ENABLED", False) if enabled is None else enabled)
         self.dry_run = _boolean(_setting("GATE_DRY_RUN", True) if dry_run is None else dry_run)
         self.call_queue_timeout = float(ttl if ttl is not None else
@@ -647,20 +667,32 @@ class CallQueue:
         if not math.isfinite(self.call_queue_timeout) or self.call_queue_timeout <= 0 or self.max_calls_in_queue < 1:
             raise ValueError("Invalid call queue limits")
         from telephony_store import TelephonyStore
+        from modem_settings import default_modem, read_modems
         self.journal = TelephonyStore()
-        self.modem = modem or Sim800Modem(str(_setting("SIM800_PORT", "")),
-                                          int(_setting("SIM800_BAUDRATE", 115200)),
-                                          float(_setting("SIM800_COMMAND_TIMEOUT", 5)), inbox=self.journal)
+        if devices is None:
+            if modem is not None:
+                devices = [({**default_modem(), 'port': modem.port}, modem)]
+            else:
+                devices = [(row, Sim800Modem(row['port'], row['baudrate'], row['command_timeout'],
+                            inbox=TelephonyStore(self.journal.store.path, modem_id=row['id'], modem_name=row['name'])))
+                           for row in read_modems()]
+        self.devices = {row['id']: (row, driver) for row, driver in devices}
+        self.modem = next((driver for _, driver in self.devices.values()), None)
         self.queue, self.recent = deque(), deque(maxlen=100)
         self.lock = threading.Lock()
-        self.processing, self._closed, self.active, self._thread = False, False, None, None
+        self._closed, self._thread = False, None
+        self.running = {}
+        self.monitor_started = False
+        self.workers = set()
+        self.turns = {'sms': {}, 'call': {}}
+        self.turn = 0
         self.command_guard = None
         self.command_observer = None
         self._failure_code = None
 
     @staticmethod
     def _public(call):
-        return {k: v for k, v in call.items() if k not in {"phone", "deadline", "text", "segments", "locations", "source_id", "_before_submit"}} | {
+        return {k: v for k, v in call.items() if k not in {"phone", "deadline", "text", "segments", "locations", "source_id", "_before_submit", "_tried"}} | {
             "phone_masked": "***" + call["phone"][-4:]}
 
     def _cleanup_expired(self):
@@ -680,18 +712,19 @@ class CallQueue:
             try:
                 self.command_observer(call['command_id'], call['status'], call.get('code'))
             except Exception:
-                # Continuing without a durable accounting outcome is unsafe. This
-                # runs under the queue lock: mark closed, then the worker exits on
-                # its next iteration. Restart recovery reconciles pending records.
+                # Another port may be preparing its next physical command.
+                # Stop every driver before releasing the admission lock.
                 self._closed = True
                 self._failure_code = 'accounting_unavailable'
+                for _, driver in self.devices.values():
+                    driver.request_stop()
                 _audit('SIM800_STATUS', level='ERROR', details={
                     'state':'error', 'error_code':self._failure_code})
         if call.get("record_id"):
             try:
                 self.journal.update(call["record_id"], status=call["status"], code=call.get("code"),
                                     segments=call.get("segments", []),
-                                    **{k: call[k] for k in ('deleted_parts', 'skipped_parts') if k in call})
+                                    **{k: call[k] for k in ('modem_id', 'modem_name', 'deleted_parts', 'skipped_parts') if k in call})
             except Exception:
                 _audit("SIM800_INBOX_ERROR", level="ERROR", details={"error_code": "outgoing_write_failed"})
         _audit("SIM800_COMMAND", branch_id=call["branch_id"],
@@ -709,30 +742,35 @@ class CallQueue:
                 return {"status": "error", "code": self._failure_code or "stopping", "message": "Очередь остановлена. Проверьте состояние сервиса"}
             if not self.dry_run and not self.enabled:
                 return {"status": "error", "code": "modem_disabled", "message": "Модуль связи выключен"}
-            if not self.dry_run and not self.modem.port:
-                return {"status": "error", "code": "port_not_configured", "message": "Порт модуля связи не настроен"}
+            if not self.dry_run and not self._candidates({'kind': 'call'}):
+                return {"status": "error", "code": "port_not_configured", "message": "Модем для звонков не настроен"}
             self._cleanup_expired()
             if self._closed:
                 return {'status':'error','code':self._failure_code or 'stopping','message':'Очередь остановлена. Проверьте состояние сервиса'}
             if command_id:
-                for call in list(self.queue) + list(self.recent) + ([self.active] if self.active else []):
+                for call in list(self.queue) + list(self.recent) + list(self.running.values()):
                     if call['command_id'] == command_id:
                         return {'status': 'success', 'delivery': call['status'], 'coalesced': True,
                                 'command_id': command_id, 'confirmed': False, 'message': 'Запрос уже в обработке'}
-            for call in list(self.queue) + ([self.active] if self.active else []):
+            for call in list(self.queue) + list(self.running.values()):
                 if (not command_id and call["phone"] == phone and
                         str(call.get('branch_id')) == str(branch_id) and
-                        call.get('gate_id') == gate_id and not call.get("record_id")):
+                        call.get('gate_id') == gate_id and not call.get("kind")):
                     return {"status": "success", "delivery": "queued", "coalesced": True,
                             "command_id": call["command_id"], "confirmed": False,
                             "message": "Запрос уже в обработке"}
-            if len(self.queue) + bool(self.active) >= self.max_calls_in_queue:
+            if len(self.queue) + len(self.running) >= self.max_calls_in_queue:
                 return {"status": "error", "code": "queue_full", "message": "Очередь команд переполнена"}
             call = {"phone": phone, "duration": seconds, "branch_id": branch_id,
                     "command_id": command_id or uuid.uuid4().hex, 'gate_id': gate_id, 'managed': bool(command_id),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "deadline": time.monotonic() + self.call_queue_timeout,
                     "status": "simulated" if self.dry_run else "queued", "confirmed": False}
+            try:
+                call['record_id'] = self.journal.add('call', 'outgoing', phone=phone, duration=seconds,
+                    status=call['status'], action='gate', branch_id=branch_id, modem_id=None, modem_name=None)
+            except Exception:
+                return {'status': 'error', 'code': 'journal_unavailable', 'message': 'Не удалось сохранить вызов'}
             self._event(call)
             if self._failure_code:
                 return {'status':'error','code':self._failure_code,'message':'Не удалось сохранить состояние команды'}
@@ -740,30 +778,27 @@ class CallQueue:
                 self.recent.append(call)
             else:
                 self.queue.append(call)
-                if not self.processing:
-                    self.processing = True
-                    self._thread = threading.Thread(target=self._process_queue, name="sim800-call-queue", daemon=True)
-                    self._thread.start()
+                self._start_workers()
             return {"status": "success", "delivery": call["status"], "accepted": True,
                     "command_id": call["command_id"], "confirmed": False,
                     "message": "Тестовая команда выполнена" if self.dry_run else "Запрос добавлен в очередь"}
 
     def add_manual(self, kind, phone, *, text='', duration=20, record_id=None, locations=None, source_id=None,
-                   sensitive=False, priority=False, command_id=None, before_submit=None):
+                   sensitive=False, priority=False, command_id=None, before_submit=None, target_modem=None):
         # Admission is authorized by TelephonyService; shares the gate hardware worker.
         with self.lock:
             if self._closed or (not self.dry_run and not self.enabled):
                 return {"status": "error", "code": "modem_disabled", "message": "Модем выключен или останавливается"}
-            if not self.dry_run and not self.modem.port:
-                return {"status": "error", "code": "port_not_configured", "message": "Порт не настроен"}
+            if not self.dry_run and not self._candidates({'kind': kind, 'target_modem': target_modem}):
+                return {"status": "error", "code": "port_not_configured", "message": "Нет модема для этой операции"}
             self._cleanup_expired()
             if self._closed:
                 return {'status':'error','code':self._failure_code or 'stopping','message':'Очередь остановлена. Проверьте состояние сервиса'}
-            if len(self.queue) + bool(self.active) >= self.max_calls_in_queue:
+            if len(self.queue) + len(self.running) >= self.max_calls_in_queue:
                 return {"status": "error", "code": "queue_full", "message": "Очередь модема заполнена"}
             call = {"kind": kind, "phone": phone, "text": text, "duration": duration,
                     "_before_submit": before_submit,
-                    "locations": locations, "source_id": source_id,
+                    "locations": locations, "source_id": source_id, "target_modem": target_modem,
                     "record_id": record_id, 'sensitive': sensitive, "branch_id": None,
                     "command_id": command_id or uuid.uuid4().hex,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -777,93 +812,167 @@ class CallQueue:
                     self.queue.appendleft(call)
                 else:
                     self.queue.append(call)
-                if not self.processing:
-                    self.processing = True
-                    self._thread = threading.Thread(target=self._process_queue, name="sim800-call-queue", daemon=True)
-                    self._thread.start()
+                self._start_workers()
             return {"status": "success", "delivery": call["status"], "command_id": call["command_id"],
                     "message": "Имитация без отправки" if self.dry_run else "Принято в очередь"}
+
+    @property
+    def processing(self):
+        return bool(self.workers)
+
+    def _candidates(self, command):
+        kind = 'sms' if command.get('kind') in {'sms', 'sms_delete'} else 'call'
+        target = command.get('target_modem')
+        return [key for key, (row, driver) in self.devices.items() if driver.port and
+                key not in command.get('_tried', ()) and (target is None or key == target) and
+                (row[kind + '_enabled'] or command.get('kind') == 'sms_delete')]
+
+    def _start_workers(self):
+        count = min(len(self.devices), len(self.queue) + len(self.running))
+        while len(self.workers) < count:
+            self._thread = threading.Thread(target=self._process_queue, name='sim800-command', daemon=True)
+            self.workers.add(self._thread)
+            self._thread.start()
+
+    def _take(self):
+        for call in self.queue:
+            available = [key for key in self._candidates(call) if key not in self.running]
+            if not available:
+                continue
+            kind = 'sms' if call.get('kind') in {'sms', 'sms_delete'} else 'call'
+            def rank(key):
+                row, driver = self.devices[key]
+                busy = hasattr(driver, 'available_now') and not driver.available_now()
+                return busy, -row[kind + '_priority'], self.turns[kind].get(key, 0)
+            key = min(available, key=rank)
+            self.turn += 1
+            self.turns[kind][key] = self.turn
+            self.queue.remove(call)
+            self.running[key] = call
+            call.update(status='processing', modem_id=key, modem_name=self.devices[key][0]['name'])
+            return call, self.devices[key][1]
+        return None
+
+    def _execute(self, modem, call):
+        record = call.get('record_id')
+        if record and not self.journal.update(record, status='processing', modem_id=call['modem_id'], modem_name=call['modem_name']):
+            raise ModemError('journal_record_missing')
+        if call.get('kind') == 'sms_delete':
+            result = modem.delete_archived_sms(call['locations'], not_after=call['deadline'])
+            self.journal.update(call['source_id'], sim_cleanup_at=datetime.now(timezone.utc).isoformat())
+            return result
+        if call.get('kind') == 'sms':
+            def progress(segments):
+                call['segments'] = segments
+                if record:
+                    self.journal.update(record, segments=segments)
+            kwargs = {'progress': progress, 'not_after': call['deadline']}
+            if call.get('_before_submit') is not None:
+                def before_submit():
+                    if not call['_before_submit']():
+                        raise ModemError('authorization_expired')
+                kwargs['before_submit'] = before_submit
+            return modem.send_sms(call['phone'], call['text'], **kwargs)
+        kwargs = {'not_after': call['deadline']}
+        if call.get('managed'):
+            def before_dial():
+                if self.command_guard is None or not self.command_guard(call['command_id']):
+                    raise ModemError('authorization_expired')
+                self.command_observer(call['command_id'], 'started', None)
+            kwargs['before_dial'] = before_dial
+        return modem.call(call['phone'], call['duration'], **kwargs)
 
     def _process_queue(self):
         while True:
             with self.lock:
                 self._cleanup_expired()
-                if self._closed or not self.queue:
-                    self.processing = False
+                item = None if self._closed else self._take()
+                if item is None:
+                    self.workers.discard(threading.current_thread())
                     return
-                call = self.queue.popleft()
-                call["status"], self.active = "processing", call
+            call, driver = item
             try:
-                if call.get("record_id"):
-                    if not self.journal.update(call["record_id"], status="processing"):
-                        raise ModemError("journal_record_missing")
-                if call.get("kind") == "sms_delete":
-                    result = self.modem.delete_archived_sms(call["locations"], not_after=call["deadline"])
-                    self.journal.update(call["source_id"], sim_cleanup_at=datetime.now(timezone.utc).isoformat())
-                elif call.get("kind") == "sms":
-                    def progress(segments):
-                        call["segments"] = segments
-                        if call.get('record_id'):
-                            self.journal.update(call["record_id"], segments=segments)
-                    kwargs={'progress':progress,'not_after':call['deadline']}
-                    if call.get('_before_submit') is not None:
-                        def before_submit():
-                            if not call['_before_submit']():
-                                raise ModemError('authorization_expired')
-                        kwargs['before_submit']=before_submit
-                    result = self.modem.send_sms(call["phone"], call["text"], **kwargs)
-                else:
-                    kwargs = {'not_after': call['deadline']}
-                    if call.get('managed'):
-                        def before_dial():
-                            if self.command_guard is None or not self.command_guard(call['command_id']):
-                                raise ModemError('authorization_expired')
-                            self.command_observer(call['command_id'], 'started', None)
-                        kwargs['before_dial'] = before_dial
-                    result = self.modem.call(call["phone"], call["duration"], **kwargs)
-                update = {"status": "command_sent", **result}
-            except ModemError as exc:
-                update = {"status": "unknown" if exc.uncertain else
-                          ("expired" if exc.code == "queue_expired" else "failed"), "code": exc.code}
+                update = {'status': 'command_sent', **self._execute(driver, call)}
+            except ModemError as error:
+                update = {'status': 'unknown' if error.uncertain else
+                          ('expired' if error.code == 'queue_expired' else 'failed'), 'code': error.code}
             except Exception:
-                update = {"status": "unknown", "code": "unexpected_modem_error"}
+                update = {'status': 'unknown', 'code': 'unexpected_modem_error'}
             with self.lock:
+                del self.running[call['modem_id']]
+                call.setdefault('_tried', set()).add(call['modem_id'])
+                segments = update.get('segments', call.get('segments', ()))
+                # Never retransmit even one accepted or uncertain segment after failover.
+                attempted = any(s.get('status') in {'unknown', 'submitting', 'network_accepted'} for s in segments)
+                if attempted and update['status'] == 'failed':
+                    update['status'] = 'partial' if any(s.get('status') == 'network_accepted' for s in segments) else 'unknown'
+                    update['delivery'] = update['status']
+                safe_failure = update['status'] == 'failed' and update.get('code') not in {
+                    'authorization_expired', 'stopping', 'journal_record_missing', 'queue_expired'}
+                if safe_failure and not self._closed and self._candidates(call) and call['deadline'] > time.monotonic():
+                    call['status'] = 'queued'
+                    self.queue.appendleft(call)
+                    continue
                 call.update(update)
                 if call.get('sensitive'):
                     call['text'] = ''
                     call['phone'] = ''
                 self.recent.append(call)
-                self.active = None
                 self._event(call)
+
+    def public_devices(self):
+        return [{'id': key, 'name': row['name'], 'busy': key in self.running,
+                 'status': {**getattr(driver, 'last_status', {}), 'sms_poll': getattr(driver, 'last_sms_status', {})}}
+                for key, (row, driver) in self.devices.items()]
 
     def status(self):
         with self.lock:
-            return {"enabled": self.enabled, "dry_run": self.dry_run,
-                    "error_code": self._failure_code,
-                    "stopping": self._closed, "modem": {**getattr(self.modem, "last_status", {}),
-                        "sms_poll": getattr(self.modem, "last_sms_status", {})},
-                    "queue_length": len(self.queue), "max_queue": self.max_calls_in_queue,
-                    "active": self._public(self.active) if self.active else None,
-                    "queue": [self._public(c) for c in self.queue],
-                    "recent": [self._public(c) for c in self.recent]}
+            devices = self.public_devices()
+            active = list(self.running.values())
+            default_status = next((dev['status'] for dev in devices if dev['status'].get('state') == 'ok'),
+                                  devices[0]['status'] if devices else {})
+            return {'enabled': self.enabled, 'dry_run': self.dry_run, 'error_code': self._failure_code,
+                    'stopping': self._closed, 'modem': default_status, 'modems': devices,
+                    'queue_length': len(self.queue), 'max_queue': self.max_calls_in_queue,
+                    'active': self._public(active[0]) if active else None, 'active_commands': [self._public(c) for c in active],
+                    'queue': [self._public(c) for c in self.queue], 'recent': [self._public(c) for c in self.recent]}
+
+    def probe(self, key):
+        with self.lock:
+            if self._closed or not self.enabled or not self.monitor_started:
+                raise ValueError('Модуль связи выключен')
+            if key not in self.devices:
+                raise ValueError('Сохраните модем и перезапустите сервис')
+            if key in self.running:
+                return {'state': 'busy'}
+            driver = self.devices[key][1]
+        return driver.diagnostics()
 
     def shutdown(self, timeout=10):
         with self.lock:
             self._closed = True
             for call in self.queue:
-                call.update(status="cancelled", code="shutdown")
+                call.update(status='cancelled', code='shutdown')
                 self.recent.append(call)
                 self._event(call)
             self.queue.clear()
-            worker = self._thread
-        self.modem.request_stop()
-        if worker and worker is not threading.current_thread():
-            worker.join(timeout=max(0, timeout))
-        finished = not worker or not worker.is_alive()
+            workers = list(self.workers)
+        for _, driver in self.devices.values():
+            driver.request_stop()
+        deadline = time.monotonic() + max(0, timeout)
+        for worker in workers:
+            if worker is not threading.current_thread():
+                worker.join(timeout=max(0, deadline - time.monotonic()))
+        finished = not any(worker.is_alive() for worker in workers)
         if finished:
-            self.modem.close()
-        else:
-            _audit("SIM800_SHUTDOWN_TIMEOUT", level="WARNING")
+            for _, driver in self.devices.values():
+                if hasattr(driver, 'close_within'):
+                    if not driver.close_within(deadline - time.monotonic()):
+                        finished = False
+                else:
+                    driver.close()
+        if not finished:
+            _audit('SIM800_SHUTDOWN_TIMEOUT', level='WARNING')
         return finished
 
 
@@ -896,7 +1005,7 @@ def get_call_queue_status() -> dict:
 
 def read_sms(storage=None) -> dict:
     queue = _get_queue()
-    if not queue.enabled:
+    if not queue.enabled or not queue.modem:
         return {"status": "error", "code": "modem_disabled", "messages": []}
     try:
         return queue.modem.read_sms(storage or str(_setting("SIM800_SMS_STORAGE", "SM")), cleanup=False)
@@ -918,36 +1027,52 @@ def monitor_status(stop_event, interval=30):
     if not queue.enabled:
         _audit("SIM800_STATUS", details={"state": "disabled"})
         return
-    print(f"SIM800: port={queue.modem.port}; baudrate={queue.modem.baudrate}; "
-          f"gate_mode={'DRY RUN' if queue.dry_run else 'HARDWARE'}", flush=True)
+    if hasattr(queue, 'devices'):
+        queue.monitor_started = True
+        devices = [(row['name'], driver) for row, driver in queue.devices.values() if driver.port]
+    else:
+        devices = [('SIM800C', queue.modem)]
+    if len(devices) == 1:
+        _monitor_modem(stop_event, interval, *devices[0])
+        return
+    workers = [threading.Thread(target=_monitor_modem, args=(stop_event, interval, name, driver),
+               name='sim800-monitor-' + name, daemon=True) for name, driver in devices]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+
+def _monitor_modem(stop_event, interval, name, driver):
+    print(f"SIM800: modem={name} port={driver.port} baudrate={driver.baudrate}", flush=True)
     next_sms = 0.0
     while not stop_event.is_set():
-        result = queue.modem.diagnostics()
+        result = driver.diagnostics()
         if stop_event.is_set():
             break
-        _audit("SIM800_STATUS", details=result)
+        _audit("SIM800_STATUS", details={"modem": name, **result})
         next_status = time.monotonic() + interval
         while not stop_event.is_set() and time.monotonic() < next_status:
-            queue.modem.poll_events()
-            if time.monotonic() >= next_sms or queue.modem.sms_pending:
-                queue.modem.sms_pending = False
-                storages = queue.modem.pending_sms_storages.copy()
-                queue.modem.pending_sms_storages.difference_update(storages)
+            driver.poll_events()
+            if time.monotonic() >= next_sms or driver.sms_pending:
+                driver.sms_pending = False
+                storages = driver.pending_sms_storages.copy()
+                driver.pending_sms_storages.difference_update(storages)
                 full_scan = time.monotonic() >= next_sms
                 # A notice gets priority; fallback scans still cover both stores.
                 priority = sorted(storages)
                 if full_scan:
-                    storages.update(queue.modem.sms_storages)
-                states = dict(queue.modem.last_sms_status.get('storages', {}))
+                    storages.update(driver.sms_storages)
+                states = dict(driver.last_sms_status.get('storages', {}))
                 for storage in priority + sorted(storages.difference(priority)):
                     try:
-                        queue.modem.read_sms(storage)
-                        states[storage] = dict(queue.modem.last_sms_status)
+                        driver.read_sms(storage)
+                        states[storage] = dict(driver.last_sms_status)
                     except Exception:
                         states[storage] = {"state": "error", "error_code": "sms_read_failed",
                             "checked_at": datetime.now(timezone.utc).isoformat()}
-                        _audit("SIM800_INBOX_ERROR", level="ERROR", details={"error_code": "sms_read_failed"})
-                queue.modem.last_sms_status = {
+                        _audit("SIM800_INBOX_ERROR", level="ERROR", details={"modem": name, "error_code": "sms_read_failed"})
+                driver.last_sms_status = {
                     'state': 'ok' if all(s.get('state') == 'ok' for s in states.values()) else 'partial',
                     'checked_at': datetime.now(timezone.utc).isoformat(), 'storages': states,
                     **{key: sum(s.get(key, 0) for s in states.values()) for key in

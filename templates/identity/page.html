@@ -7,8 +7,9 @@
 <main class="admin-container" id="identityPage" data-kind="{{ kind }}"><section class="admin-content">
 <div class="page-heading"><div><p class="page-eyebrow">GATEBOT</p><h1>{{ title }}</h1><p class="page-description" id="identityDescription"></p></div></div>
 <div id="identityNotice" role="status" class="panel" hidden></div>
+{% if office %}{% include 'components/office_push.html' %}{% endif %}
 <div id="identityContent" class="{% if kind == 'integrations' %}integration-workspace{% else %}panel{% endif %}"></div>
-{% if kind == 'preferences' %}<div data-client-pwa-tools></div>{% endif %}
+{% if kind == 'preferences' %}<div data-client-pwa-tools></div>{% include 'components/client_footer.html' %}{% endif %}
 {% if kind == 'integrations' and branches %}
 <details class="panel integration-guide">
   <summary>Два способа подключения YCLIENTS</summary>

@@ -31,6 +31,19 @@
 .system-settings-field { min-width: 0; overflow-wrap: anywhere; }
 .system-settings-field input:not([type="checkbox"]), .system-settings-field select { width: 100%; min-width: 0; }
 .system-settings-group > summary { cursor: pointer; font-weight: 600; }
+#modemCards {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;margin-block:18px}
+#modemCards fieldset {min-width:0;margin:0;padding:18px;border:1px solid var(--line);border-radius:18px;background:var(--surface)}
+#modemCards legend {padding-inline:6px;font-weight:650;color:var(--ink)}
+#modemCards .system-settings-grid {grid-template-columns:repeat(auto-fit,minmax(min(100%,195px),1fr));gap:12px}
+#modemCards .form-group {min-width:0;margin:0}
+#modemCards input:not([type=checkbox]) {width:100%;min-width:0}
+#modemCards .action-buttons {margin-top:16px;gap:12px;display:flex;flex-wrap:wrap}
+#modemCards .modem-health {margin-block:4px;font-weight:600}
+.settings-workspace .admin-content,.settings-workspace #systemSettingsForm{width:100%;max-width:none;min-width:0;margin-inline:0}
+.settings-workspace .action-buttons{position:static;inset:auto;transform:none}
+.settings-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:4;padding:10px 0;background:var(--surface)}
+.settings-export{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px;align-items:end;margin-top:18px}
+.settings-export label{display:grid;gap:6px}
 .system-settings-field .action-buttons { flex-wrap: wrap; align-items: center; }
 .client-notifications-status{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:6px 9px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
 .client-channel-mini{display:grid;place-items:center;min-width:24px;height:24px;padding:0 4px;border-radius:7px;background:var(--milk);font-size:10px;font-weight:700;color:var(--green)}
@@ -41,3 +54,21 @@
 .client-yc-id-control{display:flex;align-items:stretch;gap:8px}.client-yc-id-control>input{flex:1;min-width:0}.client-yc-id-refresh{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;min-height:44px;padding:10px}
 .client-role-details{margin-bottom:20px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--milk)}.client-role-details .btn-action{margin-top:10px}
 .client-branch-access-hint{display:block;white-space:normal;max-width:190px;margin-top:6px;font-size:10px;line-height:1.4;color:var(--muted)}
+.card-sort-controls{display:none}
+@media(max-width:759px){
+ #clientDirectory .users-table-container{border:0;overflow:visible;background:var(--gb-color-admin-background-ae91184a94a4, transparent)}
+ #clientDirectory .users-table,#clientDirectory #usersTableBody{display:block;min-width:0;width:100%}
+ #clientDirectory .users-table thead{display:none}
+ #clientDirectory #usersTableBody{display:grid;gap:16px}
+ #usersTableBody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:13px 12px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px}
+ #usersTableBody tr td{display:flex;flex-direction:column;align-items:flex-start;min-width:0;max-width:none;padding:0;border:0;white-space:normal;overflow-wrap:anywhere;font-size:14px}
+ #usersTableBody td::before{content:attr(data-label);font-size:11px;font-weight:500;color:var(--muted);margin-bottom:3px}
+ #usersTableBody td[data-label="Имя"]{grid-column:1/-1;font-size:18px}#usersTableBody td[data-label="Имя"]::before,#usersTableBody td[data-label="Имя"] br{display:none}
+ #usersTableBody td[data-label="Действия"]{flex-direction:row;flex-wrap:wrap;align-items:center;grid-column:1/-1;border-top:1px solid var(--line);padding-top:8px;gap:8px}
+ #usersTableBody td[data-label="Действия"]::before{display:none}
+ #usersTableBody td[hidden],#clientDirectory[data-branch-only="true"] td.client-branch{display:none}
+ #clientDirectory .card-sort-controls{display:flex;align-items:center;gap:6px;margin:4px 42px 12px 0;color:var(--muted);font-size:12px}
+ #clientDirectory .card-sort-controls select{min-width:0;max-width:55%;width:auto}
+ #clientDirectory .table-export-btn{right:0;top:0}
+ #clientDirectory .filter-section{flex-wrap:wrap}#clientDirectory .filter-section input[type=search]{flex:1 1 100%;min-width:0}
+}

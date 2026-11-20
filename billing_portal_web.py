@@ -7,7 +7,7 @@ import re
 import secrets
 import time
 
-from flask import abort, jsonify, request, send_file, session
+from flask import abort, jsonify, redirect, request, send_file, session
 
 from billing_service import epoch
 from branch_logos import canonical_image, MAX_UPLOAD_BYTES
@@ -79,7 +79,18 @@ def register_routes(bp, *, service, auth_required, super_required, admin, allowe
     @bp.get('/admin/billing-rules')
     @auth_required
     def billing_rules():
-        return render('admin/billing-rules.html')
+        from billing_rules import read, sections
+        with service('billing').store.connect() as db:
+            revision, document = read(db)
+        return render('admin/billing-rules.html', rules=sections(document), document=document, revision=revision)
+
+    @bp.post('/admin/billing-rules')
+    @super_required
+    def publish_rules():
+        from billing_rules import publish
+        with service('billing').store.connect() as db:
+            publish(db, request.form.get('revision'), request.form.get('document'))
+        return redirect('/admin/billing-rules', code=303)
 
     @bp.get('/admin/api/billing/catalog')
     @auth_required

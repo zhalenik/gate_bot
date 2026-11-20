@@ -21,7 +21,8 @@ def test_last_branch_admin_cannot_be_revoked_or_deleted_even_by_super(identities
         with pytest.raises(ValueError):state.service.revoke_client_admin(actor,token)
     assert state.auth.verify_admin('north',PASSWORD) and token in state.links.load_links()
     with pytest.raises(ValueError):state.links.delete_link(token)
-    with pytest.raises(ValueError):state.service.delete_client('owner',admin_token(state,'owner'),confirm_admin=True)
+    owner=state.service.web_admin('owner')['person_id']
+    assert all(client.get('person_id')!=owner for client in state.links.load_links().values())
 
 
 def test_client_delete_requires_confirmation_revokes_role_and_removes_index(identities):

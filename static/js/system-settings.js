@@ -2,6 +2,7 @@
 (() => {
  const form=document.getElementById('systemSettingsForm'),groups=document.getElementById('systemSettingsGroups'),notice=document.getElementById('systemSettingsNotice');
  const save=document.getElementById('systemSettingsSave'),resetAll=document.getElementById('systemSettingsReset'),search=document.getElementById('systemSettingsSearch');
+ const restart=document.getElementById('systemSettingsRestart');
  const fields=new Map();let snapshot=null,busy=false;
  const node=(tag,text='',className='')=>{const value=document.createElement(tag);value.textContent=text;value.className=className;return value;};
  function tell(message,error=false){notice.hidden=false;notice.className='alert '+(error?'alert-error':'alert-success');notice.textContent=message;}
@@ -34,13 +35,24 @@
    row.append(controls);containers[field.group].append(row);fields.set(field.key,model);
   }
   document.getElementById('systemSettingsState').textContent=settings.invalid_keys?.length?'Проверьте параметры: '+settings.invalid_keys.length+'. Исправьте отмеченные поля и сохраните.':settings.restart_required?'Сохранены изменения: '+settings.restart_keys.length+'. Для применения перезапустите сервис.':'Сохранённые параметры соответствуют текущему запуску.';
-  save.disabled=false;resetAll.disabled=!settings.fields.some(field=>field.overridden);filter();
+  save.disabled=false;restart.disabled=false;resetAll.disabled=!settings.fields.some(field=>field.overridden);filter();
  }
  function filter(){const text=search.value.toLocaleLowerCase().trim();for(const model of fields.values()){model.row.hidden=!([model.field.key,model.field.label,model.field.help].join(' ').toLocaleLowerCase().includes(text));}for(const section of groups.children){section.hidden=![...section.querySelectorAll('.system-settings-field')].some(row=>!row.hidden);if(text&&!section.hidden)section.open=true;}}
  search.addEventListener('input',filter);
  function changes(){const payload={revision:snapshot.revision,values:{},reset:[],clear:[]};for(const [key,model] of fields){if(model.resetPending){payload.reset.push(key);continue;}if(model.clear?.checked){payload.clear.push(key);continue;}const value=model.input.type==='checkbox'?model.input.checked:model.input.type==='number'?Number(model.input.value):model.input.value;if(model.field.secret){if(value)payload.values[key]=value;}else if(value!==model.field.value)payload.values[key]=value;}return payload;}
  async function perform(callback){if(busy)return;busy=true;save.disabled=true;resetAll.disabled=true;try{await callback();}catch(error){tell(error.message,true);}finally{busy=false;if(snapshot){save.disabled=false;resetAll.disabled=!snapshot.fields.some(field=>field.overridden);}}}
- form.addEventListener('submit',event=>{event.preventDefault();perform(async()=>{paint(await api(changes()));tell(snapshot.restart_required?'Настройки сохранены. Изменения применятся после перезапуска сервиса.':'Настройки сохранены.');});});
+ form.addEventListener('submit',event=>{
+  event.preventDefault();const reboot=event.submitter===restart;
+  if(reboot&&!confirm('Сохранить настройки и перезапустить GateBot? Во время перезапуска сервис будет кратковременно недоступен.'))return;
+  perform(async()=>{
+   const modemsSaved=await document.getElementById('modemSettingsForm')?.saveChanges?.();
+   try{paint(await api(changes()));}
+   catch(error){if(modemsSaved)throw Error('Список модемов сохранён. '+error.message);throw error;}
+   if(!reboot){tell(snapshot.restart_required?'Настройки сохранены. Изменения применятся после перезапуска сервиса.':'Настройки сохранены.');return;}
+   const result=await fetch('/admin/api/system-settings/restart',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content},body:JSON.stringify({revision:snapshot.revision})});
+   const reply=await result.json();tell(reply.message,!result.ok);
+  });
+ });
  resetAll.addEventListener('click',()=>{if(!confirm('Вернуть все системные параметры к значениям окружения / .env после перезапуска? Настройки SMTP сохранятся.'))return;perform(async()=>{paint(await api({revision:snapshot.revision,reset:snapshot.fields.filter(field=>field.overridden).map(field=>field.key)}));tell('Возврат к окружению сохранён. Перезапустите сервис для применения.');});});
  perform(async()=>paint(await api()));
 })();

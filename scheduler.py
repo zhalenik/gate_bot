@@ -74,7 +74,7 @@ class Scheduler:
         """Persist only fields needed for access, never raw CRM response payloads."""
         result = {}
         for record in records:
-            item = {k: record[k] for k in ('id', 'company_id', 'datetime', 'date', 'deleted', 'attendance') if k in record}
+            item = {k: record[k] for k in ('id', 'company_id', 'datetime', 'date', 'deleted', 'attendance', 'seance_length', 'length') if k in record}
             client = record.get('client')
             item['client'] = {k: client[k] for k in ('id', 'name', 'phone', 'email') if k in client} if isinstance(client, dict) else None
             identity = str(item.get('id'))

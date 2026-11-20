@@ -16,6 +16,7 @@ from typing import Any
 
 from bot_state import BotStateStore
 from polling_lock import PollingAlreadyRunning, polling_lease
+from pass_notifications import timely_grant
 
 
 _RUNTIME: TelegramBot | None = None
@@ -33,6 +34,7 @@ def _audit(event: str, *, level: str = "INFO", branch_id: Any = None, **details:
 def _observed_bot(token: str, stop_event: threading.Event) -> Any:
     """Observe successful empty polls as well as errors; started != connected."""
     from telegram.ext import ExtBot
+    from storage import config
 
     class ObservedBot(ExtBot):
         async def get_updates(self, *args: Any, **kwargs: Any) -> Any:
@@ -48,6 +50,10 @@ def _observed_bot(token: str, stop_event: threading.Event) -> Any:
                 _READY.set()
             return result
 
+    if config.TELEGRAM_PROXY_URL:
+        from telegram.request import HTTPXRequest
+        return ObservedBot(token=token, request=HTTPXRequest(proxy=config.TELEGRAM_PROXY_URL),
+                           get_updates_request=HTTPXRequest(proxy=config.TELEGRAM_PROXY_URL, connection_pool_size=1))
     return ObservedBot(token=token)
 
 
@@ -92,6 +98,8 @@ class TelegramBot:
         actions: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for section in sections:
             for button in section.get("buttons", []):
+                if button.get("type") == "admin" and self.workflows and getattr(self.service, "desk", None):
+                    continue
                 if button.get("type") == "admin" or (section.get("active") and button.get("type") == "gate"):
                     actions.append((section, button))
         pages = max(1, (len(actions) + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -335,7 +343,7 @@ class TelegramBot:
 
     async def notify_access(self, payload: dict[str, Any]) -> bool:
         user_id = payload.get("tg_id")
-        if not user_id:
+        if not user_id or not timely_grant(payload.get("event"), payload):
             return False
         try:
             recipient = int(user_id)
@@ -345,7 +353,7 @@ class TelegramBot:
             return False
         if self.bot is None:
             raise RuntimeError("Telegram bot is not initialized")
-        prefix = "Вам предоставлен доступ на парковку." if payload.get("event") == "granted" else "Ваш доступ на парковку обновлён."
+        prefix = "Вам предоставлен доступ на парковку."
         text, keyboard = self.menu(str(recipient), prefix=prefix)
         await self.bot.send_message(chat_id=recipient, text=text, reply_markup=keyboard)
         return True
@@ -481,14 +489,18 @@ def notify_access(payload: dict[str, Any]) -> bool:
         raise
 
 
-def notify_text(user_id, text):
+def notify_text(user_id, text, *, actions=None):
     runtime, loop = _RUNTIME, _LOOP
     if runtime is None or loop is None or not loop.is_running() or not _READY.is_set():
         return False
     async def send():
         # Split by Unicode characters conservatively below Telegram's limit.
         for start in range(0, len(text), 3500):
-            await runtime.bot.send_message(chat_id=int(user_id), text=text[start:start+3500])
+            options = {}
+            if actions and start+3500 >= len(text):
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                options['reply_markup'] = InlineKeyboardMarkup([[InlineKeyboardButton(a['label'],callback_data=a['callback'])] for a in actions])
+            await runtime.bot.send_message(chat_id=int(user_id), text=text[start:start+3500], **options)
         return True
     future = asyncio.run_coroutine_threadsafe(send(), loop)
     try:

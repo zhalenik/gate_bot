@@ -13,6 +13,7 @@ from yclients_api import YClientsError, eligible_clients
 
 
 def clock(monkeypatch, at):
+    monkeypatch.setattr('pass_notifications.now', lambda: at)
     monkeypatch.setattr('scheduler.now', lambda tz=None: at)
     monkeypatch.setattr('link_manager.now', lambda tz=None: at)
 

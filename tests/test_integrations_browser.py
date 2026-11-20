@@ -16,7 +16,6 @@ def test_integration_token_only_chatpush_and_yclients_2fa(web,browser_ui,tmp_pat
     migrate_legacy(tmp_path,activate=True)
     monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
     identity=web.module.product_services().identity
-    identity.attach_console_account('super',web.links.load_links()[web.token_a]['phone'],client_token=web.token_a)
     with identity.product.connect() as db:
         branches=read_document(db,'branches.json');branches['123']['yclients_enabled']=False;write_document(db,'branches.json',branches)
     authorize=Mock(side_effect=[{'requires_2fa':True,'challenge':'offline-uuid-123'}, {'user_token':'offline-private-yc-token','account':{'id':44,'name':'Example YC account','email':'yc-user@example.invalid'}}])
@@ -64,7 +63,6 @@ def test_marketplace_integration_has_status_and_no_manual_login(web,browser_ui,t
     migrate_legacy(tmp_path,activate=True)
     monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
     identity=web.module.product_services().identity
-    identity.attach_console_account('super',web.links.load_links()[web.token_a]['phone'],client_token=web.token_a)
     with identity.product.connect() as db:
         branches=read_document(db,'branches.json');branches['123']['yclients_enabled']=False
         branches['12'].update(yclients_connection_mode='marketplace',yclients_connection_source='marketplace',yclients_marketplace_state='active')

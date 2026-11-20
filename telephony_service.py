@@ -49,7 +49,7 @@ class TelephonyService:
             records[record_id] = {'id': record_id, 'kind': 'sms' if source else kind, 'direction': 'outgoing',
                 'timestamp': stamp(), 'phone': phone, 'text': text, 'actor': actor,
                 'duration': duration if kind == 'call' else None, 'total_parts': count,
-                'status': 'queued', 'read': True, 'segments': [], 'action': kind}
+                'status': 'queued', 'read': True, 'segments': [], 'action': kind, 'modem_id': None, 'modem_name': None}
         if self.queue is None:
             from sim800c import _get_queue
             queue = _get_queue()
@@ -57,7 +57,8 @@ class TelephonyService:
             queue = self.queue
         result = queue.add_manual(kind, phone, text=text, duration=duration, record_id=record_id,
                                   locations=source.get('sim_locations', []) if source else None,
-                                  source_id=source['id'] if source else None)
+                                  source_id=source['id'] if source else None,
+                                  **({'target_modem': source.get('modem_id', 'legacy')} if source else {}))
         if result.get('status') != 'success':
             self.store.update(record_id, status='failed', code=result.get('code'))
         return {**result, 'record_id': record_id, 'chat_id': chat_key(phone) if kind == 'sms' else None}

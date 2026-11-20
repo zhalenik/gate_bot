@@ -1,6 +1,5 @@
 """Composition of product services, shared by HTTP, bots and the sole runtime."""
 from pathlib import Path
-import os
 from analytics_service import AnalyticsService
 from billing_service import BillingService
 from identity_service import IdentityService
@@ -9,6 +8,7 @@ from storage.product_store import ProductStore
 from storage.sql_documents import is_sql_active
 from telephony_store import TelephonyStore
 from support_service import SupportService
+from branch_desk import BranchDesk
 
 
 class ApplicationServices:
@@ -24,6 +24,8 @@ class ApplicationServices:
         from yclients_client_sync import YClientsClientSync
         from yclients_client_sync_jobs import YClientsClientSyncJobs
         self.yclients_client_sync = YClientsClientSync(self.identity, branches)
+        from branch_join import BranchJoin
+        self.branch_join = BranchJoin(self.identity, links, self.yclients_client_sync)
         self.yclients_client_jobs = YClientsClientSyncJobs(self.identity, self.yclients_client_sync)
         if is_sql_active(directory):
             self.identity.import_legacy()
@@ -35,6 +37,7 @@ class ApplicationServices:
         self.identity.delivery_status = self.notifications.effect_status
         self.identity.welcome_sink = self.notifications.welcome
         self.support = SupportService(self.identity)
+        self.desk = BranchDesk(self.identity, links, branches, self.notifications)
         self.notifications.support = self.support
         self.gate_qr = None
 
@@ -47,8 +50,8 @@ class ApplicationServices:
             self.gate_qr = GateQRService(self.identity, self.links, self.branches, access)
         return {'service': self.identity, 'auth': auth, 'links': self.links, 'branches': self.branches,
                 'billing': self.billing, 'analytics': self.analytics,
-                'gate_qr': self.gate_qr, 'support': self.support,
-                'pwa': self.pwa,
+                'gate_qr': self.gate_qr, 'branch_join': self.branch_join, 'support': self.support,
+                'pwa': self.pwa, 'desk': self.desk, 'access': access,
                 'notifications': self.notifications, 'check_yclients': check_yclients,
                 'yclients_client_sync': self.yclients_client_sync, 'yclients_client_jobs': self.yclients_client_jobs,
                 'authorize_yclients': lambda login, password, code=None, challenge=None:
@@ -57,6 +60,7 @@ class ApplicationServices:
     def attach(self, access):
         access.billing, access.identity, access.event_sink = self.billing, self.identity, self.notifications.event
         access.support = self.support
+        access.desk = self.desk
         with self.store.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS access_command_routes(command_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, button_id TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS access_request_auth(request_id TEXT PRIMARY KEY, token TEXT NOT NULL, platform TEXT, user_id TEXT)')
@@ -71,22 +75,3 @@ class ApplicationServices:
                                              created_at=created, source='migration')
             except (ValueError, TypeError):
                 continue
-
-    def bootstrap_console_identity(self, auth):
-        """One-time linking of the explicitly configured owner; never infer a phone."""
-        from link_manager import normalize_phone
-        phone = normalize_phone(os.getenv('BOOTSTRAP_SUPERADMIN_PHONE', ''))
-        if not phone:
-            return {'linked': False}
-        supers = [(name, data) for name, data in auth.load_admins().items()
-                  if data.get('is_super') is True and not data.get('disabled')]
-        if len(supers) != 1 or supers[0][1].get('person_id'):
-            return {'linked': False}
-        matches = [(token, data) for token, data in self.links.load_links().items()
-                   if normalize_phone(data.get('phone')) == phone]
-        # Multiple independent legacy clients require the explicit CLI --client-token.
-        if len(matches) > 1:
-            return {'linked': False, 'reason': 'multiple_client_records'}
-        self.identity.attach_console_account(supers[0][0], phone,
-                                              client_token=matches[0][0] if matches else None)
-        return {'linked': True}

@@ -25,17 +25,17 @@ Copy-Item .env.example .env
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py init-demo
-.\.venv\Scripts\python.exe admin.py --username owner --name "Суперадминистратор" --super --phone PHONE
+.\.venv\Scripts\python.exe admin.py --username owner --super
 .\.venv\Scripts\python.exe manage.py doctor
 .\.venv\Scripts\python.exe run.py
 ```
 
-Замените `PHONE` своим номером с кодом страны. Пароль — не менее 12 символов; терминал запросит его дважды без отображения. Откройте `http://127.0.0.1:5000/admin/login`. Команда `init-demo` также выведет персональную клиентскую ссылку. При нажатии ворот в ней ожидается явная имитация. Никакого звонка быть не должно.
+Терминал дважды запросит пароль длиной от 12 символов. Откройте `http://127.0.0.1:5000/admin/login`. Команда `init-demo` выведет персональную ссылку демонстрационного клиента. Кнопки ворот работают в режиме имитации.
 
 Создание администратора демонстрационного филиала:
 
 ```powershell
-.\.venv\Scripts\python.exe admin.py --username branch-admin --name "Администратор" --branch 1001 --phone PHONE
+.\.venv\Scripts\python.exe admin.py --username branch-admin@example.invalid --name "Администратор" --branch 1001 --phone PHONE
 ```
 
 Проверьте вход обеими ролями, настройку филиала, выдачу/отзыв, временный пропуск до конца дня, CSV и логи. Добавьте второй вымышленный филиал под суперпользователем и убедитесь, что обычный администратор его не видит.

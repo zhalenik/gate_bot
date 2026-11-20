@@ -3,7 +3,7 @@
 {% block title %}Админка - Пользователи{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/css/client-preferences.css">{% endblock %}
 {% block content %}
-<div class="admin-container">
+<div class="admin-container" id="clientDirectory" data-branch-only="{{ 'false' if is_super else 'true' }}">
         <div class="admin-content">
             <div class="page-heading"><div><p class="page-eyebrow">Парковка и доступ</p><h1>Клиенты</h1><p class="page-description">Пропуска, контакты и уведомления в одном месте.</p></div><span class="badge" id="clientCount" aria-live="polite"></span></div>
             {% if not is_super and admin_branch_name %}
@@ -28,12 +28,20 @@
                     <option value="Запрещен">Запрещен</option>
                 </select>
                 <div style="margin-left:auto; display:flex; gap:10px;">
-                    <a href="/admin/add-user" class="btn-primary">Добавить пользователя</a>
-                    <a href="/admin/temp-link" class="btn-success">Разовый пропуск</a>
+                    <a href="{{ '/office/new-client' if office else '/admin/add-user' }}" class="btn-primary">Добавить пользователя</a>
+                    <a href="{{ '/office/guest' if office else '/admin/temp-link' }}" class="btn-success">Разовый пропуск</a>
                 </div>
             </div>
             
             <div class="users-table-container">
+                <div class="card-sort-controls"><label for="mobileClientSort">Сортировка</label>
+                    <select id="mobileClientSort" onchange="sortUsersBy(this.value)">
+                        <option value="pass_changed_at">Изменён</option><option value="user_name">Имя</option><option value="email">Email</option>
+                        {% if is_super %}<option value="branch_name">Филиал</option>{% endif %}
+                        <option value="pass_label">Пропуск</option><option value="has_bot">Боты</option>
+                        <option value="has_yclients">YCLIENTS</option><option value="notification_channels">Уведомления</option>
+                    </select><button id="mobileSortDirection" type="button" class="btn-action" onclick="sortUsersBy(document.getElementById('mobileClientSort').value)" aria-label="Порядок сортировки" title="По убыванию">↓</button>
+                </div>
                 <button id="exportCsvBtn" class="btn-icon table-export-btn" title="Выгрузить CSV" type="button">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12 3v12" stroke="#7f8c8d" stroke-width="2" stroke-linecap="round"/>

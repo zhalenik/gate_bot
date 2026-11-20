@@ -433,6 +433,8 @@ def test_webhook_does_not_ack_when_enqueue_fails(bot):
 
 def test_notification_targets_only_max_identity_and_uses_current_menu(bot):
     assert bot.notify_access({"tg_id": "77", "event": "granted"}) is False
-    assert bot.notify_access({"max_id": "77", "event": "revoked"}) is True
+    assert bot.notify_access({"max_id": "77", "event": "revoked"}) is False
+    assert not bot.api.sent
+    assert bot.notify_access({"max_id": "77", "event": "granted"}) is True
     assert bot.api.sent[-1]["user_id"] == 77
     assert "g:20:gate2" not in str(bot.api.sent[-1])

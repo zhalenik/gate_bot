@@ -1,0 +1,16 @@
+<header class="office-header">
+  <a class="office-brand" href="/office/"><img src="{{ branding.logo_url }}" alt="GateBot"><span>{{ admin_branch_name }}</span></a>
+  <details class="office-menu"><summary class="btn-action">Меню</summary>
+    <nav aria-label="Меню кабинета">
+      <a href="/office/new-client">Новый клиент</a><a href="/office/guest">Разовый пропуск</a>
+      <a href="/office/settings">Настройки уведомлений</a><a href="/office/help">Помощь</a>
+      <button type="button" data-install-office>Установить кабинет</button>
+      <form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="mobile_office" value="1"><button type="submit">Выйти</button></form>
+    </nav>
+  </details>
+</header>
+<dialog class="office-install" data-office-install-dialog>
+  <h2>Установить кабинет</h2><p>На iPhone откройте страницу в Safari, нажмите «Поделиться» и выберите «На экран “Домой”». В Chrome на Android откройте меню браузера и выберите «Установить приложение» или «Добавить на главный экран».</p>
+  <form method="dialog"><button class="btn-primary">Готово</button></form>
+</dialog>

@@ -27,6 +27,10 @@ def _existing_account(identity, db, admins, branch_id, email, phone):
     """Match both contacts without reviving roles or merging another account."""
     matches = []
     for username, admin in admins.items():
+        if admin.get('is_super'):
+            if AdminAuth.resolve_username(admins, email) == username:
+                raise PermissionError('Этот логин уже используется. Укажите другой email.')
+            continue
         account = db.execute('SELECT person_id FROM web_accounts WHERE username=?', (username,)).fetchone()
         person_id = account['person_id'] if account else admin.get('person_id')
         person = db.execute('SELECT email,phone FROM persons WHERE id=?', (person_id,)).fetchone() if person_id else None

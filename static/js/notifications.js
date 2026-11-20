@@ -20,6 +20,22 @@
             const lines=String(item.text||'').split('\n'),title=lines.shift()||titles[item.event]||'Событие';heading.append(element('h2','',title));
             const timestamp=new Date(Number(item.created)*1000),time=element('time','',Number.isNaN(timestamp.getTime())?'':timestamp.toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));if(!Number.isNaN(timestamp.getTime()))time.dateTime=timestamp.toISOString();heading.append(time);content.append(heading);
             if(lines.length)content.append(element('p','notification-text',lines.join('\n')));
+            if(item.thread_id&&['pass_requested','client_message'].includes(item.event)){
+                const link=element('a','btn-action','Перейти к диалогу');
+                link.href=(location.pathname.startsWith('/office/')?'/office/messages':'/admin/client-messages')+'?thread='+encodeURIComponent(item.thread_id);content.append(link);
+                if(item.event==='pass_requested'&&item.desk_message_id){
+                    const allow=element('button','btn-action','Разрешить до конца дня');allow.type='button';content.append(allow);
+                    allow.onclick=async()=>{
+                        allow.disabled=true;
+                        try{
+                            const url='/admin/api/desk/threads/'+encodeURIComponent(item.thread_id)+'/approve/'+encodeURIComponent(item.desk_message_id);
+                            const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:'{}'});
+                            if(!response.ok)throw Error((await response.json()).message||'Не удалось разрешить пропуск');
+                            allow.textContent='Пропуск разрешён';
+                        }catch(error){fail(error.message);allow.disabled=false;}
+                    };
+                }
+            }
             article.append(mark,content);
             if(!item.read){const button=element('button','icon-button notification-read');button.type='button';button.title='Отметить прочитанным';button.setAttribute('aria-label','Отметить прочитанным: '+title);button.append(icon('read'));button.onclick=async()=>{button.disabled=true;try{const response=await fetch('/admin/api/notification-inbox/'+encodeURIComponent(item.id)+'/read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:'{}'});if(!response.ok)throw new Error('Не удалось обновить уведомление');item.read=true;render();}catch(error){fail(error.message);button.disabled=false;}};article.append(button);}
             list.append(article);

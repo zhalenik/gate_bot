@@ -32,7 +32,7 @@ def test_client_max_id_does_not_enable_admin_delivery_until_verified(product, ma
     identity, out = p.services.identity, p.services.notifications
     # Reproduce the existing-account case: MAX is present on the client card,
     # but no administrator has yet followed the private binding link.
-    identity.attach_console_account('supertest', '+70000000002', client_token=p.token)
+    assert identity.web_admin('supertest')['person_id'] != p.links.load_links()[p.token]['person_id']
     p.links.bind_identity('max', '92', token=p.token)
     enable_max(identity)
     prefs = identity.admin_preferences('supertest')

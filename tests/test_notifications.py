@@ -130,7 +130,8 @@ def test_worker_backoff_is_bounded_after_repeated_database_errors(delivery, monk
     assert dispatcher.status()["last_error_type"] == "RuntimeError"
 
 
-def test_supervisor_uses_shared_service_and_stops_intake_before_workers(delivery, monkeypatch):
+@pytest.mark.parametrize('restart_requested', [False, True])
+def test_supervisor_uses_shared_service_and_stops_intake_before_workers(delivery, monkeypatch, restart_requested):
     import run
     import scheduler
     import notifications
@@ -166,7 +167,18 @@ def test_supervisor_uses_shared_service_and_stops_intake_before_workers(delivery
         return True
 
     monkeypatch.setattr(sim800c, "shutdown", stop_modem)
-    with pytest.raises(RuntimeError, match="Web server stopped"):
+    if restart_requested:
+        import runtime_control
+        original = runtime_control.bind_restart
+        def trigger(callback):
+            original(callback)
+            if callback:
+                callback()
+        monkeypatch.setattr(runtime_control, 'bind_restart', trigger)
+        monkeypatch.setattr(run.os, 'execve', lambda executable, args, environment: order.append("restart"))
         run.main()
-    assert order == ["client_ids_start", "stop_accepting", "listener", "sim800", "scheduler",
-                     "client_ids", "notifications"]
+    else:
+        with pytest.raises(RuntimeError, match="Web server stopped"):
+            run.main()
+    assert order == ["client_ids_start", "stop_accepting"] + (["stop_accepting"] if restart_requested else []) + [
+        "listener", "sim800", "scheduler", "client_ids", "notifications"] + (["restart"] if restart_requested else [])

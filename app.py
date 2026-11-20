@@ -93,8 +93,8 @@ def inject_context():
             pass
     return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token,
             'branding': BrandingSettings(product_services().identity).public_view(),
-            'client_pwa': pwa,
-            'client_page': request.path.startswith(('/opn/', '/gate/', '/preferences/', '/pwa/', '/verify-email/', '/unsubscribe')),
+            'client_pwa': pwa, 'public_site_url': config.PUBLIC_SITE_URL if config.PUBLIC_SITE_URL.startswith(('http://','https://')) else '',
+            'client_page': request.path.startswith(('/opn/', '/gate/', '/join/', '/preferences/', '/pwa/', '/verify-email/', '/unsubscribe')),
             'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
             'admin_branch_choices': choices, 'active_branch_id': str((admin or {}).get('branch_id') or '')}
 
@@ -326,12 +326,12 @@ def _send_link(phone, token, user, channel='auto'):
     return {"status": "failed", "message": "Сервис отправки не подтвердил прием сообщения"}
 
 
-def _admin_template(template):
+def _admin_template(template, **context):
     admin = _admin()
     branch_id = None if admin.get("is_super") is True else _branch_id(admin.get("branch_id"))
     return render_template(template, is_super=admin.get("is_super") is True,
                            admin_branch_id=branch_id,
-                           admin_branch_name=branch_manager.get_branch_name(branch_id) if branch_id else None)
+                           admin_branch_name=branch_manager.get_branch_name(branch_id) if branch_id else None, **context)
 
 
 @app.route("/opn/<token>")
@@ -351,8 +351,8 @@ def open_barrier(token):
                     continue
                 phone = normalize_phone(button.phone)
                 if re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
-                    contacts.append({"label": button.label, "phone": phone})
-            return render_template("403.html", branch_name=branch.name, admin_contacts=contacts,
+                    contacts.append({"id": button.id, "label": button.label, "phone": phone})
+            return render_template("403.html", branch_name=branch.name, admin_contacts=contacts, contact_token=token,
                                    access_hours=access_hours_state(branch_manager,branch.branch_id),
                                    preferences_url=None if known_user.get('is_temporary') else _client_preferences_url(token),
                                    is_temporary=bool(known_user.get('is_temporary')),
@@ -528,8 +528,10 @@ def read_notification(identifier):
     return jsonify(status='success')
 
 
+@app.route("/office/login", methods=["GET", "POST"])
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
+    office_login = request.path == '/office/login'
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         key = (request.remote_addr or "", username[:200])
@@ -545,27 +547,38 @@ def admin_login():
             blocked = len(attempts) >= 10 or len(_login_attempts) > 5000
         if blocked:
             flash("Слишком много попыток. Повторите вход через несколько минут", "error")
-            return render_template("admin/login.html"), 429
+            return render_template("admin/login.html",office_login=office_login), 429
         from yclients_marketplace_web import SESSION_KEYS
         marketplace_session = {key: session[key] for key in SESSION_KEYS if key in session}
+        office_destination = session.get('office_destination','/office/') if office_login else None
+        previous_mobile_user = session.get('admin_username')
+        previous_mobile_device = session.get('office_push_device')
         if admin_auth.login_admin(username, request.form.get("password")):
             session.update(marketplace_session)
+            if previous_mobile_device and previous_mobile_user:
+                if previous_mobile_user == session.get('admin_username'):
+                    session['office_push_device'] = previous_mobile_device
+                else:
+                    product_services().pwa.office.disable(previous_mobile_user,device=previous_mobile_device)
             with _login_lock:
                 _login_attempts.pop(key, None)
             _audit("LOGIN", _scope())
-            return redirect('/yclients/marketplace' if session.get('yc_marketplace_intent') else url_for("admin_users"))
+            return redirect(office_destination or ('/yclients/marketplace' if session.get('yc_marketplace_intent') else url_for("admin_users")))
         with _login_lock:
             _login_attempts.setdefault(key, deque(maxlen=10)).append(moment)
         flash("Неверное имя пользователя или пароль", "error")
-        return render_template("admin/login.html"), 401
-    return render_template("admin/login.html")
+        return render_template("admin/login.html",office_login=office_login), 401
+    return render_template("admin/login.html",office_login=office_login)
 
 
 @app.route("/admin/logout", methods=["POST"])
 @admin_auth.require_auth
 def admin_logout():
     _audit("LOGOUT", _scope())
+    if session.get('office_push_device'):
+        product_services().pwa.office.disable(session['admin_username'],device=session['office_push_device'])
     admin_auth.logout_admin()
+    if request.form.get('mobile_office')=='1':return redirect('/office/login')
     return redirect(url_for("admin_login"))
 
 
@@ -646,7 +659,7 @@ def telephony_records():
     search = data.get('search', '')
     if kind not in {'all', 'call', 'sms'} or direction not in {'all', 'incoming', 'outgoing'} or not isinstance(search, str) or len(search) > 200:
         abort(400)
-    return jsonify(status='success', **TelephonyStore().list_records(page, kind, direction, search, _telephony_contacts()))
+    return jsonify(status='success', **TelephonyStore().list_records(page, kind, direction, search, _telephony_contacts(), data.get('modem_id') or None))
 
 
 @app.route("/admin/api/telephony/sms/chats", methods=["POST"])
@@ -661,7 +674,7 @@ def telephony_chats():
         page = max(1, int(data.get('page', 1)))
     except (ValueError, TypeError):
         abort(400)
-    return jsonify(status='success', **TelephonyStore().chats(search, page, _telephony_contacts()))
+    return jsonify(status='success', **TelephonyStore().chats(search, page, _telephony_contacts(), data.get('modem_id') or None))
 
 
 def _chat_key(value):
@@ -678,7 +691,7 @@ def telephony_chat_messages(chat_id):
         page = max(1, int(request.args.get('page', 1)))
     except (ValueError, TypeError):
         abort(400)
-    return jsonify(status='success', **TelephonyStore().messages(_chat_key(chat_id), page, _telephony_contacts()))
+    return jsonify(status='success', **TelephonyStore().messages(_chat_key(chat_id), page, _telephony_contacts(), request.args.get('modem_id') or None))
 
 
 @app.route("/admin/api/telephony/sms/messages/<record_id>/delete", methods=["POST"])
@@ -700,7 +713,7 @@ def telephony_delete_message(record_id):
 @admin_auth.require_super_admin
 def telephony_chat_read(chat_id):
     from telephony_store import TelephonyStore
-    TelephonyStore().read_chat(_chat_key(chat_id))
+    TelephonyStore().read_chat(_chat_key(chat_id), request.args.get('modem_id') or None)
     return jsonify(status='success')
 
 
@@ -710,7 +723,7 @@ def telephony_chat_read(chat_id):
 def telephony_clear_sms(chat_id=None):
     from telephony_store import TelephonyStore
     try:
-        deleted = TelephonyStore().clear_sms(_chat_key(chat_id) if chat_id else None)
+        deleted = TelephonyStore().clear_sms(_chat_key(chat_id) if chat_id else None, request.args.get('modem_id') or None)
     except ValueError as error:
         return jsonify(status='error', message=str(error)), 409
     logger.event('TELEPHONY_SMS_CLEARED', actor=session['admin_username'], details={'count': deleted})
@@ -722,7 +735,11 @@ def telephony_clear_sms(chat_id=None):
 def telephony_status():
     from sim800c import get_call_queue_status
     status = get_call_queue_status()
-    return jsonify({key: status[key] for key in ('enabled', 'dry_run', 'queue_length', 'stopping', 'modem')})
+    from telephony_store import TelephonyStore
+    result = {key: status[key] for key in ('enabled', 'dry_run', 'queue_length', 'stopping', 'modem')}
+    result['modems'] = status.get('modems', [])
+    result['archived_modems'] = TelephonyStore().modem_names()
+    return jsonify(result)
 
 
 @app.route("/admin/api/telephony/preview", methods=["POST"])
@@ -1339,6 +1356,12 @@ from help_support_web import create_blueprint as help_support_blueprint
 from palette_web import create_blueprint as palette_blueprint
 from branding import create_blueprint as branding_blueprint
 from pwa_web import create_blueprint as pwa_blueprint
+from office_web import create_blueprint as office_blueprint
+app.register_blueprint(office_blueprint(product_provider))
+from client_feedback import create_blueprint as feedback_blueprint
+from branch_desk_web import create_blueprint as branch_desk_blueprint
+app.register_blueprint(branch_desk_blueprint(product_provider))
+app.register_blueprint(feedback_blueprint(product_provider))
 app.register_blueprint(branding_blueprint(product_provider))
 app.register_blueprint(pwa_blueprint(product_provider))
 app.register_blueprint(palette_blueprint(product_provider))

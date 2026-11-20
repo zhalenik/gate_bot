@@ -6,6 +6,7 @@ import threading
 from storage import config
 from runtime_state import RuntimeState
 from link_manager import access_is_active
+from pass_notifications import timely_grant
 import logger
 
 
@@ -25,7 +26,7 @@ class NotificationDispatcher:
 
     def enqueue(self, payload):
         # Unsubscribing controls notifications; it never changes gate access.
-        if not payload.get('mailing_enabled'):
+        if not payload.get('mailing_enabled') or not timely_grant(payload.get('event'), payload):
             return
         for channel, field in [('telegram', 'tg_id'), ('max', 'max_id')]:
             if payload.get(field):
@@ -85,8 +86,7 @@ class NotificationDispatcher:
                 continue
             event = payload.get('event')
             active = access_is_active(current)
-            if (event not in {'granted', 'revoked'} or
-                    (event == 'granted' and not active) or (event == 'revoked' and active)):
+            if not timely_grant(event, current) or not active:
                 self.state.finish_notification(notification['id'], False, 'superseded_access_state')
                 continue
             error_type = None

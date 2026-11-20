@@ -1,5 +1,5 @@
 {
-  "catalog_version": "d5eb0526276b350ede99fa7f1a9bc1487313ca4dfba7502725ae0366b1320534",
+  "catalog_version": "a54c29fc8ff5ce92a02f75beb69ad13dbae4f0bc9ca7aefcce159747b2f0d9e7",
   "entries": [
     {
       "id": "theme-sidebar-0e4ee20f4ddc",
@@ -116,17 +116,31 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 37,
+          "line": 50,
           "selector": ".client-channel-empty",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 43,
+          "line": 56,
           "selector": ".client-branch-access-hint",
           "property": "color",
           "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 65,
+          "selector": "#usersTableBody td::before",
+          "property": "color",
+          "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 70,
+          "selector": "#clientDirectory .card-sort-controls",
+          "property": "color",
+          "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/billing.css",
@@ -318,6 +332,20 @@
           "context": ""
         },
         {
+          "file": "static/css/client-pwa.css",
+          "line": 20,
+          "selector": ".client-feedback-footer",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-pwa.css",
+          "line": 23,
+          "selector": ".feedback-stars label",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 5,
           "selector": ".help-category",
@@ -391,6 +419,20 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-footer",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 8,
+          "selector": ".office-nav a",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 10,
+          "selector": ".office-ledger time,.office-ledger small",
           "property": "color",
           "context": ""
         },
@@ -872,6 +914,20 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-desk.css",
+          "line": 10,
+          "selector": ".desk-history li.desk-own",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 15,
+          "selector": ".desk-threads button[aria-pressed=true]",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 6,
           "selector": ".help-category[aria-pressed=true]",
@@ -882,6 +938,20 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-product",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 8,
+          "selector": ".office-nav a[aria-current]",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 11,
+          "selector": ".office-page .segmented-control [aria-current]",
           "property": "background",
           "context": ""
         },
@@ -1028,21 +1098,21 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 36,
+          "line": 49,
           "selector": ".client-channel-mini",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 40,
+          "line": 53,
           "selector": ".client-role-badge",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 42,
+          "line": 55,
           "selector": ".client-role-details",
           "property": "background",
           "context": ""
@@ -1072,6 +1142,13 @@
           "file": "static/css/billing.css",
           "line": 1,
           "selector": ".billing-burn",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 9,
+          "selector": ".desk-history li",
           "property": "background",
           "context": ""
         },
@@ -1267,14 +1344,21 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 35,
+          "line": 36,
+          "selector": "#modemCards legend",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 48,
           "selector": ".client-notifications-status",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 40,
+          "line": 53,
           "selector": ".client-role-badge",
           "property": "color",
           "context": ""
@@ -1364,6 +1448,34 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-desk.css",
+          "line": 3,
+          "selector": ".desk-panel",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 7,
+          "selector": ".desk-panel textarea,.desk-panel select,.desk-panel input,.desk-layout textarea,.desk-layout input",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 9,
+          "selector": ".desk-history li",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 15,
+          "selector": ".desk-threads button[aria-pressed=true]",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 2,
           "selector": ".client-preferences .preference-state",
@@ -1421,7 +1533,7 @@
         },
         {
           "file": "static/css/client-pwa.css",
-          "line": 17,
+          "line": 29,
           "selector": "#clientOfflineNotice",
           "property": "color",
           "context": ""
@@ -1458,6 +1570,34 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-footer a",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 3,
+          "selector": ".office-brand",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 6,
+          "selector": ".office-menu nav a,.office-menu nav button",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 8,
+          "selector": ".office-nav a[aria-current]",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 11,
+          "selector": ".office-page .segmented-control a",
           "property": "color",
           "context": ""
         },
@@ -1778,10 +1918,24 @@
           "context": ""
         },
         {
+          "file": "static/css/client-pwa.css",
+          "line": 24,
+          "selector": ".feedback-stars label:has(:checked),.feedback-stars label:has(~label :checked)",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-eyebrow",
           "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 9,
+          "selector": ".office-balances progress",
+          "property": "accent-color",
           "context": ""
         },
         {
@@ -2315,9 +2469,30 @@
         {
           "file": "static/css/admin.css",
           "line": 35,
+          "selector": "#modemCards fieldset",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 44,
+          "selector": ".settings-toolbar",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 48,
           "selector": ".client-notifications-status",
           "property": "background",
           "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 63,
+          "selector": "#usersTableBody tr",
+          "property": "background",
+          "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/billing.css",
@@ -2376,6 +2551,27 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-desk.css",
+          "line": 3,
+          "selector": ".desk-panel",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 7,
+          "selector": ".desk-panel textarea,.desk-panel select,.desk-panel input,.desk-layout textarea,.desk-layout input",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 14,
+          "selector": ".desk-layout aside,.desk-conversation",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/branding.css",
           "line": 1,
           "selector": ".branding-panel",
@@ -2426,7 +2622,7 @@
         },
         {
           "file": "static/css/client-pwa.css",
-          "line": 17,
+          "line": 29,
           "selector": "#clientOfflineNotice",
           "property": "background",
           "context": ""
@@ -2456,6 +2652,20 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-method-list>div",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 5,
+          "selector": ".office-menu nav",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 7,
+          "selector": ".office-nav",
           "property": "background",
           "context": ""
         },
@@ -2652,23 +2862,44 @@
         {
           "file": "static/css/admin.css",
           "line": 35,
+          "selector": "#modemCards fieldset",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 48,
           "selector": ".client-notifications-status",
           "property": "border",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 40,
+          "line": 53,
           "selector": ".client-role-badge",
           "property": "border",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 42,
+          "line": 55,
           "selector": ".client-role-details",
           "property": "border",
           "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 63,
+          "selector": "#usersTableBody tr",
+          "property": "border",
+          "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 67,
+          "selector": "#usersTableBody td[data-label=\"Действия\"]",
+          "property": "border-top",
+          "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/billing.css",
@@ -2765,6 +2996,27 @@
           "file": "static/css/billing.css",
           "line": 5,
           "selector": ".billing-archive-toggle",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 3,
+          "selector": ".desk-panel",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 7,
+          "selector": ".desk-panel textarea,.desk-panel select,.desk-panel input,.desk-layout textarea,.desk-layout input",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 14,
+          "selector": ".desk-layout aside,.desk-conversation",
           "property": "border",
           "context": ""
         },
@@ -2871,6 +3123,34 @@
           "line": 1,
           "selector": ".landing-footer",
           "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 5,
+          "selector": ".office-menu nav",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 7,
+          "selector": ".office-nav",
+          "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 10,
+          "selector": ".office-ledger li",
+          "property": "border-bottom",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 11,
+          "selector": ".office-install",
+          "property": "border",
           "context": ""
         },
         {
@@ -3648,7 +3928,7 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 36,
+          "line": 49,
           "selector": ".client-channel-mini",
           "property": "color",
           "context": ""
@@ -3784,6 +4064,28 @@
       ]
     },
     {
+      "id": "branch-desk-background-3ee6355eea7d",
+      "css_var": "--gb-color-branch-desk-background-3ee6355eea7d",
+      "label": "Фон · .desk-panel::backdrop",
+      "group": "branch-desk",
+      "source_value": "rgb(12 15 20 / 45%)",
+      "default": "#0C0F1473",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 4,
+          "selector": ".desk-panel::backdrop",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
       "id": "client-pwa-color-97cb60e3f44a",
       "css_var": "--gb-color-client-pwa-color-97cb60e3f44a",
       "label": "Текст · #clientOfflineNotice",
@@ -3798,7 +4100,7 @@
       "locations": [
         {
           "file": "static/css/client-pwa.css",
-          "line": 17,
+          "line": 29,
           "selector": "#clientOfflineNotice",
           "property": "color",
           "context": ""
@@ -3820,7 +4122,7 @@
       "locations": [
         {
           "file": "static/css/client-pwa.css",
-          "line": 17,
+          "line": 29,
           "selector": "#clientOfflineNotice",
           "property": "background",
           "context": ""
@@ -3844,6 +4146,94 @@
           "file": "static/css/client-pwa.css",
           "line": 6,
           "selector": ".client-pwa-dialog::backdrop",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "office-box-shadow-911b66f2cada",
+      "css_var": "--gb-color-office-box-shadow-911b66f2cada",
+      "label": "Тень · .office-menu nav",
+      "group": "office",
+      "source_value": "rgb(0 0 0 / .12)",
+      "default": "#0000001F",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/office.css",
+          "line": 5,
+          "selector": ".office-menu nav",
+          "property": "box-shadow",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "office-background-dd48599f68a0",
+      "css_var": "--gb-color-office-background-dd48599f68a0",
+      "label": "Фон · .office-install::backdrop",
+      "group": "office",
+      "source_value": "rgb(0 0 0 / .35)",
+      "default": "#00000059",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/office.css",
+          "line": 11,
+          "selector": ".office-install::backdrop",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "office-background-f88891d3a8d1",
+      "css_var": "--gb-color-office-background-f88891d3a8d1",
+      "label": "Фон · .office-nav a[aria-current]",
+      "group": "office",
+      "source_value": "#C1BCDC",
+      "default": "#C1BCDC",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/office.css",
+          "line": 8,
+          "selector": ".office-nav a[aria-current]",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "office-background-9bcabf873619",
+      "css_var": "--gb-color-office-background-9bcabf873619",
+      "label": "Фон · .office-page .segmented-control [aria-current]",
+      "group": "office",
+      "source_value": "#C1BCDC",
+      "default": "#C1BCDC",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/office.css",
+          "line": 11,
+          "selector": ".office-page .segmented-control [aria-current]",
           "property": "background",
           "context": ""
         }
@@ -7344,6 +7734,28 @@
           "selector": ".users-table input[type=checkbox]::after",
           "property": "box-shadow",
           "context": ""
+        }
+      ]
+    },
+    {
+      "id": "admin-background-ae91184a94a4",
+      "css_var": "--gb-color-admin-background-ae91184a94a4",
+      "label": "Фон · #clientDirectory .users-table-container",
+      "group": "Кабинет и таблицы",
+      "source_value": "transparent",
+      "default": "#00000000",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/admin.css",
+          "line": 59,
+          "selector": "#clientDirectory .users-table-container",
+          "property": "background",
+          "context": "@media(max-width:759px)"
         }
       ]
     },

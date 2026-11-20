@@ -1,0 +1,15 @@
+{% if client_pwa and client_pwa.token %}
+<footer class="client-feedback-footer" data-feedback-token="{{ client_pwa.token }}">
+  {% if public_site_url %}<a href="{{ public_site_url }}" target="_blank" rel="noopener noreferrer">Сайт GateBot ↗</a>{% endif %}
+  <button type="button" data-feedback-open>Пожелания и отзывы</button>
+</footer>
+<dialog class="client-pwa-dialog client-feedback-dialog" aria-labelledby="feedbackTitle"><form>
+  <h2 id="feedbackTitle">Вам нравится приложение?</h2>
+  <fieldset><legend>Ваша оценка</legend><div class="feedback-stars">
+    {% for star in range(1,6) %}<label><input type="radio" name="stars" value="{{ star }}"><span aria-hidden="true">★</span><span class="feedback-sr">{{ star }} из 5</span></label>{% endfor %}
+  </div></fieldset>
+  <label>Пожелания и отзывы<textarea name="message" maxlength="2000" rows="3" placeholder="Ваш комментарий"></textarea></label>
+  <p role="status"></p><div class="client-pwa-dialog-actions"><button type="button" data-feedback-close class="btn-action">Закрыть</button><button class="btn-primary">Отправить</button></div>
+</form></dialog>
+<script defer src="/static/js/client-feedback.js"></script>
+{% endif %}

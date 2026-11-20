@@ -225,6 +225,8 @@ class MaxBot:
         actions: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for section in sections:
             for button in section.get("buttons", []):
+                if button.get("type") == "admin" and self.workflows and getattr(self.service, "desk", None):
+                    continue
                 if button.get("type") == "admin" or (section.get("active") and button.get("type") == "gate"):
                     actions.append((section, button))
         pages = max(1, (len(actions) + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -461,8 +463,9 @@ class MaxBot:
 
     def notify_access(self, payload: dict[str, Any]) -> bool:
         """Called by the durable outbox; failures propagate as delivery evidence."""
+        from pass_notifications import timely_grant
         user_id = payload.get("max_id")
-        if not user_id:
+        if not user_id or not timely_grant(payload.get('event'), payload):
             return False
         try:
             recipient = int(user_id)
@@ -470,8 +473,7 @@ class MaxBot:
             return False
         if recipient <= 0:
             return False
-        event = payload.get("event")
-        prefix = "Вам предоставлен доступ на парковку." if event == "granted" else "Ваш доступ на парковку обновлён."
+        prefix = "Вам предоставлен доступ на парковку."
         self.api.send_message(user_id=recipient, **self.menu(str(recipient), prefix=prefix))
         return True
 
@@ -606,12 +608,15 @@ def notify_access(payload: dict[str, Any]) -> bool:
         raise
 
 
-def notify_text(user_id, text):
+def notify_text(user_id, text, *, actions=None):
     if _RUNTIME is None or not _READY.is_set():
         return False
     try:
         for start in range(0, len(text), 3500):
-            _RUNTIME.api.send_message(user_id=int(user_id), text=text[start:start+3500])
+            options = {}
+            if actions and start+3500 >= len(text):
+                options['attachments'] = _keyboard([[{'type':'callback','text':a['label'],'payload':a['callback']}] for a in actions])
+            _RUNTIME.api.send_message(user_id=int(user_id), text=text[start:start+3500], **options)
     except MaxApiError as exc:
         # Recipient IDs and message bodies never belong in operational logs.
         _audit("BOT_NOTIFICATION_ERROR", level="ERROR", api_code=exc.code,

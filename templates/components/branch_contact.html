@@ -1,0 +1,19 @@
+<div class="desk-tools" data-client-desk="{{ contact_token or token }}">
+  <button type="button" class="btn-action" data-desk-open>Обратиться к администратору</button>
+  {% if not contact_token %}<button type="button" class="btn-action" data-desk-share>Поделиться ссылкой</button>{% endif %}
+  <dialog class="desk-panel" data-desk-dialog aria-labelledby="desk-title">
+    <div class="desk-heading"><h2 id="desk-title">Обратиться к администратору</h2><button type="button" class="icon-button" aria-label="Закрыть" data-desk-close>×</button></div>
+    <section data-desk-chat>
+      <div id="adminContacts" class="pass-contacts">{% for contact in (admin_contacts or buttons) %}{% if not contact.type or contact.type == 'admin' %}<a class="contact-link button-admin" data-desk-phone="{{ contact.id }}" href="tel:{{ contact.phone }}">Позвонить · {{ contact.label }}</a>{% endif %}{% endfor %}</div>
+      <ol data-desk-history class="desk-history" aria-label="Переписка с администратором"></ol>
+      <form data-desk-compose><label>Сообщение администратору<textarea rows="2" maxlength="2000" required></textarea></label><button class="btn-primary" type="submit">Отправить</button></form>
+      <button data-desk-request type="button" class="btn-action" hidden>Запросить пропуск</button>
+    </section>
+    <form data-desk-share-form hidden><p>Гость сможет один раз открыть выбранные ворота в течение часа, пока действует ваш пропуск.</p><label>Ворота<select required></select></label><button type="submit" class="btn-primary">Создать ссылку</button>
+      <div data-desk-link hidden><label>Гостевая ссылка<input type="url" readonly></label><button type="button" class="btn-action" data-desk-send-link>Поделиться</button></div>
+    </form>
+    <p class="desk-status" role="status" data-desk-status></p>
+  </dialog>
+</div>
+<link rel="stylesheet" href="/static/css/branch-desk.css">
+<script defer src="/static/js/branch-desk.js"></script>

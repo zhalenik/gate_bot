@@ -55,8 +55,9 @@ def test_profile_email_connects_in_card_and_disconnected_switches_preserve_choic
     monkeypatch.setattr(web.auth, 'store', DocumentStore(tmp_path / 'admins.json'))
     identity = web.module.product_services().identity
     phone = web.links.load_links()[web.token_a]['phone']
-    identity.attach_console_account(username, phone, client_token=web.token_a)
-    web.links.update_user(web.token_a, {'email': 'profile@example.invalid'})
+    if username != 'super':
+        identity.attach_console_account(username, phone, client_token=web.token_a)
+    identity.admin_email(username, 'profile@example.invalid')
     identity.save_admin_preferences(username, {'events': {'gate_requested': {'email': True, 'max': True}}})
     ticket = identity.issue_bind_ticket(username, 'telegram')
     identity.bind_ticket('telegram', '92', ticket)
@@ -101,7 +102,7 @@ def test_profile_email_connects_in_card_and_disconnected_switches_preserve_choic
     page.evaluate('window.releaseConnectionRefresh()')
     expect(email_card).to_contain_text('edited@example.invalid')
     expect(page.locator('[name=gate_error_telegram]')).to_be_checked()
-    assert web.links.load_links()[web.token_a]['email'] == 'edited@example.invalid'
+    assert web.links.load_links()[web.token_a]['email'] == ('' if username=='super' else 'edited@example.invalid')
     expect(page.locator('[name=gate_requested_email]')).to_be_enabled()
 
     # Clear only the email contact, preserve the disabled selected event on save.

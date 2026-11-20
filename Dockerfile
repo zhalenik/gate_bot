@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && useradd --uid 568 --gid 568 --no-create-home gatebot \
     && mkdir -p /state && chown 568:568 /state
 COPY *.py ./
+COPY VERSION ./
 COPY storage ./storage
 COPY templates ./templates
 COPY static ./static
@@ -20,5 +21,5 @@ COPY examples ./examples
 USER 568:568
 EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=3)"
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '5000') + '/healthz', timeout=3)"
 CMD ["python", "run.py"]

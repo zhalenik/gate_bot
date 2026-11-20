@@ -31,7 +31,7 @@ async function api(path, options = {}) {
     try { data = await response.json(); }
     catch { throw new Error('Сервер вернул неожиданный ответ. Обновите страницу.'); }
     if (response.status === 401) {
-        window.location.assign('/admin/login');
+        window.location.assign(location.pathname.startsWith('/office/')?'/office/login':'/admin/login');
         throw new Error('Войдите в систему заново');
     }
     if (!response.ok) {
@@ -172,6 +172,7 @@ function displayUsers(users) {
     const contextUsers=selectedId?usersCache.filter(user=>String(user.branch_id)===String(selectedId)):usersCache;
     const hideCrm=selectedBranch?.yclients_enabled===false||(!selectedBranch&&contextUsers.length>0&&contextUsers.every(user=>user.yclients_enabled===false));
     const crmHeader=tbody.closest('table').querySelector('th[onclick*="has_yclients"]');if(crmHeader)crmHeader.hidden=hideCrm;
+    const crmSort=document.querySelector('#mobileClientSort option[value=has_yclients]');if(crmSort)crmSort.hidden=hideCrm;
     users.forEach(user => {
         const row = element('tr');
         const pass = passInfo(user);
@@ -238,6 +239,8 @@ function filterUsers() {
 
 function sortUsersBy(key) {
     sortState = { key, asc: sortState.key === key ? !sortState.asc : key!=='pass_changed_at' };
+    const mobile=document.getElementById('mobileClientSort'),direction=document.getElementById('mobileSortDirection');
+    if(mobile&&direction){mobile.value=key;direction.textContent=sortState.asc?'↑':'↓';direction.title=sortState.asc?'По возрастанию':'По убыванию';direction.setAttribute('aria-label',direction.title+' · изменить');}
     filterUsers();
     document.querySelectorAll('.users-table th[onclick]').forEach(th=>th.setAttribute('aria-sort',th.getAttribute('onclick').includes("'"+key+"'")?(sortState.asc?'ascending':'descending'):'none'));
 }

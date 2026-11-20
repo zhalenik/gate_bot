@@ -24,7 +24,7 @@ from storage.sql_documents import setup_documents, read_document, write_document
 
 
 CLIENT_EVENTS = ('access_granted', 'access_changed', 'access_revoked')
-ADMIN_EVENTS = ('gate_requested', 'gate_denied', 'gate_error', 'admin_contact_requested',
+ADMIN_EVENTS = ('gate_requested', 'gate_denied', 'gate_error', 'admin_contact_requested','client_message','pass_requested',
                 'invitation_accepted', 'access_changed', 'crm_error', 'crm_recovered',
                 'modem_error', 'modem_recovered', 'delivery_failed', 'subscription_expiring',
                 'subscription_expired', 'quota_warning', 'quota_exhausted', 'sms_received', 'call_received',
@@ -214,11 +214,17 @@ class IdentityService:
             admins=read_document(db,'admins.json')
             for username,admin in admins.items():
                 if not admin.get('person_id'):
-                    if admin.get('phone'):
+                    if admin.get('is_super') and not admin.get('phone'):
+                        existing=db.execute('SELECT person_id FROM web_accounts WHERE username=?',(username,)).fetchone()
+                        admin['person_id']=existing['person_id'] if existing else self._person(db,admin.get('name') or username,None)
+                    elif admin.get('phone'):
                         admin['person_id']=self._person(db,admin.get('name',''),valid_phone(admin['phone']),verified=True)
                     else:
                         counts['unlinked_accounts']+=1;continue
                 person_id=admin['person_id']
+                if admin.get('is_super'):
+                    self._separate_global_account(db, admin)
+                    person_id=admin['person_id']
                 if (admin.get('marketplace_password_setup_required')
                         and db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="password_reset_requests"').fetchone()
                         and db.execute('SELECT 1 FROM password_reset_requests r JOIN identity_otp o ON o.id=r.challenge_id '
@@ -230,7 +236,7 @@ class IdentityService:
                     raise ValueError('Администратор ссылается на отсутствующую личность')
                 inserted=db.execute('INSERT OR IGNORE INTO web_accounts(username,person_id) VALUES(?,?)',(username,person_id)).rowcount
                 if inserted:
-                    self._membership(db,person_id,admin.get('branch_id'),bool(admin.get('is_super')),legacy=True)
+                    self._membership(db,person_id,admin.get('branch_id'),bool(admin.get('is_super')),legacy=admin.get('provisioned_by')!='console')
                 elif not admin.get('disabled') and not admin.get('is_super'):
                     branch_id=str(admin.get('branch_id'))
                     membership=db.execute('SELECT 1 FROM branch_memberships WHERE person_id=? AND branch_id=? AND status="active"',(person_id,branch_id)).fetchone()
@@ -243,6 +249,35 @@ class IdentityService:
             write_document(db,'admins.json',admins)
         return counts
 
+    def _separate_global_account(self, db, admin):
+        """Split old customer cards once while keeping the privileged account and its inbox stable."""
+        old=admin['person_id']
+        if not db.execute('SELECT 1 FROM branch_clients WHERE person_id=?',(old,)).fetchone():
+            return
+        person=db.execute('SELECT * FROM persons WHERE id=?',(old,)).fetchone()
+        contact=self._admin_contact(db,{**admin,'is_super':False,'branch_id':db.execute(
+            'SELECT branch_id FROM branch_clients WHERE person_id=? ORDER BY created,id LIMIT 1',(old,)).fetchone()[0]})
+        db.execute('UPDATE persons SET email=?,email_verified=? WHERE id=?',(contact['email'],int(contact['email_verified']),old))
+        fresh=self._person(db,person['name'],person['phone'])
+        db.execute('UPDATE persons SET email=?,email_verified=? WHERE id=?',(person['email'],person['email_verified'],fresh))
+        db.execute('UPDATE branch_clients SET person_id=? WHERE person_id=?',(fresh,old))
+        db.execute('UPDATE notification_preferences SET person_id=? WHERE person_id=? AND audience="client"',(fresh,old))
+        db.execute('UPDATE identity_tickets SET person_id=? WHERE person_id=? AND json_extract(payload,"$.client_token") IS NOT NULL',(fresh,old))
+        db.execute('UPDATE bot_bindings SET person_id=? WHERE person_id=? AND assurance!="admin_verified"',(fresh,old))
+        for table in ('pwa_subscriptions','client_branch_events'):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                db.execute('UPDATE '+table+' SET person_id=? WHERE person_id=?',(fresh,old))
+        links=read_document(db,'links.json')
+        for client in links.values():
+            if client.get('person_id')==old:
+                client['person_id']=fresh
+                if client.get('admin_role_active') and not client.get('admin_blocked'):
+                    # Preserve the pass this historical card could already use.
+                    client.update(gate_access=True, access_expires=None, access_source='manual')
+                for field in ('admin_person_id','admin_role_active','generated_admin_client'):
+                    client.pop(field,None)
+        write_document(db,'links.json',links)
+
     def _seed_admin_preferences(self, db, person_id, *, legacy=False):
         prefs = ({'events': {event: {channel: True for channel in ADMIN_CHANNELS}
                              for event in ADMIN_EVENTS}} if legacy else default_admin_preferences())
@@ -253,15 +288,6 @@ class IdentityService:
         self._seed_admin_preferences(db, person_id, legacy=legacy)
         if is_super:
             db.execute('INSERT OR REPLACE INTO system_roles(person_id,role) VALUES(?,"superadmin")',(person_id,))
-            # Global administration is a role, not a client record in every branch.
-            links = read_document(db, 'links.json')
-            own_branches = {str(client['branch_id']) for client in links.values()
-                            if client.get('person_id') == person_id}
-            branches = read_document(db, 'branches.json')
-            if not own_branches and branches:
-                own_branches.add(str(branch_id) if str(branch_id) in branches else next(iter(branches)))
-            for own_branch in own_branches:
-                self._admin_grant(db, person_id, own_branch)
         elif branch_id:
             if not legacy:self._require_single_branch(db,person_id,branch_id)
             db.execute('INSERT INTO branch_memberships(person_id,branch_id,status,created) VALUES(?, ?,"active",?) ON CONFLICT(person_id,branch_id) DO UPDATE SET status="active"',(person_id,str(branch_id),self.clock()))
@@ -293,11 +319,29 @@ class IdentityService:
         self._client(db,token,links[token],person_id);write_document(db,'links.json',links)
         return token
 
+    def ensure_console_super(self, username):
+        """Provision or recover this login without reimporting unrelated historical records."""
+        with self.product.connect() as db:
+            admins=read_document(db,'admins.json')
+            admin=admins.get(username)
+            if not isinstance(admin,dict) or not admin.get('is_super'):
+                raise PermissionError('Требуется системная учётная запись.')
+            account=db.execute('SELECT person_id FROM web_accounts WHERE username=?',(username,)).fetchone()
+            person=account['person_id'] if account else admin.get('person_id')
+            if not person:person=self._person(db,admin.get('name') or username,None)
+            admin['person_id']=person
+            self._separate_global_account(db, admin)
+            db.execute('INSERT OR IGNORE INTO web_accounts(username,person_id) VALUES(?,?)',(username,person))
+            self._membership(db,person,None,is_super=True)
+            write_document(db,'admins.json',admins)
+
     def attach_console_account(self, username, phone, *, client_token=None):
         phone=valid_phone(phone)
         with self.product.connect() as db:
             admins=read_document(db,'admins.json');admin=admins.get(username)
             if not admin:raise ValueError('Аккаунт не найден')
+            if admin.get('is_super') and client_token:
+                raise ValueError('Системная учётная запись не привязывается к карточке клиента')
             if client_token:
                 client=read_document(db,'links.json').get(client_token)
                 if not client or normalize_phone(client.get('phone'))!=phone:raise ValueError('Телефон выбранного клиента не совпадает')
@@ -378,14 +422,14 @@ class IdentityService:
             return subject,row['phone'] or phone,row['branch_id']
         return self.request_phone_otp(resolve,ip)
 
-    def request_phone_otp(self,resolve,ip):
+    def request_phone_otp(self,resolve,ip,*,allow_development_redirect=True):
         """Validate the hand-off and reserve its challenge together, then send outside the transaction."""
         from registration_sms import sms_recipient
         now=self.clock();challenge=uuid.uuid4().hex;code=f'{secrets.randbelow(1000000):06d}'
         with self.product.connect() as db:
             subject,phone,branch_id=resolve(db)
             phone=valid_phone(phone)
-            recipient=sms_recipient(phone)
+            recipient=sms_recipient(phone) if allow_development_redirect else phone
             ip_hash=self._hash(ip)
             recent=db.execute('SELECT created FROM identity_otp WHERE phone=? ORDER BY created DESC LIMIT 1',(phone,)).fetchone()
             if recent and recent['created']>now-60:
@@ -466,7 +510,8 @@ class IdentityService:
                 else:
                     username=valid_email(username)
                     if not username:raise ValueError('Укажите email — он будет логином')
-                    verified=db.execute('SELECT id FROM persons WHERE phone=? AND phone_verified=1',(otp['phone'],)).fetchall()
+                    verified=db.execute('SELECT id FROM persons WHERE phone=? AND phone_verified=1 '
+                                        'AND NOT EXISTS(SELECT 1 FROM system_roles WHERE person_id=persons.id AND role="superadmin")',(otp['phone'],)).fetchall()
                     if len(verified)>1:raise ValueError('Номер связан с несколькими профилями. Обратитесь в поддержку GateBot')
                     person_id=verified[0]['id'] if verified else None
                     if person_id and db.execute('SELECT 1 FROM web_accounts WHERE person_id=?',(person_id,)).fetchone():raise ValueError('Для этого телефона уже есть аккаунт. Используйте существующий логин')
@@ -644,7 +689,7 @@ class IdentityService:
             admin=self._admin(db,username)
             if not admin['person_id']:raise ValueError('Сначала привяжите телефон аккаунта через консоль')
             person=db.execute('SELECT phone_verified FROM persons WHERE id=?',(admin['person_id'],)).fetchone()
-            if not person or not person['phone_verified']:raise ValueError('Подтвердите изменённый телефон аккаунта через администратора')
+            if not person or (not admin['is_super'] and not person['phone_verified']):raise ValueError('Подтвердите изменённый телефон аккаунта через администратора')
             proof=self._hash(str(admin.get('password_hash'))+'|'+str(admin.get('session_version',0)))
             db.execute('INSERT INTO identity_tickets(token_hash,person_id,platform,purpose,expires,payload) VALUES(?,?,?,"admin_binding",?,?)',(self._hash(raw),admin['person_id'],platform,self.clock()+600,json.dumps({'auth_proof':proof})))
         return raw
@@ -663,6 +708,8 @@ class IdentityService:
             if any(r['person_id']!=row['person_id'] or r['user_id']!=str(user_id) for r in conflicts):raise ValueError('Бот уже привязан. Обратитесь в поддержку GateBot')
             db.execute('INSERT INTO bot_bindings(platform,user_id,person_id,assurance) VALUES(?,?,?,"admin_verified") ON CONFLICT(platform,user_id) DO UPDATE SET assurance="admin_verified",revision=revision+1',(platform,str(user_id),row['person_id']))
             db.execute('UPDATE identity_tickets SET used=1 WHERE token_hash=?',(self._hash(ticket),))
+            if admin['is_super']:
+                return {'status':'success','message':'Бот подключён к системной учётной записи'}
             field='tg_id' if platform=='telegram' else 'max_id';links=read_document(db,'links.json')
             for client in db.execute('SELECT legacy_token FROM branch_clients WHERE person_id=?',(row['person_id'],)):
                 if client['legacy_token'] in links:links[client['legacy_token']][field]=str(user_id)
@@ -821,16 +868,12 @@ class IdentityService:
         person=db.execute('SELECT * FROM persons WHERE id=?',(admin['person_id'],)).fetchone()
         links=read_document(db,'links.json')
         candidates=[]
-        for row in db.execute('SELECT legacy_token,branch_id FROM branch_clients WHERE person_id=? ORDER BY created,id',(admin['person_id'],)):
+        rows = () if admin.get('is_super') else db.execute('SELECT legacy_token,branch_id FROM branch_clients WHERE person_id=? AND branch_id=? ORDER BY created,id',(admin['person_id'],str(admin.get('branch_id'))))
+        for row in rows:
             client=links.get(row['legacy_token'])
             if not client or str(client.get('branch_id'))!=row['branch_id'] or client.get('person_id',admin['person_id'])!=admin['person_id']:
                 continue
-            if not admin.get('is_super') and row['branch_id']!=str(admin.get('branch_id')):
-                continue
             candidates.append((row,client))
-        # A super has one canonical client; retain deterministic handling of old
-        # additional memberships without copying their contact across branches.
-        candidates.sort(key=lambda item:item[0]['branch_id']!=str(admin.get('branch_id')))
         token=None;branch_id=admin.get('branch_id');client=None
         raw_email=person['email'] if person else ''
         if candidates:
@@ -1003,7 +1046,8 @@ class IdentityService:
             if otp:
                 branches=read_document(db,'branches.json');admins=read_document(db,'admins.json')
                 if row['branch_id'] in branches or AdminAuth.resolve_username(admins,username) in admins:raise ValueError('Филиал или email уже зарегистрирован')
-                if db.execute('SELECT 1 FROM persons p JOIN web_accounts a ON a.person_id=p.id WHERE p.phone=?',(otp['phone'],)).fetchone():raise ValueError('У телефона уже есть аккаунт. Воспользуйтесь приглашением или обратитесь в поддержку GateBot')
+                if db.execute('SELECT 1 FROM persons p JOIN web_accounts a ON a.person_id=p.id WHERE p.phone=? '
+                              'AND NOT EXISTS(SELECT 1 FROM system_roles WHERE person_id=p.id AND role="superadmin")',(otp['phone'],)).fetchone():raise ValueError('У телефона уже есть аккаунт. Воспользуйтесь приглашением или обратитесь в поддержку GateBot')
                 person_id=self._person(db,row['person_name'],otp['phone'],verified=True)
                 db.execute('UPDATE persons SET email=? WHERE id=?',(username,person_id))
                 crm_enabled=bool(row['yclients_enabled'])
@@ -1012,7 +1056,8 @@ class IdentityService:
                 admins[username]={'name':row['person_name'],'phone':otp['phone'],'person_id':person_id,'password_hash':AdminAuth.hash_password(password),'branch_id':int(row['branch_id']),'is_super':False,'disabled':False,'session_version':1}
                 write_document(db,'branches.json',branches);write_document(db,'admins.json',admins)
                 db.execute('INSERT INTO web_accounts(username,person_id) VALUES(?,?)',(username,person_id));self._membership(db,person_id,row['branch_id'])
-                billing.activate_trial(row['branch_id'],timezone='Europe/Moscow',at=self.clock(),db=db)
+                billing.activate_trial(row['branch_id'],timezone='Europe/Moscow',at=self.clock(),db=db,
+                                       registration_phone=otp['phone'])
                 db.execute('UPDATE identity_otp SET state="used" WHERE id=?',(challenge,));db.execute('UPDATE branch_registrations SET state="completed" WHERE id=?',(row['id'],))
                 result={'username':username,'branch_id':row['branch_id'],'person_id':person_id,'status':'active','yclients_enabled':crm_enabled}
                 if self.welcome_sink:self.welcome_sink(person_id,row['branch_id'],username)

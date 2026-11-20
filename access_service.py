@@ -179,6 +179,9 @@ class AccessService:
                     auth = db.execute('SELECT * FROM access_request_auth WHERE request_id=?', (record['id'],)).fetchone()
                     data = links.get(auth['token']) if auth else None
                     allowed = bool(data and str(data.get('branch_id')) == str(branch.branch_id) and access_is_active(data))
+                    if allowed and record['id'].startswith('shared_'):
+                        desk = getattr(self,'desk',None)
+                        allowed = bool(desk and desk.authorizes_request(db,record['id'],auth['token'],data,button))
                     if allowed and auth['platform']:
                         field = {'telegram': 'tg_id', 'max': 'max_id'}.get(auth['platform'])
                         allowed = bool(field and str(data.get(field)) == auth['user_id'])
@@ -233,6 +236,10 @@ class AccessService:
                         request_id = request_id or uuid.uuid4().hex
                         # The SQL document transaction and billing share one connection.
                         with self.billing.store.connect() as db:
+                            if request_id.startswith('shared_'):
+                                desk = getattr(self,'desk',None)
+                                if not desk or not desk.authorizes_request(db,request_id,token,data,button):
+                                    return self._error('Гостевая ссылка недействительна.')
                             stable_gate_id = getattr(button, 'stable_id', None) or button.id
                             # A preserved gate identity may now route to another
                             # number. Do not merge a fresh request into a stale

@@ -386,7 +386,8 @@ class LinkManager:
                 if data.get('access_source', 'manual') == 'manual' and access_is_active(data, at):
                     continue
                 changed = not access_is_active(data, at) or data.get('access_expires') != expiry
-                data.update(gate_access=True, access_source='appointment', access_expires=expiry)
+                data.update(gate_access=True, access_source='appointment', access_expires=expiry,
+                            appointment_notice_until=client.get('_notice_until'))
                 if changed:
                     data['access_revision'] = int(data.get('access_revision', 0)) + 1
                     events.append(dict(data, token=token, event='granted'))

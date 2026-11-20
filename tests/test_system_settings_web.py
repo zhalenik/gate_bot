@@ -47,6 +47,29 @@ def test_revoked_role_and_stale_revision_cannot_write(system_web):
     assert store.read()['values']['PORT']=='5001'
 
 
+def test_restart_after_save_and_private_yaml(system_web, monkeypatch):
+    from unittest.mock import Mock
+    import runtime_control
+    web,store=system_web
+    client=web.app.test_client();csrf=login(client,'tenant-a')
+    route='/admin/api/system-settings/'
+    assert client.get(route+'compose.yaml').status_code==403
+    assert post(client,csrf,route+'restart',{'revision':'0'}).status_code==403
+    csrf=login(client,'super')
+    callback=Mock()
+    monkeypatch.setattr(runtime_control,'_restart',callback)
+    reply=post(client,csrf,'/admin/api/system-settings',{'revision':'0','values':{
+        'TELEGRAM_PROXY_URL':'http://name:pass@proxy.invalid:8080','REQUESTS_CA_BUNDLE':'/state/ca.pem'}})
+    assert reply.status_code==200 and 'name:pass' not in reply.get_data(as_text=True)
+    assert post(client,csrf,route+'restart',{'revision':'0'}).status_code==409
+    result=post(client,csrf,route+'restart',{'revision':store.read()['revision']})
+    assert result.status_code==202
+    result.close()
+    callback.assert_called_once()
+    yaml=client.get(route+'compose.yaml?network=private-vpn')
+    assert yaml.status_code==200 and 'private-vpn' in yaml.text and 'name:pass' not in yaml.text
+
+
 def test_official_com_api_address_does_not_break_settings_page_or_saving(system_web,monkeypatch):
     web,store=system_web;client=web.app.test_client();csrf=login(client,'super')
     url='https://api.yclients.com/api/v1'

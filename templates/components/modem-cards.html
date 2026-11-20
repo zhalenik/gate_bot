@@ -1,0 +1,36 @@
+<details class="panel" id="modemSettings">
+  <summary><strong>Модемы SIM800C</strong></summary>
+  <form id="modemSettingsForm" class="admin-form">
+    <p class="page-description">Чем выше приоритет, тем раньше свободный модем получит задачу. При одинаковом приоритете модемы работают по очереди.</p>
+    <div id="modemCards"></div>
+    <div class="action-buttons">
+      <button type="button" class="btn-action" id="modemAdd" disabled>Добавить модем</button>
+      <button type="submit" class="btn-primary" id="modemSave" disabled>Сохранить модемы</button>
+    </div>
+    <p class="form-hint" id="modemSettingsNotice" role="status"></p>
+  </form>
+</details>
+<template id="modemCard">
+  <fieldset class="panel">
+    <legend></legend>
+    <p class="modem-health" role="status"></p>
+    <div class="system-settings-grid">
+      <label class="form-group">Название<input name="name" maxlength="64" required></label>
+      <label class="form-group">Порт сервиса<input name="port" placeholder="COM4 или /dev/ttyUSB0" required maxlength="256"></label>
+      <label class="form-group">Устройство на хосте Docker<input name="host_device" placeholder="/dev/serial/by-id/…" maxlength="256"><small>Если путь совпадает с портом сервиса, оставьте пустым.</small></label>
+      <label class="form-group">Скорость, бод<input name="baudrate" type="number" min="1" max="921600" required></label>
+      <label class="form-group">Таймаут AT-команды, с<input name="command_timeout" type="number" step="0.1" min="0.1" max="300" required></label>
+      <label class="form-group">Приоритет звонков<input name="call_priority" type="number" min="0" max="1000" required></label>
+      <label class="form-group">Приоритет SMS<input name="sms_priority" type="number" min="0" max="1000" required></label>
+    </div>
+    <div class="action-buttons">
+      <label class="checkbox-label"><input type="checkbox" name="call_enabled"> Исходящие звонки</label>
+      <label class="checkbox-label"><input type="checkbox" name="sms_enabled"> Отправка SMS</label>
+    </div>
+    <div class="action-buttons">
+      <button type="button" class="btn-action modem-probe">Проверить соединение</button>
+      <button type="button" class="btn-action modem-remove">Убрать из списка</button>
+    </div>
+  </fieldset>
+</template>
+<script src="/static/js/modem-settings.js" defer></script>

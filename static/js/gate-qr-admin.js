@@ -21,14 +21,15 @@
     return result;
   }
   async function openDialog(branchId, gateId) {
-    const endpoint = '/admin/api/branches/' + encodeURIComponent(branchId) + '/gates/' + encodeURIComponent(gateId) + '/qr';
+    const endpoint = '/admin/api/branches/' + encodeURIComponent(branchId) +
+      (gateId ? '/gates/' + encodeURIComponent(gateId) + '/qr' : '/registration-qr');
     const dialog = make('dialog', '', 'qr-dialog');
-    const heading = make('div', '', 'qr-dialog-heading'), title = make('h2', 'QR-код ворот'), close = make('button', '×', 'icon-button');
+    const heading = make('div', '', 'qr-dialog-heading'), title = make('h2', gateId ? 'QR-код ворот' : 'QR-код регистрации в филиале'), close = make('button', '×', 'icon-button');
     close.type = 'button'; close.setAttribute('aria-label', 'Закрыть'); close.addEventListener('click', () => dialog.close());
     heading.append(title, close);
-    const description = make('p', 'Разместите код у ворот. Клиент введёт свой телефон и подтвердит его по SMS. Открытие доступно только с действующим пропуском этого филиала.');
-    const picture = make('img'); picture.alt = 'QR-код для доступа к этим воротам'; picture.hidden = true;
-    const link = make('input'); link.readOnly = true; link.setAttribute('aria-label', 'Постоянная ссылка ворот'); link.hidden = true;
+    const description = make('p', gateId ? 'Разместите код у ворот. Клиент введёт свой телефон и подтвердит его по SMS. Открытие доступно только с действующим пропуском этого филиала.' : 'Разместите код в салоне. Посетители смогут подтвердить телефон и зарегистрироваться в вашем филиале.');
+    const picture = make('img'); picture.alt = title.textContent; picture.hidden = true;
+    const link = make('input'); link.readOnly = true; link.setAttribute('aria-label', 'Постоянная ссылка'); link.hidden = true;
     const actions = make('div', '', 'qr-dialog-actions'), status = make('p'); status.dataset.role = 'status'; status.setAttribute('role', 'status');
     dialog.append(heading, description, picture, link, actions, status);
     document.body.append(dialog); dialog.showModal();
@@ -71,6 +72,11 @@
     try { render(await api(endpoint)); } catch (error) { status.textContent = error.message; }
   }
   function decorate(branchId) {
+    const register = document.getElementById('branchRegistrationQr');
+    if (register) {
+      register.hidden = !branchId;
+      register.onclick = branchId ? () => openDialog(branchId, null) : null;
+    }
     document.querySelectorAll('[data-field="type"]').forEach(select => {
       const row = select.closest('tr'); if (!row) return;
       row.querySelector('.qr-admin-control')?.remove();

@@ -37,6 +37,7 @@ def set_correlation_id(value=None):
 
 def _text(value):
     value = str(value)
+    value = re.sub(r'/(?:shared|api/pass|pwa|preferences)/[A-Za-z0-9_-]+', '/[REDACTED]', value)
     value = re.sub(r'(?:https?://\S+)?/(?:opn|unsubscribe)/[^\s?"\']+', '/opn/[REDACTED]', value)
     value = re.sub(r'\b\d{6,12}:[A-Za-z0-9_-]{20,}', '[BOT_TOKEN]', value)
     value = re.sub(r'\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+', '[CREDENTIAL]', value)

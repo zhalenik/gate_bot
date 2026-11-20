@@ -29,7 +29,12 @@ class SystemConfigStore:
             payload=json.loads(fernet.decrypt(self.path.read_bytes()).decode('utf-8'))
             if not isinstance(payload,dict) or set(payload)!={'version','revision','values'} or payload['version']!=1:
                 raise ValueError('shape')
-            if not isinstance(payload['revision'],str) or not isinstance(payload['values'],dict) or set(payload['values'])-set(BY_KEY):
+            if not isinstance(payload['revision'],str) or not isinstance(payload['values'],dict):
+                raise ValueError('fields')
+            # Older encrypted settings can contain the retired console-owner bootstrap field.
+            # Ignore it on load and drop it on the next successful save.
+            payload['values'].pop('BOOTSTRAP_SUPERADMIN_PHONE',None)
+            if set(payload['values'])-set(BY_KEY):
                 raise ValueError('fields')
             values={key:encode(BY_KEY[key],value) for key,value in payload['values'].items()}
             return {'revision':payload['revision'],'values':values}

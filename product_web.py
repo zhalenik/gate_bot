@@ -57,9 +57,9 @@ def create_blueprint(admin_auth=None, branch_manager=None, link_manager=None, re
         scope=allowed()
         return [b for b in service('branches').get_all_branches() if scope is None or str(b.branch_id) in scope]
 
-    def render(name):
-        if render_admin:return render_admin(name)
-        return render_template(name,admin_page=True,is_super=admin().get('is_super') is True,branches=visible_branches())
+    def render(name, **context):
+        if render_admin:return render_admin(name, **context)
+        return render_template(name,admin_page=True,is_super=admin().get('is_super') is True,branches=visible_branches(),**context)
 
     @bp.errorhandler(ValueError)
     def invalid(error):return jsonify(status='error',message=str(error)),400

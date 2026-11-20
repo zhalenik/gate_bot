@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from link_manager import access_is_active
+from pass_notifications import timely_grant
 from storage import config
 from storage.sql_documents import read_document
 from webpush_delivery import send_webpush, validate_endpoint
@@ -57,6 +58,8 @@ class PwaService:
             db.execute('CREATE TABLE IF NOT EXISTS pwa_keys(name TEXT PRIMARY KEY,ciphertext TEXT NOT NULL,created REAL NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS pwa_subscriptions(id TEXT PRIMARY KEY,branch_id TEXT NOT NULL,person_id TEXT NOT NULL,client_token TEXT NOT NULL,endpoint_hash TEXT UNIQUE NOT NULL,ciphertext TEXT NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS pwa_subscription_client ON pwa_subscriptions(branch_id,person_id,client_token)')
+        from office_push import OfficePush
+        self.office = OfficePush(self)
 
     def _resolve(self, db, token, *, allow_guest=False):
         client = read_document(db, 'links.json').get(token)
@@ -104,6 +107,8 @@ class PwaService:
         with self.store.connect() as db:
             person, branch, legacy, _, _ = self._resolve(db, token)
             existing = db.execute('SELECT * FROM pwa_subscriptions WHERE endpoint_hash=?', (fingerprint,)).fetchone()
+            if db.execute('SELECT 1 FROM office_push_devices WHERE endpoint_hash=?',(fingerprint,)).fetchone():
+                raise ValueError('Устройство уже подключено к кабинету филиала.')
             if existing and (existing['person_id'],existing['branch_id'],existing['client_token']) != (person,branch,legacy):
                 raise ValueError('Это устройство уже связано с другим пропуском')
             if not existing and db.execute('SELECT count(*) FROM pwa_subscriptions WHERE client_token=?', (legacy,)).fetchone()[0] >= 20:
@@ -142,7 +147,7 @@ class PwaService:
                 return False
             if revision is not None and client.get('access_revision',0) != revision:
                 return False
-            if event is not None and access_is_active(client) != (event == 'access_granted'):
+            if event not in (None, 'desk_reply') and (not timely_grant(event, client) or not access_is_active(client)):
                 return False
             return bool(self.identity.prefs_for_token(token)['effective_channels'].get('push'))
         except (ValueError, PermissionError):
@@ -161,8 +166,10 @@ class PwaService:
         if origin.scheme != 'https' or not origin.hostname:
             return {'status':'failed', 'code':'push_requires_https', 'confirmed':False}
         subject = origin.scheme + '://' + origin.netloc
-        payload = {'title':'GateBot', 'body':'Ваш пропуск активен. Откройте приложение, чтобы открыть ворота.' if context.get('event')=='access_granted' else 'Срок или условия вашего пропуска изменились.',
+        payload = {'title':'GateBot', 'body':'Администратор ответил на ваше обращение.' if context.get('event')=='desk_reply' else 'Ваш пропуск активен. Откройте приложение, чтобы открыть ворота.',
                    'url':'/pwa/'+quote(token,safe='')+'/gate', 'tag':'gatebot-pass'}
+        if context.get('event')=='desk_reply':
+            payload['tag']='gatebot-message'
         result = self.transport(subscription, payload, private, subject)
         if result.get('status') == 'expired':
             with self.store.connect() as db:

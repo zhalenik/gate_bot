@@ -1,0 +1,17 @@
+.desk-tools,.desk-heading,.desk-layout,.desk-threads,.desk-conversation,.desk-panel form,.desk-conversation form,.desk-panel label,.desk-layout label{display:grid;gap:.8rem}
+.desk-tools{grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr));margin-block:.8rem}
+.desk-panel{box-sizing:border-box;width:min(32rem,calc(100% - 1.25rem));max-height:85dvh;overflow:auto;padding:clamp(1rem,4vw,1.65rem);border:1px solid var(--line);border-radius:1.25rem;color:var(--ink);background:var(--surface)}
+.desk-panel::backdrop{background:var(--gb-color-branch-desk-background-3ee6355eea7d, rgb(12 15 20 / 45%))}
+.desk-heading{grid-template-columns:1fr auto;align-items:center;margin-bottom:1rem}.desk-heading h2,.desk-conversation h2{margin:0;font-size:1.2rem}
+.desk-tools [hidden],.desk-layout [hidden]{display:none!important}
+.desk-panel textarea,.desk-panel select,.desk-panel input,.desk-layout textarea,.desk-layout input{box-sizing:border-box;width:100%;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:.8rem;padding:.65rem;font:inherit;resize:vertical}
+.desk-history{display:grid;gap:.6rem;align-content:start;padding:.4rem 0;list-style:none;max-height:40dvh;overflow-y:auto;margin:.5rem 0 1rem}
+.desk-history li{padding:.65rem .9rem;background:var(--milk);color:var(--ink);border-radius:1rem;max-width:88%;justify-self:start;min-width:0}
+.desk-history li.desk-own{background:var(--lavender);justify-self:end}
+.desk-history li p{white-space:pre-wrap;overflow-wrap:anywhere;margin:.2rem 0}.desk-history small,.desk-threads small{display:block;font-size:.75rem}
+.desk-status{min-height:1em;overflow-wrap:anywhere}.desk-status:empty{margin:0;min-height:0}
+.desk-layout{grid-template-columns:minmax(13rem,1fr) minmax(0,2.6fr);align-items:start}
+.desk-layout aside,.desk-conversation{padding:1rem;border:1px solid var(--line);border-radius:1rem;background:var(--surface)}
+.desk-threads [data-desk-threads]{display:grid;gap:.35rem}.desk-threads button{display:block;text-align:left}.desk-threads button[aria-pressed=true]{background:var(--lavender);color:var(--ink)}
+.desk-conversation{align-content:start}.desk-panel [data-desk-request]{margin-top:1rem}
+@media(max-width:680px){.desk-layout{grid-template-columns:1fr}.desk-threads [data-desk-threads]{max-height:25dvh;overflow:auto}}

@@ -16,7 +16,7 @@
                 {% endif %}
             {% endwith %}
             
-            <form method="POST" action="/admin/login">
+            <form method="POST" action="{{ '/office/login' if office_login else '/admin/login' }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label for="username">Email или прежний логин</label>

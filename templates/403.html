@@ -1,14 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Доступ недоступен{% endblock %}
+{% block title %}Доступ невозможен{% endblock %}
 {% block pwa_head %}{% include 'components/client_pwa_head.html' %}{% endblock %}
 {% block content %}
 
-    <div class="guest-container">
+    <main class="guest-container">
         <div class="guest-card">
             <span class="guest-symbol" aria-hidden="true">↗</span>
-            <h1 class="error-title">Доступ недоступен</h1>
+            <h1 class="error-title">Доступ невозможен</h1>
             <p class="page-description">Ссылка недействительна, срок пропуска истёк или действие не разрешено. Обновите страницу; если проблема сохраняется, обратитесь к администратору своего филиала.</p>
-            {% if admin_contacts %}
+            {% if contact_token %}
+            {% include 'components/branch_contact.html' %}
+            {% elif admin_contacts %}
             <p class="user-info">{{ branch_name }}</p>
             <div class="support-actions">
                 {% for contact in admin_contacts %}
@@ -16,11 +18,12 @@
                 {% endfor %}
             </div>
             {% endif %}
-            {% if preferences_url and not is_temporary | default(false) %}<div class="support-preferences"><a href="{{ preferences_url }}" class="btn-action">Настроить уведомления <span aria-hidden="true">›</span></a></div>{% endif %}
+            {% if preferences_url and not is_temporary | default(false) %}<div class="support-preferences"><a id="preferencesLink" href="{{ preferences_url }}" class="btn-action">Настроить уведомления <span aria-hidden="true">›</span></a></div>{% endif %}
             {% if not client_page | default(false) %}<a href="/" class="text-link">На главную</a>{% endif %}
             <div data-client-pwa-tools></div>
+            {% include 'components/client_footer.html' %}
         </div>
-    </div>
+    </main>
 
 {% endblock %}
 {% block scripts %}{% include 'components/client_pwa_scripts.html' %}{% endblock %}

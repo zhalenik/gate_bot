@@ -32,6 +32,15 @@ os.environ['YC_MARKETPLACE_CONNECT_ENABLED'] = 'false'
 os.environ['YC_MARKETPLACE_APPLICATION_ID'] = ''
 os.environ['YC_MARKETPLACE_SYSTEM_USER_TOKEN'] = ''
 
+
+def pytest_sessionfinish(session, exitstatus):
+    # Windows requires the test logger to release its handle before TemporaryDirectory cleanup.
+    import logging
+    audit = logging.getLogger('gatebot.audit')
+    for handler in list(audit.handlers):
+        audit.removeHandler(handler)
+        handler.close()
+
 @pytest.fixture(autouse=True)
 def forbid_network(monkeypatch):
     # Windows implements socketpair() using a loopback TCP connection. asyncio

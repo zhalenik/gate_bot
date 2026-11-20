@@ -201,6 +201,14 @@ def test_recovery_cli_prints_backup_and_correct_login_without_password(local_adm
     assert local_admins.auth.verify_admin('owner', PASSWORD)
 
 
+def test_console_owner_needs_only_login_and_password(local_admins, monkeypatch):
+    monkeypatch.setattr(admin,'getpass',lambda *_:PASSWORD)
+    admin.main(['--username','owner','--super'])
+    assert local_admins.auth.verify_admin('owner',PASSWORD)
+    record=local_admins.auth.get_admin('owner')
+    assert not record.get('phone') and not record.get('name')
+
+
 def test_cli_reports_corruption_before_password_prompt_without_content(local_admins, monkeypatch):
     local_admins.path.write_text('{sensitive-damaged-content', encoding='utf-8')
     monkeypatch.setattr(admin, 'getpass', lambda *_: pytest.fail('Malformed state should be reported before prompting'))

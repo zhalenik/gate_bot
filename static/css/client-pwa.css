@@ -11,7 +11,19 @@
 .client-pwa-tabs{position:fixed;bottom:0;left:0;right:0;z-index:40;display:flex;justify-content:center;gap:8px;padding:10px max(14px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));background:var(--surface);border-top:1px solid var(--line)}
 .client-pwa-tabs a{display:flex;align-items:center;justify-content:center;gap:9px;width:min(210px,45%);min-height:48px;border-radius:14px;color:var(--muted);font-size:14px;font-weight:600;text-decoration:none}
 .client-pwa-tabs a[aria-current=page]{background:var(--milk);color:var(--ink)}
-.client-pwa-installed{padding-bottom:calc(86px + env(safe-area-inset-bottom))!important}
+html:has(.client-pwa-installed){height:100%;overflow:hidden}
+body.client-pwa-installed{display:flex;flex-direction:column;height:100%;height:100dvh;min-height:0;overflow:hidden;margin:0;padding-bottom:0!important}
+body.client-pwa-installed>main{min-height:0;flex:1 1 auto;width:100%;overflow:auto;overscroll-behavior-y:contain}
+.client-pwa-installed>.app-bar,.client-pwa-installed>.client-pwa-tabs{flex:none}
+.client-pwa-installed>.client-pwa-tabs{position:static}
+.client-pwa-installed #preferencesLink{display:none!important}
+.client-feedback-footer{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 18px;padding:20px 0;color:var(--muted)}
+.client-feedback-footer a,.client-feedback-footer button{color:inherit;font:inherit;font-size:.85rem;text-decoration:underline;text-underline-offset:3px;background:none;border:0;padding:4px;cursor:pointer}
+.client-feedback-dialog fieldset{border:0;padding:0;margin:16px 0}.client-feedback-dialog textarea{display:block;width:100%;font:inherit;margin-top:8px}
+.feedback-stars{display:flex;gap:4px}.feedback-stars label{cursor:pointer;position:relative;padding:3px;font-size:2rem;color:var(--muted)}
+.feedback-stars label:has(:checked),.feedback-stars label:has(~label :checked){color:var(--accent)}
+.feedback-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.feedback-stars input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}.feedback-stars label:focus-within{outline:2px solid currentColor}
 .client-pwa-installed :is(button,input,a){scroll-margin-block:90px}
 .client-pwa-installed .access-main{padding-top:max(12px,env(safe-area-inset-top))}
 #clientOfflineNotice{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:var(--surface,var(--gb-color-client-pwa-background-c0c99b8eac90, #fff));color:var(--ink,var(--gb-color-client-pwa-color-97cb60e3f44a, #0c0f14));font:16px/1.6 system-ui,sans-serif;text-align:center}

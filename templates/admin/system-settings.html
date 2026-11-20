@@ -2,7 +2,7 @@
 {% set admin_page = true %}
 {% block title %}Системные настройки — GateBot{% endblock %}
 {% block content %}
-<main class="admin-container"><section class="admin-content">
+<main class="admin-container settings-workspace"><section class="admin-content">
   <div class="page-heading"><div><div class="page-eyebrow">GateBot · Суперадминистратор</div><h1>Системные настройки</h1><p class="page-description">Общие параметры сервиса, интеграций, модема и разработки.</p></div></div>
   <div id="systemSettingsNotice" role="status" hidden></div>
   <section class="panel">
@@ -11,9 +11,20 @@
     <label class="form-group">Найти параметр<input id="systemSettingsSearch" type="search" autocomplete="off" placeholder="Название или имя переменной"></label>
   </section>
   <form id="systemSettingsForm" class="admin-form">
+    <div class="settings-toolbar"><button class="btn-primary" id="systemSettingsSave" type="submit" disabled>Сохранить</button><button class="btn-action" id="systemSettingsRestart" type="submit" disabled>Сохранить и перезапустить</button></div>
     <div id="systemSettingsGroups"></div>
-    <div class="action-buttons"><button class="btn-primary" id="systemSettingsSave" type="submit" disabled>Сохранить настройки</button><button class="btn-action" id="systemSettingsReset" type="button" disabled>Вернуть настройки окружения</button></div>
+    <button class="btn-action" id="systemSettingsReset" type="button" disabled>Вернуть настройки окружения</button>
   </form>
+  <details class="panel"><summary><strong>Контейнер TrueNAS · YAML</strong></summary>
+    <form class="settings-export" method="get" action="/admin/api/system-settings/compose.yaml">
+      <label>Каталог GateBot на NAS<input required name="root" value="/mnt/ssd-pool/apps-data/gatebot"></label>
+      <label>Внешний порт<input required type="number" min="1" max="65535" name="port" value="31500"></label>
+      <label>Сеть VPN-контейнера для Telegram<input name="network" placeholder="Имя существующей сети Docker"></label>
+      <label>GID группы последовательных портов<input name="serial_gid" inputmode="numeric"></label>
+      <button class="btn-action">Скачать YAML</button>
+    </form>
+  </details>
+  {% include 'components/modem-cards.html' %}
   <details class="panel" id="systemSmtp"><summary><strong>SMTP · Отправка email</strong></summary><p class="page-description">Один почтовый сервер для всех филиалов. Сохранение и проверка используют существующие настройки SMTP.</p>
     {% include 'components/smtp-form.html' %}
   </details>

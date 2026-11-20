@@ -16,6 +16,7 @@
             <p class="sub-title">{{ admin_branch_name }}</p>
             {% endif %}
             <form id="branchSettingsForm">
+                <button type="button" id="branchRegistrationQr" class="btn-action" hidden>QR-код регистрации в филиале</button>
                 <div style="max-width:640px">
                     <div class="form-group" {% if not is_super %}hidden{% endif %}>
                         <label for="settingsYclients">Тип филиала</label>

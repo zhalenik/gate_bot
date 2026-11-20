@@ -17,7 +17,7 @@
     </div>
     <p id="gateCooldown" class="gate-cooldown" aria-live="polite" hidden></p>
     <p id="statusMessage" class="status-message" role="status" aria-live="polite"></p>
-    <div id="adminContacts" class="pass-contacts">{% for button in buttons %}{% if button.type == 'admin' %}<a class="contact-link button-admin" href="tel:{{ button.phone }}">{{ button.label }} <span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div>
+    {% include 'components/branch_contact.html' %}
   </section>
   <section class="pass-tools" aria-label="Управление пропуском">
     <h2>Всегда под рукой</h2><p>Подключите удобный мессенджер, чтобы пользоваться пропуском в боте.</p>
@@ -26,6 +26,7 @@
   </section>
   <p class="access-footer">Персональная ссылка — ваш ключ к пропуску.</p>
   <div data-client-pwa-tools></div>
+  {% include 'components/client_footer.html' %}
 </main>
 {% endblock %}
 {% block scripts %}

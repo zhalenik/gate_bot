@@ -53,7 +53,7 @@ def mock_push(page,permission='granted'):
 def test_personal_worker_never_controls_admin_and_offline_never_replays_gates(web,browser_ui,pwa_client):
     page,origin,expect,errors=browser_ui;scope='/pwa/'+web.token_a+'/'
     page.goto(origin+scope+'gate')
-    page.wait_for_function("scope=>navigator.serviceWorker.getRegistration(scope).then(reg=>Boolean(reg?.active))",arg=scope)
+    page.wait_for_function("scope=>navigator.serviceWorker.getRegistration(scope).then(reg=>reg?.active?.state==='activated'&&Boolean(navigator.serviceWorker.controller))",arg=scope)
     page.reload();page.wait_for_function('Boolean(navigator.serviceWorker.controller)')
     assert page.evaluate('async()=> (await navigator.serviceWorker.getRegistrations()).map(r=>new URL(r.scope).pathname)')==[scope]
     assert page.evaluate('async()=>await caches.keys()')==[]
@@ -90,9 +90,13 @@ def test_installed_push_needs_click_and_preferences_can_disable_it(web,browser_u
     assert pwa_client.identity.prefs_for_token(web.token_a)['effective_channels']['push']
     page.set_viewport_size({'width':390,'height':844})
     expect(page.locator('.client-pwa-tabs a')).to_have_count(2)
+    expect(page.locator('#preferencesLink')).to_be_hidden()
     page.locator('.client-pwa-tabs').get_by_role('link',name='Уведомления').click()
     page.wait_for_url('**'+scope+'preferences')
     toggle=page.get_by_role('switch',name='Push',exact=True);expect(toggle).to_be_checked()
+    bottom = page.locator('.client-pwa-tabs').bounding_box()['y']
+    page.locator('main').evaluate('(main) => {main.scrollTop = main.scrollHeight}')
+    assert abs(page.locator('.client-pwa-tabs').bounding_box()['y']-bottom) < 1
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
     page.screenshot(path=str(tmp_path/'pwa-preferences-mobile.png'),full_page=True)
     with page.expect_response('**/preferences/'+web.token_a):toggle.uncheck()
@@ -104,7 +108,7 @@ def test_installed_push_needs_click_and_preferences_can_disable_it(web,browser_u
     assert page.evaluate('fakePermissionCalls')==0 and pwa_client.pwa.status(web.token_a)['subscription_count']==1
     web.links.toggle_user_access(web.token_a,False)
     page.goto(origin+scope+'gate')
-    expect(page.get_by_role('heading',name='Доступ недоступен')).to_be_visible()
+    expect(page.get_by_role('heading',name='Доступ невозможен')).to_be_visible()
     expect(page.locator('.client-pwa-tabs a')).to_have_count(2)
     assert page.locator('link[rel=manifest]').get_attribute('href')==scope+'manifest.webmanifest'
     assert web.calls==[] and not errors
@@ -125,6 +129,20 @@ def test_denied_push_is_not_requested_on_every_launch(web,browser_ui,pwa_client)
     expect(page.locator('#identityNotice')).to_contain_text('настройках устройства')
     assert page.evaluate('fakePermissionCalls')==0 and pwa_client.pwa.status(web.token_a)['subscription_count']==0
     assert not errors
+
+
+def test_customer_can_send_feedback_and_owner_reads_it(web,browser_ui,pwa_client):
+    page,origin,expect,errors=browser_ui
+    page.goto(origin+'/opn/'+web.token_a)
+    page.get_by_role('button',name='Пожелания и отзывы').click()
+    review=page.get_by_role('dialog',name='Вам нравится приложение?')
+    review.get_by_role('radio',name='4 из 5').check()
+    review.locator('textarea').fill('Тестовый отзыв')
+    review.get_by_role('button',name='Отправить').click()
+    expect(review.get_by_role('status')).to_have_text('Спасибо за отзыв!')
+    sign_in(page,origin)
+    page.goto(origin+'/admin/feedback')
+    expect(page.get_by_text('Тестовый отзыв')).to_be_visible()
 
 
 def test_uninstalled_has_install_guide_but_no_push_toggle_and_admin_cannot_subscribe_client(web,browser_ui,pwa_client):

@@ -48,15 +48,15 @@ def _read_admins(auth):
         raise AdminStateError(
             'admins.json is empty or malformed. It has not been changed. '
             'Stop GateBot, then use admin.py --recover --username owner '
-            '--name "Administrator" --super to save a backup and recover access. '
+            '--super to save a backup and recover access. '
             'Use your intended login and role if different.'
         ) from None
 
 
 def _admin_record(password_hash, name, branch_id, is_super):
-    return {'name': str(name), 'password_hash': password_hash,
+    return {'name': str(name or ''), 'password_hash': password_hash,
             'is_super': is_super, 'branch_id': int(branch_id) if branch_id is not None else None,
-            'disabled': False, 'session_version': 1}
+            'disabled': False, 'session_version': 1, 'provisioned_by': 'console'}
 
 
 def _replace_password(admin, password_hash):
@@ -65,7 +65,7 @@ def _replace_password(admin, password_hash):
     admin['session_version'] = version + 1 if type(version) is int and version >= 0 else 1
 
 
-def add_admin(username, password, name, branch_id=None, is_super=False, phone=None):
+def add_admin(username, password, name=None, branch_id=None, is_super=False, phone=None):
     if not is_super:
         from identity_service import valid_email
         username=valid_email(username)
@@ -85,8 +85,17 @@ def add_admin(username, password, name, branch_id=None, is_super=False, phone=No
         auth.save_admins(admins)
     if phone:
         link_person(username, phone)
+    elif is_super:
+        _ensure_console_super(auth, username)
     logger.event('ADMIN_PROVISIONED', branch_id=branch_id, actor=username, details={'is_super': is_super})
     return True
+
+
+def _ensure_console_super(auth, username):
+    from storage.sql_documents import is_sql_active
+    if is_sql_active(auth.store.path.parent):
+        from identity_service import IdentityService
+        IdentityService(auth.store.product()).ensure_console_super(username)
 
 
 def link_person(username, phone, client_token=None):
@@ -178,7 +187,8 @@ a branch administrator into a superadministrator as a side effect of a reset.
             if not same_scope:
                 raise ValueError('Existing administrator has a different role or branch. Use --reset-password to preserve its scope.')
             recovered = dict(existing)
-            recovered.update(name=str(name), disabled=False)
+            recovered['disabled']=False
+            if name is not None:recovered['name']=str(name)
             _replace_password(recovered, password_hash)
         else:
             if not is_super:
@@ -191,6 +201,8 @@ a branch administrator into a superadministrator as a side effect of a reset.
         backup = _backup_state(auth.store.path,current_bytes)
         admins[username] = recovered
         auth.save_admins(admins)
+    if is_super:
+        _ensure_console_super(auth, username)
     logger.event('ADMIN_RECOVERED', branch_id=branch_id, actor=username,
                  details={'damaged_state': damaged, 'backup_created': backup is not None})
     return backup
@@ -205,7 +217,7 @@ def _main(argv=None):
     action.add_argument('--link-person', action='store_true', help='Attach an existing account to its verified phone')
     parser.add_argument('--username', help='Login used on /admin/login; distinct from --name')
     parser.add_argument('--name', help='Display name, not the login; Cyrillic is supported')
-    parser.add_argument('--phone', help='Personal telephone number with country code; required for new accounts')
+    parser.add_argument('--phone', help='Verified telephone number for a branch administrator')
     parser.add_argument('--client-token', help='Explicitly attach to an existing client (local console only)')
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument('--super', dest='is_super', action='store_true')
@@ -222,8 +234,8 @@ def _main(argv=None):
     elif args.reset_password:
         if args.name is not None or args.is_super or args.branch is not None:
             parser.error('--reset-password does not change --name, --super or --branch')
-    elif args.name is None or (not args.is_super and args.branch is None):
-        parser.error('Creation/recovery requires --name and either --super or --branch')
+    elif not args.is_super and (args.name is None or args.branch is None):
+        parser.error('Use --super, or supply --branch and --name for a branch administrator')
     try:
         if args.list:
             print(json.dumps(list_admins(), ensure_ascii=False, indent=2))
@@ -241,7 +253,7 @@ def _main(argv=None):
                 raise ValueError('Administrator does not exist or its record is invalid. Use --list to check logins.')
             if not args.reset_password and args.username in admins:
                 raise ValueError('Administrator already exists. Use --reset-password --username LOGIN to change its password.')
-        if not args.reset_password and not args.recover and not args.phone:
+        if not args.reset_password and not args.recover and not args.is_super and not args.phone:
             raise ValueError('New administrators require --phone with a personal telephone number and country code')
         password = getpass('Password (at least 12 characters): ')
         if password != getpass('Repeat password: '):

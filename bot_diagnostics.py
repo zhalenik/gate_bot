@@ -165,7 +165,8 @@ async def _check_telegram():
         # Do not log its exception strings or HTTP request URLs.
         for name in ('httpx', 'httpcore', 'telegram'):
             logging.getLogger(name).setLevel(logging.CRITICAL + 1)
-        request = HTTPXRequest(connect_timeout=5, read_timeout=10, write_timeout=10)
+        proxy_options = {'proxy': config.TELEGRAM_PROXY_URL} if config.TELEGRAM_PROXY_URL else {}
+        request = HTTPXRequest(connect_timeout=5, read_timeout=10, write_timeout=10, **proxy_options)
         bot = Bot(config.BOT_TOKEN, request=request)
         stage = 'get_me'
         async with bot:

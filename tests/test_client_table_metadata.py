@@ -44,7 +44,7 @@ def test_hundred_clients_share_one_snapshot_and_match_single_results(identities,
     s.branches.update_settings('11',{'yclients_enabled':crm})
     if crm:identity.save_integration('owner','11','chatpush',{'token':'synthetic-token'})
     tokens=seed_clients(s.product,11)
-    # Include branch administrator and superadministrator cards as well.
+    # Include all existing cards, including the branch administrator's card.
     tokens+=list(set(s.links.load_links())-set(tokens))
     expected_roles={token:identity.client_admin_state('owner',token) for token in tokens}
     expected_summaries={token:notifications.summary('owner',token) for token in tokens}
@@ -60,7 +60,7 @@ def test_hundred_clients_share_one_snapshot_and_match_single_results(identities,
     assert reads(statements,'admins.json')==1
     assert statements.count('SELECT username,person_id FROM web_accounts')==1
     assert statements.count('SELECT person_id,branch_id FROM branch_memberships WHERE status="active"')==1
-    assert sum(role['is_super'] for role in roles.values())==1
+    assert not any(role['is_super'] for role in roles.values())
     assert sum(role['last_admin'] for role in roles.values())==1
     assert summaries['batch-client-0']['reason']=='guest'
     assert summaries['batch-client-2']['effective_channels']['telegram']

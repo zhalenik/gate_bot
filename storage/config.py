@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_DIR / ".env"
+PROCESS_ENVIRONMENT = dict(os.environ)
 load_dotenv(ENV_FILE, override=False, encoding="utf-8-sig")
 
 # The fixed bootstrap store is independent of DATA_DIR, so restart-only path and
@@ -86,6 +87,8 @@ SIM800_SMS_STORAGE = os.getenv("SIM800_SMS_STORAGE", "SM")
 BOT_ENABLED = env_bool("BOT_ENABLED")
 BOT_MODE = os.getenv("BOT_MODE", "polling")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+TELEGRAM_PROXY_URL = os.getenv("TELEGRAM_PROXY_URL", "").strip()
+PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "")
 BOT_DEBUG_MESSAGES = False
 WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")

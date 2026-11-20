@@ -1,0 +1,9 @@
+<section class="desk-layout" data-admin-desk aria-label="Переписка с клиентами">
+  <aside class="desk-threads" aria-label="Диалоги"><label>Найти клиента<input type="search" placeholder="Имя клиента" data-desk-search></label><div data-desk-threads></div></aside>
+  <section class="desk-conversation"><h2 data-desk-name>Выберите диалог</h2><ol class="desk-history" data-desk-history></ol>
+    <form data-desk-compose hidden><label>Ответ клиенту<textarea rows="3" maxlength="2000" required></textarea></label><button type="submit" class="btn-primary">Отправить</button></form>
+    <p role="status" class="desk-status" data-desk-status></p>
+  </section>
+</section>
+<link rel="stylesheet" href="/static/css/branch-desk.css">
+<script defer src="/static/js/branch-desk.js"></script>

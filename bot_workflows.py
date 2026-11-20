@@ -6,6 +6,7 @@ import uuid
 
 from link_manager import access_is_active, normalize_phone
 from storage import config
+import desk_bot
 from timeutil import end_of_day, parse_datetime
 
 
@@ -33,10 +34,12 @@ class BotWorkflows:
         self.state.set_checkpoint('dialogs:' + platform, str(user_id), value)
 
     def actions(self, platform, user_id):
-        actions = []
+        actions = desk_bot.client_actions(self, platform, user_id)
         admin=self.access.identity.bot_admin(platform,user_id) if self.access.identity else None
         if admin:
             actions.append({'label': 'Администрирование', 'callback': 'x:admin:0'})
+            if getattr(self.access, 'desk', None):
+                actions.append({'label': 'Переписка с клиентами', 'callback': 'x:inbox:0'})
             actions.append({'label': 'Настройки администратора', 'url': config.BASE_URL + '/admin/notification-settings'})
             actions.append({'label': 'Помощь', 'url': config.BASE_URL + '/admin/help'})
             if getattr(self.access,'support',None) and admin.get('is_super'):
@@ -56,6 +59,9 @@ class BotWorkflows:
         if value == 'x:cancel':
             self._set(platform, user_id, {})
             return {'text': 'Действие отменено', 'actions': []}
+        desk_view = desk_bot.handle(self, platform, user_id, value)
+        if desk_view is not None:
+            return desk_view
         admin = self._admin(platform, user_id)
         match=re.fullmatch(r'x:sms:([a-f0-9]{24})',value)
         if match:
@@ -183,6 +189,9 @@ class BotWorkflows:
         dialog = self._get(platform, user_id)
         if not dialog:
             return None
+        desk_view = desk_bot.input_message(self, platform, user_id, dialog, text)
+        if desk_view is not None:
+            return desk_view
         self._admin(platform, user_id, dialog.get('branch_id'))
         if dialog.get('phase')=='sms_offer':
             return {'text':'Ссылка на пропуск уже создана. Для отправки SMS нажмите кнопку; расходуется лимит филиала.',

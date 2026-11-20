@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ {'billing':'Подписка','messages':'Переписка','help':'Помощь'}[office_section] }} — GateBot{% endblock %}
+{% block content %}<main class="admin-container office-page"><div class="admin-content">
+{% if office_section=='messages' %}<h1>Переписка с клиентами</h1>{% include 'components/branch_messages.html' %}
+{% elif office_section=='billing' %}
+<h1>Моя подписка</h1><section class="panel">
+  <h2>{{ view.current_plan.name if view.current_plan else 'Нет подключённого тарифа' }}</h2>
+  {% if view.status=='suspended' %}<p>Подписка приостановлена</p>{% elif view.status=='expired' %}<p>Срок действия закончился</p>{% elif view.status=='cancelled' %}<p>Подписка отключена</p>{% endif %}
+  {% if view.current_plan and view.ends_at %}<p>Действует до <time data-office-date datetime="{{ view.ends_at }}">{{ view.ends_at[:10] }}</time></p>{% endif %}
+  <div class="office-balances">{% for label,balance in [('Остаток звонков',view.calls),('Остаток SMS',view.sms)] %}
+  <div><span>{{ label }}</span><strong>{{ 'Без лимита' if balance.remaining is none else balance.remaining }}</strong>
+  {% if balance.remaining is not none %}{% set capacity = balance.remaining + balance.spent + balance.reserved %}<progress max="{{ capacity or 1 }}" value="{{ balance.remaining }}" aria-label="{{ label }}"></progress>{% endif %}
+  <small>Списано за период · {{ balance.spent }}</small></div>{% endfor %}</div></section>
+<section class="panel"><h2>Детализация</h2><nav class="segmented-control" aria-label="Вид расходов">{% for kind,label in [('calls','Звонки'),('sms','SMS')] %}
+  <a href="/office/billing?resource={{ kind }}" {% if resource==kind %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+  <ul class="office-ledger">{% for item in details['items'] %}<li><div><strong>{{ item.client_name or item.phone or 'Команда ворот' }}</strong>
+    <small>{{ item.phone if item.client_name else '' }} {{ item.gate_name or '' }}</small></div><div>
+    <strong>{{ item.charged }} {{ 'SMS' if resource=='sms' else 'звон.' }}</strong>
+    <time data-office-date datetime="{{ item.created }}">{{ item.created[:10] }}</time></div></li>{% else %}<li>Списаний пока нет</li>{% endfor %}</ul>
+  <nav class="office-actions" aria-label="Страницы детализации">
+  {% if details.page>1 %}<a class="btn-action" href="?resource={{ resource }}&page={{ details.page-1 }}">Назад</a>{% endif %}
+  {% if details.page*details.page_size < details.total %}<a class="btn-action" href="?resource={{ resource }}&page={{ details.page+1 }}">Далее</a>{% endif %}
+  </nav></section>
+{% else %}<h1>Помощь</h1>
+{% for heading,paragraph,route,label in [
+ ('Новый клиент и разовый пропуск','В списке клиентов выберите «Добавить пользователя», чтобы создать карточку. Для гостя выберите «Разовый пропуск», введите номер и при необходимости отправьте ему ссылку.','clients','Открыть клиентов'),
+ ('Поиск и изменение доступа','Ищите по телефону, имени или почте. Выберите статус пропуска и порядок сортировки. Нажмите на статус клиента, чтобы изменить сроки или отозвать доступ.','clients','Найти клиента'),
+ ('Сообщения и запросы на въезд','Откройте диалог клиента, чтобы ответить. Если клиент попросил пропуск, кнопка в запросе выдаст ему доступ до конца местного дня.','messages','Открыть переписку'),
+ ('Уведомления на телефоне','Установите кабинет через меню вверху страницы. В настройках подключите Push на этом устройстве, разрешите уведомления браузеру и отметьте нужные события. Здесь же можно настроить доставку по почте и в боты.','settings','Настроить уведомления'),
+ ('Остатки и списания','Посмотрите текущий остаток звонков и SMS, срок тарифа и детализацию операций по каждому ресурсу.','billing','Открыть подписку')] %}
+<details class="panel office-help"><summary>{{ heading }}</summary><p>{{ paragraph }}</p><a href="/office/{{ route }}">{{ label }}</a></details>
+{% endfor %}{% endif %}</div></main>{% endblock %}

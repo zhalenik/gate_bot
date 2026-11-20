@@ -8,12 +8,14 @@ import time
 import uuid
 
 from identity_service import admin_receives_event
-from link_manager import access_is_active
+from link_manager import access_is_active, normalize_phone
+from pass_notifications import timely_grant
 from storage import config
 from storage.sql_documents import read_document
 
 
 TITLES = {
+    'client_message': 'Сообщение клиента', 'pass_requested': 'Клиент запрашивает пропуск',
     'gate_requested': 'Запрос открытия ворот', 'gate_denied': 'Доступ к воротам отклонён',
     'gate_error': 'Ошибка команды ворот', 'admin_contact_requested': 'Запрошен контакт администратора',
     'invitation_accepted': 'Приглашение администратора принято', 'access_changed': 'Пропуск изменён',
@@ -90,7 +92,7 @@ class ProductNotifications:
         self.enqueue(payload)
 
     def enqueue(self, payload, *, only_channel=None):
-        if not payload.get('mailing_enabled'):
+        if not payload.get('mailing_enabled') or not timely_grant(payload.get('event'), payload):
             return
         token = payload.get('token')
         try:
@@ -99,8 +101,8 @@ class ProductNotifications:
             return
         if not prefs['enabled']:
             return
-        event = 'access_granted' if payload.get('event') == 'granted' else 'access_revoked'
-        text = ('Ваш пропуск на парковку активен.\n' if event == 'access_granted' else 'Срок действия пропуска изменился.\n')
+        event = 'access_granted'
+        text = 'Ваш пропуск на парковку активен.\n'
         text += config.BASE_URL + '/opn/' + token
         targets = {'telegram': payload.get('tg_id'), 'max': payload.get('max_id'),
                    'sms': payload.get('phone'),
@@ -154,6 +156,7 @@ class ProductNotifications:
         event_id = payload.get('event_id') or hashlib.sha256(json.dumps(
             [event, branch_id, payload, int(time.time() // 600)], sort_keys=True).encode()).hexdigest()
         contacts = self.identity.contacts_for_admin_events(branch_id, event)
+        desk_context = {key: payload[key] for key in ('thread_id','desk_message_id') if key in payload and event in ('client_message','pass_requested')}
         with self.store.connect() as db:
             # A scheduler/transport callback may outlive its branch. Check in
             # the write transaction so deletion cannot leave a new orphan event.
@@ -162,7 +165,7 @@ class ProductNotifications:
             for contact in contacts:
                 key = json.dumps([event, event_id, contact['person_id'], contact['channel']])
                 self._enqueue(key, 'admin', event, branch_id, contact['channel'], contact['target'],
-                    {'text': text, 'person_id': contact['person_id'], 'username': contact['username']}, db)
+                    {'text': text, 'person_id': contact['person_id'], 'username': contact['username'], **desk_context}, db)
             # The web inbox is available even if external channels are disabled.
             for row in db.execute('SELECT username,person_id FROM web_accounts').fetchall():
                 try:
@@ -171,12 +174,19 @@ class ProductNotifications:
                     continue
                 if not admin_receives_event(admin, branch_id, event):
                     continue
+                if self.pwa and branch_id is not None:
+                    for device in self.pwa.office.targets(db, admin, event):
+                        self._enqueue(json.dumps([event,event_id,device]),'office',event,branch_id,'office_push',device,
+                                      {'text':'Новое событие в кабинете филиала',**desk_context},db)
                 key = hashlib.sha256(json.dumps([event, event_id, row['person_id']]).encode()).hexdigest()
                 db.execute('INSERT OR IGNORE INTO notification_inbox VALUES(?,?,?,?,?,?,NULL)',
                            (key, row['person_id'], str(branch_id) if branch_id is not None else None,
-                            event, self._encrypt({'text': text}), time.time()))
+                            event, self._encrypt({'text': text, **desk_context}), time.time()))
 
     def _allowed(self, row, payload):
+        if row['audience'] == 'office':
+            with self.store.connect() as db:
+                return bool(self.pwa and self.pwa.office.recipient(db,payload['target'],row['branch_id'],row['event']))
         if row['audience'] == 'welcome':
             with self.store.connect() as db:
                 try:
@@ -192,7 +202,21 @@ class ProductNotifications:
                        str(c['target']) == payload['target'] for c in
                        self.identity.contacts_for_admin_events(row['branch_id'], row['event']))
         current = self.links.load_links().get(payload.get('token'))
-        if not current or not current.get('mailing_enabled') or current.get('access_revision', 0) != payload.get('revision'):
+        if row['audience'] == 'desk_reply':
+            if not current or str(current.get('branch_id')) != row['branch_id'] or (normalize_phone(current.get('phone')) or '') != payload.get('phone'):
+                return False
+            with self.store.connect() as db:
+                if not db.execute('SELECT 1 FROM desk_threads WHERE id=? AND branch_id=? AND token=? AND phone=?',
+                                  (payload.get('thread_id'),row['branch_id'],payload.get('token'),payload.get('phone'))).fetchone():
+                    return False
+            if payload.get('revision') is not None and (not access_is_active(current) or current.get('access_revision',0)!=payload['revision']):
+                return False
+            if row['channel']=='push':
+                with self.store.connect() as db:
+                    return self.pwa.allowed(db,payload['target'],payload['token'],row['branch_id'],event='desk_reply')
+            field = {'telegram':'tg_id', 'max':'max_id'}.get(row['channel'])
+            return bool(field and current.get(field) and str(current[field]) == payload['target'])
+        if not timely_grant(row['event'], current) or not current.get('mailing_enabled') or current.get('access_revision', 0) != payload.get('revision'):
             return False
         try:
             prefs = self.identity.prefs_for_token(payload['token'])
@@ -262,10 +286,18 @@ class ProductNotifications:
             if channel in {'telegram', 'max'}:
                 module = __import__('telegram_bot' if channel == 'telegram' else 'max_bot')
                 if module.status().get('ready'):
-                    sent = module.notify_text(str(target), text)
+                    thread_id, message_id = context.get('thread_id'), context.get('desk_message_id')
+                    actions = []
+                    if thread_id and context.get('event') in ('client_message','pass_requested'):
+                        actions.append({'label':'Ответить','callback':f'x:respond:{thread_id}'})
+                        if context['event']=='pass_requested' and message_id:
+                            actions.insert(0,{'label':'Разрешить до конца дня','callback':f'x:approve:{thread_id}:{message_id}'})
+                    sent = module.notify_text(str(target), text, actions=actions) if actions else module.notify_text(str(target), text)
                     result = {'status': 'accepted' if sent else 'unknown', 'confirmed': False}
             elif channel == 'push':
                 result = self.pwa.deliver(target,context)
+            elif channel == 'office_push':
+                result = self.pwa.office.deliver(target,context)
             elif channel == 'email':
                 from smtp_mailing import send_email
                 if context.get('event') == 'admin_welcome':
@@ -356,7 +388,7 @@ class ProductNotifications:
                 return False
         if context.get('event') in {'access_granted','access_revoked'}:
             current=self.links.load_links().get(context.get('client_token'))
-            if (not current or str(current.get('branch_id'))!=str(branch_id) or
+            if (not timely_grant(context['event'], current) or str(current.get('branch_id'))!=str(branch_id) or
                     current.get('access_revision',0)!=context.get('access_revision') or
                     access_is_active(current)!=(context['event']=='access_granted')):
                 return False
@@ -392,6 +424,7 @@ class ProductNotifications:
                     'event': row['event'], 'branch_id': row['branch_id'], 'idempotency_key': row['id'],
                     'welcome': payload.get('welcome'), 'client_token': payload.get('token'),
                     'access_revision':payload.get('revision'),
+                    'thread_id':payload.get('thread_id'), 'desk_message_id':payload.get('desk_message_id'),
                     'preference_channel': ('messengers' if row['audience'] == 'client' and row['channel'] in {'chatpush','yclients'} else payload.get('preference_channel'))})
                 state = result.get('delivery') or result.get('status', 'unknown')
                 with self.store.connect() as db:

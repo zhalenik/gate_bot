@@ -17,7 +17,6 @@ def test_smtp_configuration_save_password_retention_and_super_scope(web, browser
     migrate_legacy(tmp_path, activate=True)
     monkeypatch.setattr(web.auth, 'store', DocumentStore(tmp_path/'admins.json'))
     identity = web.module.product_services().identity
-    identity.attach_console_account('super', web.links.load_links()[web.token_a]['phone'], client_token=web.token_a)
     factory = MagicMock()
     monkeypatch.setattr('smtp_settings.smtplib.SMTP_SSL', factory)
     monkeypatch.setattr('smtp_settings.smtplib.SMTP', factory)

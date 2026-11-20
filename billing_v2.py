@@ -30,6 +30,8 @@ class BillingV2Mixin:
             if not cancellation_table_exists:
                 db.execute('INSERT OR IGNORE INTO billing_cancelled_terms SELECT t.branch_id,t.id,COALESCE(r.cancelled_at,t.created) FROM billing_terms t JOIN billing_renewals r ON r.branch_id=t.branch_id WHERE r.access_cancelled=1')
             ensure_schema(db)
+            from trial_identity import setup as setup_trial_identity
+            setup_trial_identity(db)
             # Keep historical periods and consumption intact. A trial becomes
             # identifiable in the catalog without restarting or extending it.
             trial = self.catalog.get('plan', 'trial', db=db)
@@ -126,13 +128,21 @@ class BillingV2Mixin:
         self._event(db,'tariff_activated',branch,key,now,source=source,plan_id=plan.get('id'),name=plan['name'],starts_at=iso(start),ends_at=iso(end),actor=actor)
         return key
 
-    def activate_trial(self, branch_id, timezone='Europe/Moscow', *, at=None, db=None):
+    def activate_trial(self, branch_id, timezone='Europe/Moscow', *, at=None, db=None, registration_phone=None):
         branch, now = identifier(branch_id,'филиал'), epoch(at)
         with self._transaction(db) as tx:
             account = self._account(tx,branch,now,timezone)
             if account['trial_used']: return self._view(tx,branch,now)
             if tx.execute('SELECT 1 FROM gate_requests WHERE branch_id=? LIMIT 1',(branch,)).fetchone() or tx.execute('SELECT 1 FROM billing_terms WHERE branch_id=? AND source NOT IN ("legacy","trial") LIMIT 1',(branch,)).fetchone():
                 raise ValueError('Пробный тариф доступен только новому филиалу')
+            from trial_identity import claim
+            if not claim(tx, branch, phone=registration_phone):
+                tx.execute('UPDATE billing_accounts SET trial_used=1 WHERE branch_id=?', (branch,))
+                # The default legacy grant is for pre-billing installations only.
+                # A returning business can purchase a plan or receive a gift normally.
+                tx.execute('INSERT OR IGNORE INTO billing_cancelled_terms SELECT branch_id,id,? FROM billing_terms WHERE branch_id=? AND source="legacy"',(now,branch))
+                self._set_controls(tx, branch, access_cancelled=1, cancelled_at=now)
+                return self._view(tx, branch, now)
             plan = self.catalog.get('plan','trial',db=tx)
             end = self._duration_end(plan,now,timezone)
             tx.execute('UPDATE billing_accounts SET trial_used=1,timezone=?,anchor=? WHERE branch_id=?',(timezone,now,branch))

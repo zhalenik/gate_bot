@@ -4,6 +4,7 @@
  const notice=document.getElementById('identityNotice'),description=document.getElementById('identityDescription');
  const labels={email:'Email',telegram:'Telegram',max:'MAX',chatpush:'ChatPush',sms:'SMS'};
  const events={gate_requested:'Запрос открытия ворот',gate_denied:'Отказ в доступе',gate_error:'Ошибка открытия',admin_contact_requested:'Запрос контакта администратора',invitation_accepted:'Приглашение принято',access_changed:'Изменение пропуска',crm_error:'Ошибка CRM',crm_recovered:'CRM восстановлена',modem_error:'Ошибка модема',modem_recovered:'Модем восстановлен',delivery_failed:'Ошибка доставки',subscription_expiring:'Подписка заканчивается',subscription_expired:'Подписка закончилась',quota_warning:'Квота заканчивается',quota_exhausted:'Квота исчерпана',branch_registered:'Регистрация нового филиала',marketplace_disconnected:'Отключение в маркетплейсе YCLIENTS',sms_received:'Входящие SMS',call_received:'Входящие звонки'};
+ Object.assign(events,{client_message:'Сообщение клиента',pass_requested:'Запрос пропуска'});
  function tell(text,error=false){notice.hidden=false;notice.textContent=text;notice.className='panel '+(error?'alert-error':'alert-success');}
  function field(form,label,name,type='text',required=true,value='') {const wrap=element('div','form-group'),caption=element('label','',label),input=element('input');input.name=name;input.type=type;input.required=required;input.value=value;if(type==='password')input.autocomplete='new-password';caption.append(input);wrap.append(caption);form.append(wrap);return input;}
  function select(form,label,name,items){const wrap=element('div','form-group'),caption=element('label','',label),node=element('select');node.name=name;for(const [key,text] of items){const option=element('option','',text);option.value=key;node.append(option);}caption.append(node);wrap.append(caption);form.append(wrap);return node;}
@@ -164,7 +165,7 @@
   addEventListener('gatebot:pwa-change',event=>{if(event.detail?.reason==='subscribed'&&event.detail.preferences)prefs=event.detail.preferences;paint();});
  } else if(boot.kind==='admin_preferences'){
   const prefs=data.preferences;if(prefs.requires_phone){root.append(element('p','','Сначала свяжите аккаунт с телефоном через консоль: admin.py --link-person --username LOGIN --phone PHONE'));return;}
-  description.textContent='Email берётся из вашей карточки клиента. Подключите нужные каналы и выберите события для каждого из них.';
+  description.textContent=prefs.is_super?'Подключите нужные каналы и выберите события для каждого из них.':'Email берётся из вашей карточки клиента. Подключите нужные каналы и выберите события для каждого из них.';
   const channels=['email','telegram','max'],connections=element('div','stat-grid'),cards={},controls={};
   connections.id='adminNotificationChannels';let connectionVersion=0,pendingSaves=0;
   for(const channel of channels){
@@ -176,7 +177,7 @@
   root.append(connections);
   const emailForm=element('form','admin-form notification-channel-editor');emailForm.id='adminNotificationEmailForm';emailForm.hidden=true;
   const emailInput=field(emailForm,'Email','email','email',false,prefs.email);emailInput.autocomplete='email';emailInput.maxLength=254;
-  emailForm.append(element('p','form-hint','Адрес сохраняется в вашей карточке клиента. Пустое поле отключит канал Email.'));
+  emailForm.append(element('p','form-hint',prefs.is_super?'Чтобы отключить Email, очистите поле.':'Адрес сохраняется в вашей карточке клиента. Пустое поле отключит канал Email.'));
   const emailEdit=action(cards.email.card,prefs.email?'Изменить email':'Подключить Email',()=>{emailInput.value=prefs.email||'';emailForm.hidden=false;emailEdit.hidden=true;emailInput.focus();});
   const emailSave=submit(emailForm,'Сохранить email',async values=>{
    const version=++connectionVersion;pendingSaves++;savePreferences.disabled=true;emailInput.disabled=true;emailCancel.disabled=true;

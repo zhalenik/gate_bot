@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -224,25 +225,33 @@ def test_bot_sms_offer_is_explicit_and_cannot_be_replayed(product,monkeypatch):
     assert send.call_count==1 and send.call_args.args[3]['branch_id']=='10'
 
 
-@pytest.mark.parametrize('change',['expire','revoke','revision','regrant'])
+@pytest.mark.parametrize('change',['expire','revoke','revision','revocation_notice','late_appointment'])
 def test_queued_access_sms_rechecks_access_event_and_revision_before_modem(product,monkeypatch,change):
     p=product;out=p.services.notifications
     monkeypatch.setattr(config,'OUTBOUND_ENABLED',True)
     p.branches.update_settings('10',{'sms_notifications_enabled':True})
     p.services.identity.save_prefs_for_token(p.token,{'enabled':True,'channels':{'sms':True}})
     p.services.billing.grant_plan_gift('10',actor='super',quota=0,sms_quota=10,days=30,mode='replace',confirm_burn=True)
-    if change=='regrant':p.links.toggle_user_access(p.token,False)
+    if change=='revocation_notice':p.links.toggle_user_access(p.token,False)
+    if change=='late_appointment':
+        with p.links.store.transaction() as links:
+            links[p.token].update(access_source='appointment',appointment_notice_until=time.time()+300)
     queue=SimpleNamespace(dry_run=False,journal=out.telephony,add_manual=Mock(return_value={'status':'success','delivery':'queued'}))
     monkeypatch.setattr('sim800c._get_queue',lambda:queue)
-    out.enqueue({**p.links.load_links()[p.token],'token':p.token,'event':'revoked' if change=='regrant' else 'granted'})
+    out.enqueue({**p.links.load_links()[p.token],'token':p.token,'event':'revoked' if change=='revocation_notice' else 'granted'})
     out.process_once()
+    if change=='revocation_notice':
+        queue.add_manual.assert_not_called()
+        assert p.services.billing.subscription_view('10')['sms']['reserved']==0
+        return
     guard=queue.add_manual.call_args.kwargs['before_submit']
     assert guard()
     with p.links.store.transaction() as links:
         row=links[p.token]
         if change=='expire':row['access_expires']=(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
         elif change=='revision':row['access_revision']=row.get('access_revision',0)+1
-        else:row.update(gate_access=change=='regrant',admin_blocked=False)
+        elif change=='late_appointment':row['appointment_notice_until']=time.time()-1
+        else:row.update(gate_access=False,admin_blocked=False)
     assert not guard()
     record_id=queue.add_manual.call_args.kwargs['record_id']
     out.telephony.update(record_id,status='failed',code='authorization_expired')

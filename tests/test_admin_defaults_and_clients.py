@@ -15,7 +15,7 @@ def test_new_branch_never_copies_superadmin_client(identities, crm):
     state = identities
     owner = state.service.web_admin('owner')['person_id']
     original = {token for token, c in state.links.load_links().items() if c['person_id'] == owner}
-    assert len(original) == 1
+    assert original == set()
     notices = ProductNotifications(state.service, state.links, state.branches, state.billing)
     state.service.event_sink = notices.event
     ticket = state.service.issue_bind_ticket('owner', 'max')

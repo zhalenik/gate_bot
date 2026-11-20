@@ -40,7 +40,8 @@ def test_anonymous_standalone_unsubscribe_and_explicit_resume_use_json(preferenc
     client=web.app.test_client();path='/preferences/'+web.token_a
     assert client.get(path).status_code==200
     status=client.get(path+'/status').json
-    assert status['preferences']['allowed_channels']==['email','telegram','max']
+    assert status['preferences']['allowed_channels']==['email','telegram','max','push']
+    assert not status['preferences']['effective_channels']['push']
     token=status['csrf_token']
     forged=post(client,token,path,{'enabled':True,'channels':{'messengers':True}})
     assert forged.status_code==400 and forged.is_json

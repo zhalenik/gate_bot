@@ -56,9 +56,9 @@
         return result;
     }
     function activeRegistration(registration){
-        if(registration.active)return Promise.resolve(registration);
+        if(registration.active?.state==='activated')return Promise.resolve(registration);
         return new Promise((resolve,reject)=>{
-            const worker=registration.installing||registration.waiting;
+            const worker=registration.active||registration.installing||registration.waiting;
             if(!worker){reject(new Error('Приложение ещё не готово. Откройте его заново.'));return;}
             const timeout=setTimeout(()=>finish(new Error('Не удалось подготовить приложение. Откройте его заново.')),12000);
             function finish(error){clearTimeout(timeout);worker.removeEventListener('statechange',changed);error?reject(error):resolve(registration);}
@@ -112,7 +112,7 @@
         node.showModal();return {node,copy,actions,control};
     }
     function consentPrompt(){
-        if(!canPush()||prompted||offline||document.querySelector('.client-pwa-dialog'))return;
+        if(!canPush()||prompted||offline||document.querySelector('dialog[open]'))return;
         if(Notification.permission==='denied'){rememberPrompt('denied');return;}
         if(localSubscription&&pushState.channel_enabled){rememberPrompt('accepted');return;}
         prompted=true;

@@ -105,6 +105,11 @@
         try{await post(`/admin/api/telephony/sms/messages/${record.id}/delete`,{});messagesSignature='';chatsSignature='';revision++;await refresh();toast('Сообщение удалено');}
         catch(error){toast(error.message,true);}
     }
+    const modemFilter=$('telephonyModem');
+    const modemName=record=>record.modem_name || (record.modem_id===null?'':'SIM800C');
+    function filteredUrl(path) {
+        return modemFilter.value ? path + (path.includes('?')?'&':'?') + 'modem_id=' + encodeURIComponent(modemFilter.value) : path;
+    }
     function messageCard(record) {
         const outgoing=record.direction==='outgoing',card=element('article','phone-message '+(outgoing?'phone-outgoing':'phone-incoming'));
         card.dataset.recordId=record.id;
@@ -123,6 +128,7 @@
             {text:'Удалить сообщение',icon:'trash',danger:true,disabled:['queued','processing'].includes(record.status),run:()=>deleteMessage(record)}
         ]),'icon-button message-action');actions.setAttribute('aria-haspopup','menu');row.append(bubble,actions);card.append(row);
         const meta=element('div','message-meta');meta.append(element('time','',time(record.timestamp)));meta.querySelector('time').dateTime=record.timestamp;
+        if(modemName(record))meta.append(element('span','',modemName(record)));
         if(outgoing){
             const warning=['failed','partial','unknown','expired','cancelled'].includes(record.status);
             const state=element('span','message-status'+(warning?' status-error':''));state.title=label(record.status);state.setAttribute('aria-label',label(record.status));
@@ -156,12 +162,14 @@
         $('smsPhone').value=chat.phone || '';$('smsForm').elements.text.value=drafts.get(chat.id || chat.phone) || '';
         $('chatMessages').replaceChildren(element('p','list-empty','Загрузка…'));
         $('phoneShell').classList.add('thread-open');threadHeading();
-        try{if(chat.id)await post(`/admin/api/telephony/sms/chats/${chat.id}/read`,{});}
+        try{if(chat.id)await post(filteredUrl(`/admin/api/telephony/sms/chats/${chat.id}/read`),{});}
         catch(error){toast(error.message,true);}
         await refresh();
     }
     async function pages(path,count,payload) {
-        const result=[];for(let page=1;page<=count;page++)result.push(payload?await post(path,{...payload,page}):await api(path+'?page='+page));return result;
+        const result=[];
+        for(let page=1;page<=count;page++)result.push(payload?await post(path,{...payload,page,modem_id:modemFilter.value}):await api(filteredUrl(path+'?page='+page)));
+        return result;
     }
     async function refreshSms(token) {
         const results=await pages('/admin/api/telephony/sms/chats',chatsPage,{search:$('smsSearch').value});
@@ -185,7 +193,7 @@
             const key=selected.id,responses=await pages(`/admin/api/telephony/sms/chats/${key}`,messagesPage);
             if(token!==revision || selected?.id!==key)return;
             selected={...selected,contact_name:responses[0].contact_name};messages=responses.flatMap(r=>r.messages);total=responses[0].total;
-            if(messages.some(r=>r.direction==='incoming'&&!r.read) && !document.hidden && $('phoneShell').classList.contains('thread-open'))await post(`/admin/api/telephony/sms/chats/${key}/read`,{});
+            if(messages.some(r=>r.direction==='incoming'&&!r.read) && !document.hidden && $('phoneShell').classList.contains('thread-open'))await post(filteredUrl(`/admin/api/telephony/sms/chats/${key}/read`),{});
             if(token!==revision)return;
         }
         threadHeading();$('loadMessages').hidden=messages.length>=total;
@@ -213,6 +221,7 @@
                 const copy=element('div','chat-copy'),first=element('div','chat-first-line'),description=element('div','call-description');
                 first.append(element('span','chat-name',nameOf(record)),element('time','chat-time',shortDate(record.timestamp)));
                 description.append(icon(record.direction),element('span','',record.direction==='incoming'?'Входящий':'Исходящий'));
+                if(modemName(record))description.append(element('span','','· '+modemName(record)));
                 if(['failed','unknown','cancelled','expired'].includes(record.status))description.classList.add('status-error');
                 copy.append(first,description);row.append(avatar(record),copy);
                 const open=()=>{openDial(record.phone,record.contact_name);$('callResult').textContent=fullDate(record.timestamp)+' · '+label(record.status);};
@@ -223,12 +232,27 @@
         }
         $('loadCalls').hidden=records.length>=results[0].total;
     }
+    function displayedModem(status) {
+        if(!modemFilter.value)return status.modem || {};
+        return status.modems?.find(m=>m.id===modemFilter.value)?.status || {};
+    }
     function modemStatus(status) {
-        latestStatus=status;const modem=status.modem || {},sms=modem.sms_poll || {};
+        latestStatus=status;
+        const names=new Map(Object.entries(status.archived_modems || {}));
+        for(const device of status.modems || [])names.set(device.id,device.name);
+        const signature=JSON.stringify([...names]);
+        if(modemFilter.dataset.options!==signature){
+            const selectedId=modemFilter.value;modemFilter.dataset.options=signature;
+            modemFilter.replaceChildren(new Option('Все модемы',''));
+            for(const [key,name] of names)modemFilter.add(new Option(name,key));
+            modemFilter.value=names.has(selectedId)?selectedId:'';
+        }
+        const modem=displayedModem(status),sms=modem.sms_poll || {};
         const stale=modem.checked_at && Date.now()-new Date(modem.checked_at).getTime()>90000;
         const online=modem.state==='ok'&&['home','roaming'].includes(modem.registration)&&!stale;
         let text=!status.enabled?'Модем выключен':online?(modem.operator||'В сети')+(modem.registration==='roaming'?' · роуминг':''):stale?'Нет свежих данных':modem.state==='error'?'Модем недоступен':modem.checked_at?'Поиск сети':'Подключение…';
-        if(status.stopping)text='Остановка';else if(online&&sms.state==='partial')text='Проверить приём SMS';
+        if(modemFilter.value && !status.modems?.some(m=>m.id===modemFilter.value))text='Модем в архиве';
+        else if(status.stopping)text='Остановка';else if(online&&sms.state==='partial')text='Проверить приём SMS';
         $('connectionLabel').textContent=text;$('modemStatus').className='connection'+(modem.state==='error'?' error':(!online||sms.state==='partial'?' warning':''));
         const bars=online&&modem.rssi!=null?Math.max(1,Math.min(4,Math.ceil(modem.rssi/8))):0;
         $('modemStatus').querySelectorAll('i').forEach((node,i)=>node.classList.toggle('lit',i<bars));
@@ -266,17 +290,23 @@
     $('callContact').onclick=()=>openDial(selected?.phone,selected?.contact_name);
     let searchTimer;$('smsSearch').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{chatsPage=callsPage=1;revision++;refresh();},250);};
     $('callDirection').onchange=()=>{callsPage=1;revision++;refresh();};
+    modemFilter.onchange=()=>{
+        saveDraft();selected=null;chatsPage=callsPage=messagesPage=1;chatsSignature=callsSignature=messagesSignature='';
+        threadHeading();$('phoneShell').classList.remove('thread-open');revision++;refresh();
+    };
     $('loadChats').onclick=()=>{chatsPage++;revision++;refresh();};$('loadCalls').onclick=()=>{callsPage++;revision++;refresh();};$('loadMessages').onclick=()=>{messagesPage++;revision++;refresh();};
     async function clearSms(all=false) {
         const target=selected?.id;if(!all&&!target)return;
-        if(!await confirmRemoval(all?'Удалить всю переписку?':'Очистить чат?',all?'Все SMS будут удалены из журнала. История звонков останется.':'Все сообщения этого чата будут удалены из журнала.'))return;
-        try{await post(all?'/admin/api/telephony/sms/clear':`/admin/api/telephony/sms/chats/${target}/clear`,{});if(all || selected?.id===target){saveDraft();selected=null;threadHeading();$('phoneShell').classList.remove('thread-open');}chatsPage=1;messagesSignature=chatsSignature='';revision++;await refresh();toast('Переписка удалена');}
+        const path=filteredUrl(all?'/admin/api/telephony/sms/clear':`/admin/api/telephony/sms/chats/${target}/clear`);
+        const scope=modemFilter.value?'Модем: '+modemFilter.selectedOptions[0].text+'. ':'';
+        if(!await confirmRemoval(all?'Удалить всю переписку?':'Очистить чат?',scope+(all?'Все SMS будут удалены из журнала. История звонков останется.':'Все сообщения этого чата будут удалены из журнала.')))return;
+        try{await post(path,{});if(all || selected?.id===target){saveDraft();selected=null;threadHeading();$('phoneShell').classList.remove('thread-open');}chatsPage=1;messagesSignature=chatsSignature='';revision++;await refresh();toast('Переписка удалена');}
         catch(error){toast(error.message,true);}
     }
     $('sidebarMore').onclick=event=>menu(event.currentTarget,[{text:'Обновить',icon:'refresh',run:refresh},...(mode==='sms'?[{id:'clearAllSms',text:'Удалить все сообщения',icon:'trash',danger:true,run:()=>clearSms(true)}]:[])]);
     $('threadMore').onclick=event=>menu(event.currentTarget,[{text:'Скопировать номер',icon:'copy',run:async()=>toast(await copyToClipboard(selected.phone,false)?'Номер скопирован':'Не удалось скопировать номер')},{id:'clearChat',text:'Очистить чат',icon:'trash',danger:true,run:()=>clearSms()}]);
     $('modemStatus').onclick=()=>{
-        const m=latestStatus.modem || {},sms=m.sms_poll || {};
+        const m=displayedModem(latestStatus),sms=m.sms_poll || {};
         details('Состояние связи',[['Модем',latestStatus.enabled?'Включён':'Выключен'],['Режим',latestStatus.dry_run?'Имитация':'Реальные вызовы и SMS'],['SIM',label(m.sim)],['Оператор',m.operator||'Не определён'],['Сеть',label(m.registration)],['Сигнал',m.signal_dbm!=null?m.signal_dbm+' dBm':'—'],['Обновлено',fullDate(m.checked_at)],['Ожидают отправки',latestStatus.queue_length || 0],['Приём SMS',sms.state==='ok'?'Работает':sms.state==='partial'?'Есть ошибки':'Ожидание проверки'],['Ошибки чтения',sms.parse_errors || 0],['Ошибки очистки',sms.cleanup_errors || 0]],m.error_code?label(m.error_code):'Входящие SMS сохраняются в журнал перед удалением с SIM.');
     };
     $('smsForm').elements.text.addEventListener('input',()=>{saveDraft();updateComposer();});

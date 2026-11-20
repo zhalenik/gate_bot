@@ -9,6 +9,11 @@
   <link rel="icon" href="{{ branding.icon_url if branding is defined else '/static/images/favicon.svg' }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ branding.apple_icon_url if branding is defined else '/ui/branding/default/apple-touch-icon.png' }}">
   {% block pwa_head %}{% endblock %}
+  {% if office or office_login %}
+  <link rel="manifest" href="/office/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="GateBot · Кабинет">
+  <link rel="stylesheet" href="/static/css/office.css">
+  {% endif %}
   <link rel="stylesheet" href="/static/css/ui.css">
   <link rel="stylesheet" href="/static/css/admin.css">
   {% block head %}{% endblock %}
@@ -17,13 +22,13 @@
   <link rel="stylesheet" href="/static/css/branding.css">
   {% if not palette_defaults | default(false) %}<link rel="stylesheet" href="/ui/palette.css" id="savedPaletteStyles">{% endif %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
-  {% include 'components/header.html' %}
+<body class="{% block body_class %}{% endblock %}" {% if office %}data-office{% endif %}>
+  {% if office %}{% include 'components/office_header.html' %}{% else %}{% include 'components/header.html' %}{% endif %}
   {% block content %}{% endblock %}
-  {% if admin_page | default(false) and request.path != '/admin/support' %}{% include 'components/support_widget.html' %}{% endif %}
+  {% if office %}{% include 'components/office_nav.html' %}{% elif admin_page | default(false) and request.path != '/admin/support' %}{% include 'components/support_widget.html' %}{% endif %}
   <script src="/static/js/ui.js"></script>
   <script src="/static/js/phone-input.js"></script>
   {% block scripts %}{% endblock %}
-  {% if admin_page | default(false) %}<script src="/static/js/support.js"></script>{% endif %}
+  {% if office or office_login %}<script src="/static/js/office.js"></script>{% elif admin_page | default(false) %}<script src="/static/js/support.js"></script>{% endif %}
 </body>
 </html>

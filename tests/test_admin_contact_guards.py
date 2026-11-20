@@ -12,7 +12,7 @@ def admin_contacts(web, tmp_path, monkeypatch):
     migrate_legacy(tmp_path, activate=True)
     monkeypatch.setattr(web.auth, 'store', DocumentStore(tmp_path / 'admins.json'))
     services = web.module.product_services()
-    services.identity.attach_console_account('super', '+70000000101', client_token=web.token_a)
+    services.identity.admin_email('super', 'owner@example.invalid')
     services.identity.attach_console_account('tenant-a', '+70000000303')
     web.links.update_user(web.token_a, {'email': 'owner@example.invalid'})
     return web, services
@@ -23,12 +23,12 @@ def test_branch_admin_cannot_redirect_or_clear_super_email(admin_contacts, email
     web, services = admin_contacts
     client = web.app.test_client()
     csrf = login(client, 'tenant-a')
-    before = web.links.load_links()[web.token_a]
     response = post(client, csrf, '/admin/api/update-user', {
-        'token': web.token_a, 'email': email, 'user_name': 'Must not change',
+        'token': web.token_a, 'email': email, 'user_name': 'Client',
     })
-    assert response.status_code == 403
-    assert web.links.load_links()[web.token_a] == before
+    assert response.status_code == 200
+    assert web.links.load_links()[web.token_a]['email'] == email
+    assert services.identity.admin_preferences('super')['email'] == 'owner@example.invalid'
     assert web.calls == []
 
 
@@ -51,12 +51,12 @@ def test_public_preferences_use_authenticated_actor_not_payload(admin_contacts):
     csrf = login(client, 'tenant-a')
     payload = {'enabled': True, 'email': 'redirect@example.invalid', 'channels': {}, 'actor_username': 'super'}
     response = post(client, csrf, '/preferences/' + web.token_a, payload)
-    assert response.status_code == 403
+    assert response.status_code == 200
     assert services.identity.admin_preferences('super')['email'] == 'owner@example.invalid'
     csrf = login(client, 'super')
     response = post(client, csrf, '/preferences/' + web.token_a, payload)
     assert response.status_code == 200
-    assert services.identity.admin_preferences('super')['email'] == 'redirect@example.invalid'
+    assert services.identity.admin_preferences('super')['email'] == 'owner@example.invalid'
     assert web.calls == []
 
 
@@ -89,7 +89,7 @@ def test_super_can_edit_own_contact_and_check_uses_shared_transaction(admin_cont
     assert calls == [('super', web.token_a)]
     assert web.links.load_links()[web.token_a]['email'] == 'changed@example.invalid'
     assert web.links.load_links()[web.token_a]['email_override'] is True
-    assert services.identity.admin_preferences('super')['email'] == 'changed@example.invalid'
+    assert services.identity.admin_preferences('super')['email'] == 'owner@example.invalid'
 
 
 def test_same_phone_does_not_make_independent_client_a_super_profile(admin_contacts):

@@ -1,0 +1,10 @@
+<nav class="office-nav" aria-label="Разделы кабинета">
+  {% for path,label,icon in [
+   ('clients','Клиенты','M16 20v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M20 20v-2a4 4 0 0 0-3-3.9'),
+   ('messages','Сообщения','M4 4h16v12H9l-5 4V4 M8 8h8 M8 12h5'),
+   ('notifications','События','M4 17h16l-2-3V9a6 6 0 1 0-12 0v5l-2 3 M10 20h4'),
+   ('billing','Подписка','M3 5h18v14H3z M3 10h18 M7 15h4')] %}
+  <a href="/office/{{ path }}" {% if office_section==path or (path=='clients' and office_section in ['new-client','guest']) or (path=='notifications' and office_section=='settings') %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ icon }}"/></svg>{{ label }}
+  </a>{% endfor %}
+</nav>

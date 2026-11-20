@@ -229,6 +229,14 @@ class YClientsClient:
         raise YClientsError('Client pagination limit exceeded; search not applied')
 
 
+def _notice_cutoff(record, visit, expiry):
+    for key in ('seance_length', 'length'):
+        duration = str(record.get(key, ''))
+        if duration.isascii() and duration.isdigit() and len(duration) <= 8 and int(duration) > 0:
+            return min(visit.timestamp() + int(duration) + 1800, expiry.timestamp())
+    return min(visit.timestamp() + 3600, expiry.timestamp())
+
+
 def eligible_clients(records, branch_id, at=None, branch_timezone=None, *, lead_seconds=0):
     at = (at or now(branch_timezone)).astimezone(timezone(branch_timezone))
     clients = {}
@@ -250,8 +258,11 @@ def eligible_clients(records, branch_id, at=None, branch_timezone=None, *, lead_
         if visit - timedelta(hours=max(2, config.ACCESS_BEFORE_VISIT_HOURS), seconds=lead_seconds) <= at <= expiry:
             key = str(client['id'])
             if key not in clients or clients[key]['_access_expires'] < expiry.isoformat():
-                clients[key] = {field: client[field] for field in ('id', 'name', 'phone', 'email') if field in client}
+                clients.setdefault(key, {}).update({field: client[field] for field in ('id', 'name', 'phone', 'email') if field in client})
                 clients[key]['_access_expires'] = expiry.isoformat()
+            # YCLIENTS record durations are seconds. An old booking may still
+            # grant access today while a reminder for it is no longer timely.
+            clients[key]['_notice_until'] = max(clients[key].get('_notice_until', 0), _notice_cutoff(record, visit, expiry))
     return clients
 
 

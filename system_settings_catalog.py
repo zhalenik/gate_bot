@@ -23,6 +23,8 @@ def item(key, label, group, default='', kind='text', **extra):
 FIELDS = [
     item('GATEBOT_ENV','Окружение','service','development','select',options=['development','test','production'],help='Production отключает тестовую переадресацию SMS и требует явный ключ сессий.'),
     item('GATEBOT_TIMEZONE','Часовой пояс','service','Europe/Moscow','timezone'),
+    item('PUBLIC_SITE_URL','Сайт GateBot для клиентов','service','','url',optional=True,help='Ссылка внизу страницы пропуска и настроек уведомлений.'),
+    item('REQUESTS_CA_BUNDLE','Файл доверенных сертификатов Requests (.pem)','service','','path',optional=True,help='Путь внутри контейнера или Windows. Для стандартного набора сертификатов оставьте пустым.'),
     item('BASE_URL','Публичный адрес GateBot','service','http://127.0.0.1:5000','url',help='Адрес персональных ссылок и интеграций, например https://gatebot.example.com.'),
     item('HOST','Адрес прослушивания веб-сервера','service','127.0.0.1','host',help='В контейнере обычно 0.0.0.0. Это не публичный домен.'),
     item('PORT','Порт веб-сервера','service',5000,'int',minimum=1,maximum=65535),
@@ -30,10 +32,10 @@ FIELDS = [
     item('SESSION_COOKIE_SECURE','Cookie только через HTTPS','service',False,'bool'),
     item('GATEBOT_DATA_DIR','Каталог данных приложения','service','./data','path',help='Изменение не переносит файлы. Перед перезапуском подготовьте согласованную копию SQLite, журналов и ключей в новом каталоге.'),
     item('GATEBOT_LOG_DIR','Каталог диагностических журналов','service','./data/logs','path'),
-    item('BOOTSTRAP_SUPERADMIN_PHONE','Телефон первичной привязки супера','service','','phone',help='Используется только при первичном связывании старого аккаунта; не меняет существующие телефоны.'),
     item('OUTBOUND_ENABLED','Разрешить исходящие уведомления','delivery',False,'bool',help='Общий переключатель фоновых отправок. Не управляет ответами бота в текущем диалоге.'),
     item('BOT_ENABLED','Запускать Telegram Bot','telegram',False,'bool'),
     item('BOT_TOKEN','Токен Telegram Bot','telegram','','secret',secret=True),
+    item('TELEGRAM_PROXY_URL','Прокси Telegram Bot','telegram','','proxy',secret=True,help='HTTP(S) или SOCKS5 прокси VPN-контейнера. Используется для polling, ответов и уведомлений Telegram.'),
     item('BOT_USERNAME','Имя Telegram Bot','telegram'),
     item('BOT_MODE','Режим Telegram Bot','telegram','polling','select',options=['polling','webhook']),
     item('TELEGRAM_WEBHOOK_URL','Webhook URL Telegram','telegram','','url',optional=True),
@@ -58,9 +60,9 @@ FIELDS = [
     item('GATE_COOLDOWN_SECONDS','Пауза между командами ворот, секунд','hardware',20,'int',minimum=1,maximum=300),
     item('GATE_DRY_RUN','Имитировать команды ворот','hardware',True,'bool'),
     item('SIM800_ENABLED','Использовать SIM800','hardware',False,'bool'),
-    item('SIM800_PORT','Порт модема','hardware','','path',optional=True,help='Например COM3 в Windows или /dev/ttyUSB0 в контейнере.'),
-    item('SIM800_BAUDRATE','Скорость порта модема','hardware',115200,'int',minimum=1,maximum=921600),
-    item('SIM800_COMMAND_TIMEOUT','Таймаут AT-команды, секунд','hardware',5,'float',minimum=0.1,maximum=300),
+    item('SIM800_PORT','Исходный порт SIM800C','hardware','','path',optional=True,help='Например COM3 или /dev/ttyUSB0. Применяется до первого сохранения раздела «Модемы SIM800C».'),
+    item('SIM800_BAUDRATE','Исходная скорость порта SIM800C','hardware',115200,'int',minimum=1,maximum=921600),
+    item('SIM800_COMMAND_TIMEOUT','Исходный таймаут AT-команды, секунд','hardware',5,'float',minimum=0.1,maximum=300),
     item('SIM800_CALL_DURATION','Длительность вызова, секунд','hardware',3,'float',minimum=0.1,maximum=300),
     item('SIM800_SMS_STORAGE','Память SMS','hardware','SM','select',options=['SM','ME','MT']),
     item('SIM800_QUEUE_TIMEOUT','Таймаут очереди модема, секунд','hardware',40,'int',minimum=1,maximum=300),
@@ -107,6 +109,14 @@ def encode(field, value):
     if kind=='secret':
         if value and (not value.isascii() or any(c.isspace() for c in value) or len(value)<field.get('minimum_length',1)):
             raise ValueError('Некорректный секрет: '+key)
+    elif kind=='proxy' and value:
+        try:
+            proxy=urlsplit(value)
+            valid=proxy.scheme in {'http','https','socks5'} and proxy.hostname and proxy.port and proxy.path in {'','/'} and not proxy.query and not proxy.fragment
+        except ValueError:
+            valid=False
+        if not valid or any(c.isspace() for c in value):
+            raise ValueError('Укажите полный адрес прокси и порт')
     elif kind=='select' and value not in field['options']:
         raise ValueError('Неизвестный вариант: '+key)
     elif kind=='timezone':

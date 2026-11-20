@@ -99,6 +99,8 @@ def test_branch_admin_table_remains_scoped_and_controls_survive_mobile(web,brows
     expect(page.locator('.app-navigation a[href="/admin/telephony"]')).to_have_count(0)
     expect(page.locator('#usersTableBody [title="Назначить администратором"]')).to_be_visible()
     page.set_viewport_size({'width':390,'height':844})
+    assert page.locator('#usersTableBody tr').first.evaluate("row => getComputedStyle(row).display")=='grid'
+    page.locator('#mobileClientSort').select_option('user_name')
     page.locator('#usersTableBody .btn-pass').click();page.locator('#accessForm button[type=submit]').click()
     expect(page.locator('#usersTableBody .btn-pass')).to_have_text('Постоянный')
     page.locator('#usersTableBody .btn-pass').click();page.get_by_role('button',name='Запретить',exact=True).click()
@@ -140,7 +142,6 @@ def test_new_product_and_identity_pages_share_layout_and_remain_usable(web,brows
     migrate_legacy(tmp_path,activate=True)
     monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
     identity=web.module.product_services().identity
-    identity.attach_console_account('super',web.links.load_links()[web.token_a]['phone'],client_token=web.token_a)
     sign_in(page,origin)
     for name,route in [('subscription','/admin/subscription'),('statistics','/admin/statistics'),('invitations','/admin/invitations'),('notifications','/admin/notification-settings'),('integrations','/admin/integrations'),('registration','/register-branch')]:
         response=page.goto(origin+route)

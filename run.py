@@ -1,6 +1,8 @@
 """Windows/Linux entry point: one owner of scheduler, bot polling and COM port."""
 from pathlib import Path
+import os
 import signal
+import sys
 import threading
 from filelock import FileLock, Timeout
 from storage import config
@@ -24,7 +26,6 @@ def main():
         migration = migrate_legacy(config.DATA_DIR, activate=True)
         from app import app, link_manager, branch_manager, access_service, admin_auth, product_services
         products = product_services()
-        products.bootstrap_console_identity(admin_auth)
         products.attach(access_service)
         products.billing.recover()
         products.index_clients()
@@ -32,6 +33,7 @@ def main():
         lock.release()
         raise
     stop = threading.Event()
+    restart = threading.Event()
     threads = []
     service = access_service
     from yclients_api import YClientsClient
@@ -42,8 +44,15 @@ def main():
     dispatcher = None
 
     def on_signal(*_):
+        restart.clear()
         service.stop_accepting()
         stop.set()
+
+    def request_restart():
+        if not stop.is_set():
+            restart.set()
+            service.stop_accepting()
+            stop.set()
 
     def bot_worker(module, name):
         try:
@@ -93,14 +102,18 @@ def main():
         server = create_server(app, host=config.HOST, port=config.PORT, threads=4, clear_untrusted_proxy_headers=True)
         web = threading.Thread(target=server.run, name='gatebot-web', daemon=True)
         web.start()
+        import runtime_control
+        runtime_control.bind_restart(request_restart)
         print(f'GateBot: {config.BASE_URL} | gate mode: {"DRY RUN" if config.GATE_DRY_RUN else "HARDWARE"}')
-        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.18'})
+        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.19'})
         while not stop.wait(0.5):
             if not web.is_alive():
                 raise RuntimeError('Web server stopped')
     except KeyboardInterrupt:
         stop.set()
     finally:
+        from runtime_control import bind_restart
+        bind_restart(None)
         # Web and both bots share this same AccessService. Refuse new physical
         # effects before waiting for background threads or closing the COM port.
         service.stop_accepting()
@@ -127,6 +140,11 @@ def main():
         # shutdown must not leave the physical queue running for another minute.
         if not finish('sim800', lambda: sim800c.shutdown(timeout=10)):
             shutdown_errors.append('sim800_unconfirmed')
+        dispatcher_pool = getattr(server, 'task_dispatcher', None)
+        if dispatcher_pool:
+            finish('web_requests', lambda: dispatcher_pool.shutdown(timeout=35))
+            if dispatcher_pool.threads:
+                shutdown_errors.append('web_requests_unconfirmed')
         finish('scheduler', scheduler.stop)
         if finish('yclients_client_ids', products.yclients_client_jobs.stop) is False:
             shutdown_errors.append('yclients_client_ids_unconfirmed')
@@ -148,12 +166,14 @@ def main():
                          details={'clean_shutdown': not shutdown_errors and not alive,
                                   'shutdown_errors': shutdown_errors, 'workers_still_alive': alive})
         finally:
-            if alive or 'sim800_unconfirmed' in shutdown_errors or 'notifications_unconfirmed' in shutdown_errors or 'yclients_client_ids_unconfirmed' in shutdown_errors:
+            if alive or shutdown_errors:
                 # Retain ownership until this process exits if a worker has not
                 # stopped. A new runtime must not overlap uncertain effects.
                 _unfinished_runtime_locks.append(lock)
             else:
                 lock.release()
+    if restart.is_set() and not shutdown_errors and not alive:
+        os.execve(sys.executable, [sys.executable, str(Path(__file__).resolve())], config.PROCESS_ENVIRONMENT)
 
 
 if __name__ == '__main__':

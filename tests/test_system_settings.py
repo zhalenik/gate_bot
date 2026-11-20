@@ -54,6 +54,16 @@ def test_secret_clear_and_reset_are_distinct_and_revision_is_checked(settings):
     assert not reset['restart_required']
 
 
+def test_old_encrypted_bootstrap_phone_and_modem_timeout_survive_upgrade(settings):
+    from cryptography.fernet import Fernet
+    saved=settings.save('owner',{'revision':'0','values':{'SIM800_COMMAND_TIMEOUT':120}})
+    box=Fernet(settings.store.key_path.read_bytes())
+    private=json.loads(box.decrypt(settings.store.path.read_bytes()))
+    private['values']['BOOTSTRAP_SUPERADMIN_PHONE']='+15550000010'
+    settings.store.path.write_bytes(box.encrypt(json.dumps(private).encode()))
+    assert settings.store.read()=={'revision':saved['revision'],'values':{'SIM800_COMMAND_TIMEOUT':'120.0'}}
+
+
 @pytest.mark.parametrize('values',[
     {'PORT':0},{'PORT':True},{'SIM800_CALL_DURATION':'nan'}, {'HOST':'host/path'},
     {'GATEBOT_TIMEZONE':'../../private'}, {'BASE_URL':'https://user:password@example.invalid'},

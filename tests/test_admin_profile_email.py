@@ -71,16 +71,16 @@ def test_primary_branch_contact_does_not_read_or_update_other_membership(identit
 
 
 def test_super_uses_own_profile_without_creating_more_clients(identities):
-    state=identities;before=set(state.links.load_links());token=own_token(state,'owner')
-    state.links.update_user(token,{'email':'super@example.invalid'})
+    state=identities;before=state.links.load_links()
+    state.service.admin_email('owner','super@example.invalid')
     assert state.service.admin_preferences('owner')['email']=='super@example.invalid'
     state.service.admin_email('owner','changed@example.invalid')
-    assert state.links.load_links()[token]['email']=='changed@example.invalid'
-    assert set(state.links.load_links())==before
+    assert state.service.admin_preferences('owner')['email']=='changed@example.invalid'
+    assert state.links.load_links()==before
 
 
 def test_old_queued_email_is_skipped_and_new_event_uses_new_profile(identities,monkeypatch):
-    state=identities;token=own_token(state,'owner')
+    state=identities
     state.service.admin_email('owner','before@example.invalid')
     state.service.save_admin_preferences('owner',{'events':{'gate_error':{'email':True}}})
     sender=Mock(return_value={'status':'accepted'})
@@ -88,7 +88,7 @@ def test_old_queued_email_is_skipped_and_new_event_uses_new_profile(identities,m
     monkeypatch.setattr(notifications,'_channel_ready',lambda channel:True)
     monkeypatch.setattr(config,'OUTBOUND_ENABLED',True)
     notifications.event('gate_error','11',{'event_id':'old-contact'})
-    state.links.update_user(token,{'email':'after@example.invalid'})
+    state.service.admin_email('owner','after@example.invalid')
     notifications.process_once()
     sender.assert_not_called()
     notifications.event('gate_error','11',{'event_id':'current-contact'})
@@ -112,8 +112,9 @@ def test_public_bearer_cannot_redirect_an_admin_contact(identities):
 
 
 def test_invalid_stored_email_cannot_become_an_admin_recipient(identities):
-    state=identities;token=own_token(state,'owner')
-    with state.links.store.transaction() as links:links[token].update(email='invalid\r\naddress',email_override=True)
+    state=identities
+    with state.product.connect() as db:
+        db.execute('UPDATE persons SET email=? WHERE id=?',('invalid\r\naddress',state.service.web_admin('owner')['person_id']))
     state.service.save_admin_preferences('owner',{'events':{'sms_received':{'email':True}}})
     assert not state.service.admin_preferences('owner')['channels']['email']
     assert not state.service.contacts_for_admin_events(None,'sms_received')

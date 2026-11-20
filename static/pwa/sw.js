@@ -22,12 +22,13 @@ self.addEventListener('push',event=>{
     let valid=false;
     try{const url=new URL(payload.url,self.location.origin);valid=url.origin===self.location.origin&&url.pathname===paths.gate&&!url.search&&!url.hash;}catch{}
     const body=valid&&typeof payload.body==='string'?payload.body.slice(0,500):'Откройте GateBot, чтобы проверить пропуск.';
-    event.waitUntil(self.registration.showNotification('GateBot',{body,tag:'gatebot-pass',data:{url:paths.gate}}));
+    const chat=valid&&payload.tag==='gatebot-message';
+    event.waitUntil(self.registration.showNotification('GateBot',{body,tag:chat?'gatebot-message':'gatebot-pass',data:{url:paths.gate,chat}}));
 });
 self.addEventListener('notificationclick',event=>{
     event.notification.close();const paths=personalPaths();if(!paths)return;
     // The target is rebuilt from this worker's own scope, never from a push URL.
-    const target=new URL(paths.gate,self.location.origin).href;
+    const target=new URL(paths.gate+(event.notification.data?.chat===true?'#messages':''),self.location.origin).href;
     event.waitUntil((async()=>{
         const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
         for(const client of windows){

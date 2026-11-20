@@ -146,10 +146,34 @@ def test_admin_contact_available_after_access_expiry_for_bound_branch(bot):
 def test_notification_uses_telegram_recipient_and_current_menu(bot):
     bot.bot = SimpleNamespace(send_message=AsyncMock())
     assert asyncio.run(bot.notify_access({"max_id": "77", "event": "granted"})) is False
-    assert asyncio.run(bot.notify_access({"tg_id": "77", "event": "revoked"})) is True
+    assert asyncio.run(bot.notify_access({"tg_id": "77", "event": "revoked"})) is False
+    bot.bot.send_message.assert_not_awaited()
+    assert asyncio.run(bot.notify_access({"tg_id": "77", "event": "granted"})) is True
     kwargs = bot.bot.send_message.await_args.kwargs
     assert kwargs["chat_id"] == 77
     assert "g:20:gate2" not in str(kwargs)
+
+
+def test_scoped_proxy_on_both_telegram_transports(monkeypatch):
+    import telegram.request
+    import telegram_bot
+    from storage import config
+    proxy='socks5://vpn.example.invalid:1080'
+    monkeypatch.setattr(config,'TELEGRAM_PROXY_URL',proxy)
+    factory=telegram.request.HTTPXRequest
+    calls=[]; transports=[]
+    def observed(**options):
+        calls.append(options)
+        transport=factory(**options)
+        transports.append(transport)
+        return transport
+    monkeypatch.setattr(telegram.request,'HTTPXRequest',observed)
+    telegram_bot._observed_bot('123456:synthetic-test-token',threading.Event())
+    assert calls==[{'proxy':proxy},{'proxy':proxy,'connection_pool_size':1}]
+    async def close():
+        for transport in transports:
+            await transport.shutdown()
+    asyncio.run(close())
 
 
 def fake_application(webhook_url=""):

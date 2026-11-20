@@ -1,36 +1,49 @@
 {% extends 'base.html' %}
+{% set hide_admin_signin = true %}
+{% set marketplace_login = '/yclients/marketplace/resume?next=login#' ~ frame_ticket if frame_ticket else '/admin/login?next=marketplace' %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/marketplace.css">
+{% if frame_ticket %}<base target="_blank"><script src="/static/js/marketplace-frame.js" data-mode="form" data-ticket="{{ frame_ticket }}"></script>{% endif %}
+{% endblock %}
 {% block title %}Подключить YCLIENTS — GateBot{% endblock %}
 {% block content %}
-<main class="admin-container" style="max-width:760px"><section class="admin-content">
+<main class="admin-container marketplace-registration"><section class="admin-content">
   <div class="page-eyebrow">GateBot + YCLIENTS</div><h1>Подключение филиала</h1>
   {% if state.needs_fresh_redirect %}
-  <p class="page-description">В этом переходе не указан идентификатор пользователя или филиала. Откройте подключение из YCLIENTS ещё раз.</p>
-  {% if not state.authenticated %}<a class="btn-action" href="/admin/login?next=marketplace">Войти в существующий кабинет</a>{% endif %}
+  <p class="page-description">Недостаточно данных для регистрации. Снова откройте подключение из карточки GateBot в YCLIENTS с передачей данных пользователя.</p>
+  {% if not state.authenticated %}<a class="btn-action" rel="noopener noreferrer" href="{{ marketplace_login }}">Войти в существующий кабинет</a>{% endif %}
   {% elif not state.auto_onboarding %}
   <p class="page-description">Завершите подключение после входа в GateBot. Разрешение YCLIENTS действует один час.</p>
   {% endif %}
   <div id="marketplaceNotice" role="status" aria-live="polite" class="info-box" hidden></div>
   {% if not state.authenticated and not state.auto_onboarding and not state.needs_fresh_redirect %}
-  <section class="panel"><h2>Добро пожаловать</h2><p>Войдите в свой аккаунт или зарегистрируйте новый филиал. Телефон подтверждается кодом из SMS.</p>
-    <a class="btn-primary" href="/admin/login?next=marketplace">Войти</a> <a class="btn-action" href="/register-branch?marketplace=1">Зарегистрировать филиал</a>
+  <section class="panel"><h2>Вход в GateBot</h2><p>Войдите в кабинет филиала. Для регистрации нового филиала откройте карточку GateBot в YCLIENTS с передачей данных пользователя.</p>
+    <a class="btn-primary" rel="noopener noreferrer" href="{{ marketplace_login }}">Войти</a>
   </section>
   {% endif %}
   {% if state.auto_onboarding and state.branches|length > 1 %}
-  <p class="info-box">Выберите филиал для регистрации. Один аккаунт администратора управляет одним филиалом; остальные филиалы не будут подключены автоматически.</p>
+  <p class="info-box">Выберите филиал, которым хотите управлять в GateBot.</p>
   {% endif %}
   <div id="marketplaceBranches"></div>
   <section id="marketplaceAccount" class="panel" hidden>
     <h2 id="marketplaceAccountTitle"></h2>
     <p id="marketplaceAccountText" class="page-description"></p>
     <form id="marketplacePasswordForm" class="admin-form" hidden>
-      <div class="form-group"><label for="marketplacePassword">Пароль для входа в GateBot</label><input id="marketplacePassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required><small>Не менее 12 символов. Логин — ваш email из YCLIENTS.</small></div>
+      <div class="form-group"><label for="marketplaceBranchName">Название филиала</label><input id="marketplaceBranchName" name="salon_name" autocomplete="organization" maxlength="200" required></div>
+      <div class="form-group"><label for="marketplaceName">Ваше имя</label><input id="marketplaceName" name="name" autocomplete="name" maxlength="200" required></div>
+      <div class="form-group"><label for="marketplaceEmail">Email для входа</label><input id="marketplaceEmail" name="email" type="email" autocomplete="email" maxlength="254" required></div>
+      <div class="form-group"><label for="marketplacePhone">Телефон</label><input id="marketplacePhone" name="phone" type="tel" autocomplete="tel" maxlength="64" required>
+        <small id="marketplacePhoneChange" hidden>Для замены номера понадобятся два кода. Первый придёт на телефон из YCLIENTS, второй — на новый номер.</small></div>
+      <div class="form-group"><button id="marketplaceSendCode" class="btn-action" type="button">Получить код по SMS</button><small id="marketplaceCodeStatus" role="status" aria-live="polite"></small></div>
+      <div class="form-group"><label for="marketplaceCode" id="marketplaceCodeLabel">Код из SMS</label><input id="marketplaceCode" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+        <button id="marketplaceVerifyOriginal" class="btn-action" type="button" hidden>Подтвердить и отправить код на новый номер</button></div>
+      <div class="form-group"><label for="marketplacePassword">Пароль для входа в GateBot</label><input id="marketplacePassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required><small>Не менее 12 символов.</small></div>
       <div class="form-group"><label for="marketplacePasswordConfirm">Повторите пароль</label><input id="marketplacePasswordConfirm" name="confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div>
-      <button id="marketplacePasswordSave" class="btn-primary" type="submit">Сохранить пароль и открыть кабинет</button>
+      <button id="marketplacePasswordSave" class="btn-primary" type="submit" disabled>Зарегистрироваться</button>
     </form>
-    <p id="marketplaceAccountAction" hidden><a id="marketplaceAccountLink" class="btn-primary" href="/admin/login?next=marketplace">Войти в GateBot</a></p>
+    <p id="marketplaceAccountAction" hidden><a id="marketplaceAccountLink" class="btn-primary" rel="noopener noreferrer" href="{{ marketplace_login }}">Войти в GateBot</a></p>
   </section>
   <p id="marketplaceDeadline" class="page-description"></p>
-  <p><a href="https://support.yclients.ru/67-68-191" target="_blank" rel="noopener">Как работает подключение YCLIENTS ↗</a></p>
 </section></main>
 {% endblock %}
 {% block scripts %}

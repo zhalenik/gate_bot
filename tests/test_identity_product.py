@@ -110,15 +110,14 @@ def test_dry_run_otp_never_completes_registration(identities):
     assert state.branches.get_branch('99') is None
 
 
-def test_branch_registration_pending_until_super_activation_and_unlimited_trial(identities):
+def test_sms_confirmed_manual_registration_immediately_activates_branch_and_trial(identities):
     state=identities;reg=state.service.register_branch('99','Example','New owner',PHONE)
     otp=state.service.request_otp(reg['registration_token'],registration=True);code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
     result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'new-branch@example.invalid',PASSWORD)
-    assert result['status']=='pending_verification' and not state.branches.get_branch('99').enabled
+    assert result['status']=='active' and state.branches.get_branch('99').enabled
     assert state.auth.verify_admin('new-branch@example.invalid',PASSWORD)
-    with pytest.raises(PermissionError):state.service.activate_branch('new-branch@example.invalid','99',state.billing)
-    state.service.activate_branch('owner','99',state.billing)
-    assert state.branches.get_branch('99').enabled
+    assert state.service.web_admin(result['username'])['branch_ids']==['99']
+    assert not state.service.integration_credentials('99','yclients')
     with state.product.connect() as db:
         row=db.execute('SELECT * FROM billing_terms WHERE branch_id="99" AND source="trial"').fetchone()
         assert row is not None and row['source']=='trial' and row['quota'] is None

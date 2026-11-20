@@ -146,7 +146,9 @@ def test_read_scope_is_exact_and_super_can_read_all(web):
     client = web.app.test_client()
     login(client)
     assert [row["branch_id"] for row in client.get("/admin/api/users").json["users"]] == [12]
-    assert client.get("/admin/api/branches").json == {"branches": [{"id": 12, "name": "Branch 12", "yclients_enabled": True}]}
+    assert client.get("/admin/api/branches").json == {"branches": [{
+        "id": 12, "name": "Branch 12", "yclients_enabled": True, "sms_notifications_enabled": False,
+    }]}
     csv = client.get("/admin/api/export-csv").text
     assert "Client A" in csv
     assert "Client B" not in csv

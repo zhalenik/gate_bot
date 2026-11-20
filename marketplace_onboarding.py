@@ -4,8 +4,8 @@ The caller must validate the signed profile, the installation and the user's
 membership in the selected YCLIENTS company before invoking these helpers.
 They neither contact YCLIENTS nor treat a bare company ID as an ownership proof.
 """
+import hashlib
 import re
-import secrets
 
 from admin_auth import AdminAuth
 from identity_service import valid_email, valid_phone
@@ -19,7 +19,7 @@ def _profile(profile):
     phone = valid_phone(profile.get('phone'))
     name = profile.get('name')
     if not email or not isinstance(name, str) or not name.strip():
-        raise ValueError('YCLIENTS должен передать имя, email и телефон пользователя')
+        raise ValueError('Укажите имя, email и телефон администратора филиала')
     return email, phone, name.strip()[:200]
 
 
@@ -74,7 +74,27 @@ def validate_marketplace_target(identity, db, branch_id, profile):
     return {**profile, 'email': email, 'phone': phone, 'name': name}
 
 
-def provision_marketplace(identity, db, branch_id, profile, company, *, billing=None):
+def installer_key(signed_profile):
+    """Stable identifier from the signed redirect, independent of local form edits."""
+    user_id = signed_profile.get('user_id')
+    if user_id:
+        return 'yc-user:' + user_id
+    # Older signed salon profiles have contacts but no YC user ID.
+    contacts = str(signed_profile.get('email', '')).lower() + '|' + str(signed_profile.get('phone', ''))
+    return 'yc-contacts:' + hashlib.sha256(contacts.encode()).hexdigest()
+
+
+def reconnect_profile(db, branch_id, signed):
+    for username, admin in read_document(db, 'admins.json').items():
+        if (str(admin.get('branch_id')) == branch_id and not admin.get('is_super')
+                and admin.get('marketplace_installer') == installer_key(signed)):
+            person = db.execute('SELECT phone FROM persons WHERE id=?', (admin.get('person_id'),)).fetchone()
+            if person:
+                return {**signed, 'name': admin.get('name'), 'phone': person['phone'], 'email': username}
+    return signed
+
+
+def provision_marketplace(identity, db, branch_id, profile, company, *, billing=None, password=None, signed_profile=None):
     """Create one branch/admin/client atomically, or reuse its existing owner.
 
     ``db`` is the caller's active ProductStore transaction. Existing account
@@ -96,16 +116,10 @@ def provision_marketplace(identity, db, branch_id, profile, company, *, billing=
             if billing is None:
                 from billing_service import BillingService
                 billing = BillingService(identity.product)
-            # An operator may have granted a tariff before the old review was
-            # completed. Activation must preserve that term, including expired
-            # or cancelled terms, rather than replacing it with a free trial.
-            explicit_term = db.execute('SELECT 1 FROM billing_terms WHERE branch_id=? AND source<>"legacy" LIMIT 1',
-                                       (branch_id,)).fetchone()
-            if not explicit_term:
-                billing.activate_trial(branch_id, timezone=branch.get('timezone', 'Europe/Moscow'),
-                                       at=identity.clock(), db=db)
+            identity.activate_registration_trial_if_unused(db, billing, branch_id, branch)
         return {'username': username, 'person_id': person_id, 'branch_id': branch_id,
                 'created': False, 'password_setup_required': bool(admin.get('marketplace_password_setup_required'))}
+    AdminAuth.validate_new_password(password)
     company = company if isinstance(company, dict) else {}
     branch_name = next((value.strip()[:200] for value in
                         (company.get('title'), company.get('name'), profile.get('salon_name'))
@@ -117,9 +131,11 @@ def provision_marketplace(identity, db, branch_id, profile, company, *, billing=
                           'onboarding_status': 'active', 'hardware_routes_verified': False, 'buttons': [],
                           'yclients_connection_mode': 'marketplace'}
     admins[email] = {'name': name, 'phone': phone, 'person_id': person_id,
-                     'password_hash': AdminAuth.hash_password(secrets.token_urlsafe(48)),
+                     'password_hash': AdminAuth.hash_password(password),
                      'branch_id': int(branch_id), 'is_super': False, 'disabled': False,
-                     'session_version': 1, 'marketplace_password_setup_required': True}
+                     'session_version': 1}
+    if signed_profile is not None:
+        admins[email]['marketplace_installer'] = installer_key(signed_profile)
     write_document(db, 'branches.json', branches)
     write_document(db, 'admins.json', admins)
     db.execute('INSERT INTO web_accounts(username,person_id) VALUES(?,?)', (email, person_id))
@@ -128,24 +144,8 @@ def provision_marketplace(identity, db, branch_id, profile, company, *, billing=
         from billing_service import BillingService
         billing = BillingService(identity.product)
     billing.activate_trial(branch_id, timezone='Europe/Moscow', at=identity.clock(), db=db)
+    identity.branch_registered(branch_id, 'marketplace', person_id)
     if identity.welcome_sink:
         identity.welcome_sink(person_id, branch_id, email)
     return {'username': email, 'person_id': person_id, 'branch_id': branch_id,
-            'created': True, 'password_setup_required': True}
-
-
-def set_marketplace_password(identity, db, username, password, confirm):
-    """Set the first password; caller supplies a browser-bound, CSRF-safe proof."""
-    AdminAuth.validate_new_password(password)
-    if not isinstance(confirm, str) or password != confirm:
-        raise ValueError('Пароли не совпадают')
-    identity._admin(db, username)
-    admins = read_document(db, 'admins.json')
-    admin = admins[username]
-    if admin.get('is_super') or admin.get('marketplace_password_setup_required') is not True:
-        raise PermissionError('Первичная настройка пароля недоступна')
-    admin['password_hash'] = AdminAuth.hash_password(password)
-    admin['session_version'] = int(admin.get('session_version', 0)) + 1
-    admin.pop('marketplace_password_setup_required', None)
-    write_document(db, 'admins.json', admins)
-    return {'username': username, 'branch_id': str(admin['branch_id']), 'password_setup_required': False}
+            'created': True, 'password_setup_required': False}

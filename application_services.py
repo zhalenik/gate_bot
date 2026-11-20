@@ -27,6 +27,7 @@ class ApplicationServices:
         self.yclients_client_jobs = YClientsClientSyncJobs(self.identity, self.yclients_client_sync)
         if is_sql_active(directory):
             self.identity.import_legacy()
+            self.identity.activate_pending_manual_registrations(self.billing)
         self.notifications = ProductNotifications(self.identity, links, branches, self.billing,
                                                   telephony=TelephonyStore(directory / 'telephony.json'), pwa=self.pwa)
         self.identity.sender = self.notifications.send

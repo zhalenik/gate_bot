@@ -34,19 +34,42 @@ def test_registration_without_crm_auto_activates_unlimited_trial_and_no_routes(i
         assert len(terms)==1 and terms[0]['quota'] is None
         assert terms[0]['starts']==state.clock[0]
         assert terms[0]['ends']==month_at(state.clock[0],2,'Europe/Moscow')
-    with pytest.raises(ValueError):state.service.activate_branch('owner',result['branch_id'],state.billing)
 
 
-def test_default_legacy_and_crm_registration_keep_old_ids_and_pending_review(identities):
+def test_default_legacy_and_crm_registration_keep_ids_and_activate_immediately(identities):
     state=identities;original=set(state.branches.load_branches())
     assert all(branch.yclients_enabled for branch in state.branches.get_all_branches())
     reg=state.service.register_branch('00123','CRM branch','CRM owner',PHONE)
     otp=state.service.request_otp(reg['registration_token'],registration=True);code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
     result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'crm-owner@example.invalid',PASSWORD)
-    assert result['status']=='pending_verification' and result['branch_id']=='123'
-    assert not state.branches.get_branch('123').enabled and state.branches.get_branch('123').yclients_enabled
+    assert result['status']=='active' and result['branch_id']=='123'
+    assert state.branches.get_branch('123').enabled and state.branches.get_branch('123').yclients_enabled
     assert original<=set(state.branches.load_branches())
-    with state.product.connect() as db:assert not db.execute('SELECT 1 FROM billing_terms WHERE branch_id="123" AND source="trial"').fetchone()
+    with state.product.connect() as db:assert db.execute('SELECT 1 FROM billing_terms WHERE branch_id="123" AND source="trial"').fetchone()
+
+
+def test_upgrade_activates_only_completed_manual_branches_and_preserves_prior_terms(identities):
+    state=identities
+    with state.product.connect() as db:
+        branches=read_document(db,'branches.json')
+        for branch_id in ('11','12','13','14'):
+            branches[branch_id]={**branches['11'],'branch_id':int(branch_id),'enabled':False,
+                                 'yclients_enabled':True, 'onboarding_status':'pending_verification'}
+        branches['13']['yclients_connection_mode']='marketplace'
+        for key in ('11','12','13'):
+            db.execute('INSERT INTO branch_registrations(id,token_hash,branch_id,name,person_name,phone,expires,state,created) '
+                       'VALUES(?,?,?,"Example","Admin",?,0,"completed",0)',(key,key,key,PHONE))
+        write_document(db,'branches.json',branches)
+    state.billing.activate_trial('12',at=state.clock[0]-3600)
+    with state.product.connect() as db:
+        prior=dict(db.execute("SELECT * FROM billing_terms WHERE branch_id='12' AND source='trial'").fetchone())
+    state.service.activate_pending_manual_registrations(state.billing)
+    state.service.activate_pending_manual_registrations(state.billing)
+    assert all(state.branches.get_branch(i).enabled for i in ('11','12'))
+    assert all(not state.branches.get_branch(i).enabled for i in ('13','14'))
+    with state.product.connect() as db:
+        assert db.execute("SELECT count(*) FROM billing_terms WHERE branch_id='11' AND source='trial'").fetchone()[0]==1
+        assert [dict(r) for r in db.execute("SELECT * FROM billing_terms WHERE branch_id='12' AND source='trial'")]==[prior]
 
 
 def test_ids_skip_existing_and_pending_and_are_concurrency_safe(identities):

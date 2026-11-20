@@ -103,7 +103,7 @@ def test_client_preferences_guest_access_and_landing_actions(web, browser_ui, tm
     assert preferences.evaluate('node=>getComputedStyle(node).backgroundColor') == 'rgb(239, 237, 246)'
     assert preferences.bounding_box()['y'] >= contact.bounding_box()['y'] + contact.bounding_box()['height'] + 20
     page.goto(origin + '/')
-    expect(page.locator('.landing-actions .btn-primary')).to_have_attribute('href', '/register-branch')
+    expect(page.locator('.landing-actions .btn-primary')).to_have_attribute('href', '/register-branch?mode=direct')
     expect(page.locator('.landing-actions .btn-action')).to_have_attribute('href', '/admin/login')
     page.set_viewport_size({'width': 390, 'height': 844})
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

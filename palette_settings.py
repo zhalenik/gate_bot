@@ -29,7 +29,7 @@ class PaletteSettings:
 
     def _super(self, db, username):
         if self.identity._admin(db, username).get('is_super') is not True:
-            raise PermissionError('Цвета интерфейса настраивает только суперадминистратор')
+            raise PermissionError('Недостаточно прав для настройки палитры')
 
     @staticmethod
     def _read(db):

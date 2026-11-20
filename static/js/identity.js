@@ -3,7 +3,7 @@
  const boot=JSON.parse(document.getElementById('identityBootstrap').textContent),data=boot.data,root=document.getElementById('identityContent');
  const notice=document.getElementById('identityNotice'),description=document.getElementById('identityDescription');
  const labels={email:'Email',telegram:'Telegram',max:'MAX',chatpush:'ChatPush',sms:'SMS'};
- const events={gate_requested:'Запрос открытия ворот',gate_denied:'Отказ в доступе',gate_error:'Ошибка открытия',admin_contact_requested:'Запрос контакта администратора',invitation_accepted:'Приглашение принято',access_changed:'Изменение пропуска',crm_error:'Ошибка CRM',crm_recovered:'CRM восстановлена',modem_error:'Ошибка модема',modem_recovered:'Модем восстановлен',delivery_failed:'Ошибка доставки',subscription_expiring:'Подписка заканчивается',subscription_expired:'Подписка закончилась',quota_warning:'Квота заканчивается',quota_exhausted:'Квота исчерпана',sms_received:'Входящие SMS',call_received:'Входящие звонки'};
+ const events={gate_requested:'Запрос открытия ворот',gate_denied:'Отказ в доступе',gate_error:'Ошибка открытия',admin_contact_requested:'Запрос контакта администратора',invitation_accepted:'Приглашение принято',access_changed:'Изменение пропуска',crm_error:'Ошибка CRM',crm_recovered:'CRM восстановлена',modem_error:'Ошибка модема',modem_recovered:'Модем восстановлен',delivery_failed:'Ошибка доставки',subscription_expiring:'Подписка заканчивается',subscription_expired:'Подписка закончилась',quota_warning:'Квота заканчивается',quota_exhausted:'Квота исчерпана',branch_registered:'Регистрация нового филиала',marketplace_disconnected:'Отключение в маркетплейсе YCLIENTS',sms_received:'Входящие SMS',call_received:'Входящие звонки'};
  function tell(text,error=false){notice.hidden=false;notice.textContent=text;notice.className='panel '+(error?'alert-error':'alert-success');}
  function field(form,label,name,type='text',required=true,value='') {const wrap=element('div','form-group'),caption=element('label','',label),input=element('input');input.name=name;input.type=type;input.required=required;input.value=value;if(type==='password')input.autocomplete='new-password';caption.append(input);wrap.append(caption);form.append(wrap);return input;}
  function select(form,label,name,items){const wrap=element('div','form-group'),caption=element('label','',label),node=element('select');node.name=name;for(const [key,text] of items){const option=element('option','',text);option.value=key;node.append(option);}caption.append(node);wrap.append(caption);form.append(wrap);return node;}
@@ -24,16 +24,9 @@
  } else if(boot.kind==='accept'||boot.kind==='register'){
   const registration=boot.kind==='register';description.textContent=registration?'Создайте аккаунт администратора филиала.':'Филиал: '+data.branch_name;
   const initial=data.initial||{},f=form();f.autocomplete='off';let registrationMode=null,companyId=null;
-  function describeMode(){if(!registration||initial.marketplace)return;const crm=registrationMode.value==='true';companyId.closest('.form-group').hidden=!crm;companyId.required=crm;if(!crm)companyId.value='';}
+  function describeMode(){if(!registration)return;const crm=registrationMode.value==='true';companyId.closest('.form-group').hidden=!crm;companyId.required=crm;if(!crm)companyId.value='';}
   if(registration){
-   if(initial.marketplace){
-    description.textContent='Регистрация через маркетплейс YCLIENTS. Филиал уже выбран; создайте свой аккаунт GateBot. Логин и пароль YCLIENTS не требуются.';
-    registrationMode=element('input');registrationMode.type='hidden';registrationMode.name='yclients_enabled';registrationMode.value='true';f.append(registrationMode);
-    companyId=element('input');companyId.type='hidden';companyId.name='branch_id';companyId.value=initial.branch_id;f.append(companyId);
-    const alternate=element('a','','Другой способ регистрации');alternate.href='/register-branch?mode=direct';f.append(alternate);
-   }else{
-    registrationMode=select(f,'Как будет работать филиал','yclients_enabled',[['true','YCLIENTS — учётная запись пользователя'],['false','Без CRM — самостоятельный филиал']]);companyId=field(f,'ID филиала YCLIENTS','branch_id','number',true,initial.branch_id||'');
-   }
+   registrationMode=select(f,'Как будет работать филиал','yclients_enabled',[['true','YCLIENTS — учётная запись пользователя'],['false','Без CRM — самостоятельный филиал']]);companyId=field(f,'ID филиала YCLIENTS','branch_id','number',true);
    field(f,'Название филиала','branch_name','text',true,initial.branch_name||'');describeMode();
   }
   field(f,'Ваше имя','name','text',true,initial.name||'');if(!data.phone_fixed)field(f,'Телефон','phone','tel',true,initial.phone||'');
@@ -70,7 +63,7 @@
   });
   const timer=setInterval(paint,250),poll=setInterval(()=>{if(waiting&&!document.hidden)refreshCode();},2000);paint();
   addEventListener('pagehide',()=>{clearInterval(timer);clearInterval(poll);});
-  submit(f,'Завершить регистрацию',async values=>{if(sending||!challenge||!ready)throw new Error('Сначала запросите SMS-код и дождитесь отправки');await post(registration?'/register-branch/complete':'/invite/'+data.token+'/accept',{...values,registration_token:registrationToken,challenge_id:challenge});finished=true;clearInterval(timer);clearInterval(poll);root.replaceChildren(element('p','','Регистрация завершена. Войдите с указанным email и паролем.'));const link=element('a','btn-primary','Войти');link.href='/admin/login'+(initial.marketplace?'?next=marketplace':'');root.append(link);});
+  submit(f,'Завершить регистрацию',async values=>{if(sending||!challenge||!ready)throw new Error('Сначала запросите SMS-код и дождитесь отправки');await post(registration?'/register-branch/complete':'/invite/'+data.token+'/accept',{...values,registration_token:registrationToken,challenge_id:challenge});finished=true;clearInterval(timer);clearInterval(poll);root.replaceChildren(element('p','','Регистрация завершена. Войдите с указанным email и паролем.'));const link=element('a','btn-primary','Войти');link.href='/admin/login';root.append(link);});
  } else if(boot.kind==='preferences'){
   let prefs=data.preferences,busy=false,version=0,connecting=null;
   const channelNames={email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)',sms:'СМС',push:'Push'},icons={email:'@',telegram:'TG',max:'M',messengers:'↗',sms:'SMS',push:'◉'},cards={};
@@ -198,7 +191,6 @@
   const f=form(),table=element('table','users-table'),head=element('tr');
   for(const title of ['Событие','Email','Telegram','MAX'])head.append(element('th','',title));table.append(head);
   for(const event of data.events){
-   if(!prefs.is_super&&['sms_received','call_received'].includes(event))continue;
    const row=element('tr');row.append(element('td','',events[event]||event));controls[event]={};
    for(const channel of channels){
     const cell=element('td'),input=check(cell,'',event+'_'+channel,prefs.events[event]?.[channel]);controls[event][channel]=input;

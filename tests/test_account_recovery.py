@@ -29,6 +29,24 @@ def test_email_and_phone_normalization():
     assert valid_phone('+9924412345')=='+9924412345'
     with pytest.raises(ValueError):valid_phone('+1555000ABC')
 
+def test_legacy_marketplace_setup_requires_verified_password_recovery(identities):
+    state=identities
+    def flag_unfinished():
+        with state.product.connect() as db:
+            admins=read_document(db,'admins.json')
+            admins['north']['marketplace_password_setup_required']=True
+            write_document(db,'admins.json',admins)
+    flag_unfinished()
+    assert not state.auth.verify_admin('north',PASSWORD)
+    service,raw,code=request(state,'+15550100888')
+    reset=service.verify_code(raw,code,BROWSER)
+    service.complete(reset,BROWSER,NEW_PASSWORD,NEW_PASSWORD)
+    assert state.auth.verify_admin('north',NEW_PASSWORD)
+    # Earlier releases left the flag set on accounts already recovered by SMS.
+    flag_unfinished()
+    state.service.import_legacy()
+    assert state.auth.verify_admin('north',NEW_PASSWORD)
+
 def test_new_ordinary_accounts_require_email_and_keep_otp_unused_on_bad_email(identities):
     state=identities;invite=state.service.invite('owner','11',client_token='example-client')
     raw=invite['link'].rsplit('/',1)[1];otp=state.service.request_otp(raw)

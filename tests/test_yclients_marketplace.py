@@ -15,7 +15,7 @@ from werkzeug.datastructures import MultiDict
 from test_identity_product import identities, PASSWORD
 from storage.sql_documents import read_document, write_document
 from yclients_marketplace import MarketplaceAPI, MarketplaceError, MarketplaceService, parse_redirect
-from yclients_marketplace_web import create_blueprint, registration_defaults
+from yclients_marketplace_web import create_blueprint
 
 
 @pytest.fixture
@@ -106,6 +106,19 @@ def test_browser_binding_expiry_and_local_pending_verification(marketplace):
     s.api.install.assert_not_called()
 
 
+def test_local_manual_admin_must_verify_yclients_access_before_switching_connection(marketplace):
+    s=marketplace
+    with s.identity.branches.store.transaction() as branches:
+        branches['11'].update(id_origin='yclients', yclients_connection_mode='direct', onboarding_status='active')
+    token=begin(s)
+    for reconcile in (False,True):
+        with pytest.raises(MarketplaceError):
+            s.service.connect(token,s.browser,'north','11',reconcile=reconcile)
+    assert not s.identity.service.integration_credentials('11','yclients')
+    s.api.install.assert_not_called()
+    s.api.status.assert_not_called()
+
+
 def test_duplicate_click_and_new_redirect_cannot_repeat_unknown_install(marketplace):
     s=marketplace;s.api.install.return_value={'state':'unknown','code':'network_result_unknown'}
     token=begin(s)
@@ -192,6 +205,32 @@ def test_late_duplicate_disconnect_recovers_only_by_provider_get(marketplace):
     assert s.api.install.call_count==2 and s.api.status.call_count==1
 
 
+def test_disconnect_retries_notify_only_scoped_recipients_and_preserve_billing(marketplace):
+    from product_notifications import ProductNotifications
+    s=marketplace
+    identity=s.identity.service
+    notices=ProductNotifications(identity,s.identity.links,s.identity.branches,s.identity.billing)
+    identity.event_sink=notices.event
+    north=identity.web_admin('north')['person_id']
+    ticket=identity.issue_bind_ticket('north','telegram')
+    identity.bind_ticket('telegram','88007',ticket)
+    identity.save_admin_preferences('north', {'events': {'marketplace_disconnected': {'telegram':True}}})
+    s.identity.billing.activate_trial('11')
+    s.service.connect(begin(s),s.browser,'north','11')
+    callback={'salon_id':11,'application_id':123,'partner_token':'offline-partner-key','event':'uninstall'}
+    s.service.disconnect(callback)
+    s.service.disconnect(callback)
+    s.service.disconnect({**callback, 'salon_id':12})
+    with s.service.store.connect() as db:
+        rows=db.execute("SELECT * FROM message_outbox WHERE event='marketplace_disconnected'").fetchall()
+        assert len(rows)==1 and rows[0]['channel']=='telegram' and rows[0]['branch_id']=='11'
+        text=notices._decrypt(rows[0]['payload'])['text']
+        assert 'North' in text and 'Подписка' in text and 'поддержку' in text
+        assert db.execute("SELECT COUNT(*) FROM notification_inbox WHERE event='marketplace_disconnected' AND person_id=?", (north,)).fetchone()[0]==1
+        assert db.execute("SELECT COUNT(*) FROM billing_terms WHERE branch_id='11' AND source='trial'").fetchone()[0]==1
+    assert s.identity.branches.get_branch('11').enabled
+
+
 def test_actual_app_preserves_handoff_through_login_and_authenticates_callback(marketplace,monkeypatch):
     import app as module
     s=marketplace
@@ -206,10 +245,8 @@ def test_actual_app_preserves_handoff_through_login_and_authenticates_callback(m
     client=module.app.test_client()
     assert client.get('/yclients/marketplace/connect?salon_id=11').status_code==303
     registration=client.get('/register-branch')
-    assert registration.status_code==200
-    import re
-    bootstrap=json.loads(re.search(r'<script id="identityBootstrap" type="application/json">(.*?)</script>',registration.text,re.S).group(1))
-    assert bootstrap['data']['initial']['branch_id']=='11' and bootstrap['data']['initial']['marketplace'] is True
+    assert registration.status_code==303 and registration.location=='/yclients/marketplace'
+    assert client.get(registration.location).status_code==200
     with client.session_transaction() as session:
         original={key:session[key] for key in ('yc_marketplace_intent','yc_marketplace_browser')}
         csrf=session['csrf_token']
@@ -246,8 +283,3 @@ def test_public_entry_removes_profile_from_url_and_keeps_authenticated_views_sco
     page=client.get(response.location)
     assert page.status_code==200 and b'/admin/login?next=marketplace' in page.data
     other=app.test_client();assert other.get('/yclients/marketplace/state').status_code==400
-    with client.session_transaction() as session:values=dict(session)
-    with app.test_request_context('/'):
-        from flask import session
-        session.update(values)
-        assert registration_defaults(provider)['branch_id']=='11'

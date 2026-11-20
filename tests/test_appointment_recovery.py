@@ -39,6 +39,36 @@ def expected_reads():
             for day in (AT.date(), AT.date() + timedelta(days=1))]
 
 
+@pytest.mark.parametrize('reconnect_immediately',[False,True])
+def test_uninstall_during_poll_discards_snapshot_and_cached_deadlines(sql_state,monkeypatch,reconnect_immediately):
+    from yclients_marketplace import MarketplaceService
+    links,branches,events=sql_state
+    with branches.store.transaction() as data:
+        data['1'].update(yclients_connection_mode='marketplace',yclients_marketplace_state='active')
+    scheduler=Scheduler(links,branches,CalendarCRM({1:[appointment(31,hour=15)]}))
+    scheduler.run_once()
+    assert not links.load_links()
+    marketplace=MarketplaceService(IdentityService(scheduler.store),application_id='42',partner_token='offline-partner')
+
+    class InterruptedPoll(CalendarCRM):
+        def records_for_day(self,branch,day):
+            result=super().records_for_day(branch,day)
+            if branch==1 and day>AT.date():
+                marketplace.disconnect({'partner_token':'offline-partner','application_id':42,'event':'uninstall','salon_id':1})
+                if reconnect_immediately:
+                    with branches.store.transaction() as data:
+                        data['1']['yclients_marketplace_state']='active'
+            return result
+
+    scheduler.crm=InterruptedPoll({1:[appointment(32,hour=13)]})
+    scheduler.run_once()
+    clock(monkeypatch,AT+timedelta(hours=1))
+    scheduler.activate_due()
+    assert not links.load_links() and not events
+    with scheduler.store.connect() as db:
+        assert db.execute('SELECT active FROM appointment_schedule WHERE branch_id="1"').fetchone()[0]==0
+
+
 def test_start_requires_fresh_crm_before_cached_deadline_and_polls_before_wait(sql_state, monkeypatch):
     links, branches, events = sql_state
     crm = CalendarCRM({1: [appointment(1, datetime=(AT + timedelta(hours=2, minutes=7)).isoformat())]})

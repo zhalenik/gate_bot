@@ -72,7 +72,7 @@ class SmtpSettings:
 
     def _super(self, username):
         if self.identity.web_admin(username).get('is_super') is not True:
-            raise PermissionError('SMTP настраивает только суперадминистратор')
+            raise PermissionError('Недостаточно прав для настройки SMTP')
 
     @staticmethod
     def defaults():

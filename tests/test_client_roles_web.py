@@ -17,15 +17,15 @@ def roles_web(web,tmp_path,monkeypatch):
     return web,identity
 
 
-def test_pending_branch_is_distinct_from_administrator_permanent_grant(roles_web):
+def test_disabled_branch_is_distinct_from_administrator_permanent_grant(roles_web):
     web,identity=roles_web
     with web.branches.store.transaction() as branches:
-        branches['12'].update(enabled=False,onboarding_status='pending_verification')
+        branches['12'].update(enabled=False)
     client=web.app.test_client();login(client,'super')
     user=next(row for row in client.get('/admin/api/users').json['users'] if row['token']==web.token_a)
     assert user['admin_role']['is_admin'] and user['admin_role']['last_admin']
     assert user['gate_access'] and not user['access_available']
-    assert user['branch_access_reason']=='pending_verification'
+    assert user['branch_access_reason']=='branch_disabled'
     assert not web.calls
 
 

@@ -56,42 +56,18 @@ def test_account_profile_is_encrypted_and_not_visible_to_another_branch(identiti
     assert 'account' not in state.service.integration_status('north','11')['yclients']
 
 
-def test_marketplace_registration_uses_server_handoff_branch_and_locks_direct_auth(marketplace):
+def test_unsigned_marketplace_handoff_cannot_create_an_account_or_connect_the_system_user(marketplace):
     state=marketplace;client,authorizer=site(state)
     assert client.get('/yclients/marketplace/connect?salon_id=99').status_code==303
+    assert client.get('/register-branch').location.endswith('/yclients/marketplace')
     details={'branch_name':'From marketplace','name':'New admin','phone':PHONE}
     assert client.post('/register-branch',json={**details,'branch_id':'98'}).status_code==400
-    created=client.post('/register-branch',json=details)
-    assert created.status_code==200
-    raw=created.json['registration_token']
+    assert client.post('/register-branch',json=details).status_code==400
+    assert state.identity.branches.get_branch('99') is None
     with state.service.store.connect() as db:
-        pending=state.identity.service._registration(db,raw)
-        assert pending['branch_id']=='99' and pending['connection_mode']=='marketplace'
-    otp=client.post('/register-branch/code',json={'registration_token':raw}).json
-    code=re.search(r'\b[0-9]{6}\b',state.identity.sent[-1][2]).group()
-    completed=client.post('/register-branch/complete',json={**details,'registration_token':raw,'challenge_id':otp['challenge_id'],'code':code,'username':'marketplace-admin@example.invalid','password':PASSWORD})
-    assert completed.status_code==200
-    branch=state.identity.branches.load_branches()['99']
-    assert branch['yclients_connection_mode']=='marketplace' and branch['onboarding_status']=='pending_verification'
-    sign_in(client,state,'marketplace-admin@example.invalid')
-    assert client.post('/admin/api/identity/integrations/yclients/authorize',json={'branch_id':'99','login':'any','password':'any'}).status_code==403
+        assert not db.execute('SELECT 1 FROM branch_registrations').fetchone()
     authorizer.assert_not_called()
-    status=client.get('/admin/api/identity/integrations?branch_id=99').json['integrations']['yclients']
-    assert status['mode']=='marketplace' and not status['manual_allowed']
-    state.identity.service.activate_branch('owner','99',state.identity.billing)
-    assert not state.identity.service.integration_status('owner','99')['yclients']['manual_allowed']
-
-
-def test_marketplace_completion_requires_original_browser_context(marketplace):
-    state=marketplace;client,_=site(state)
-    client.get('/yclients/marketplace/connect?salon_id=99')
-    details={'branch_name':'From marketplace','name':'New admin','phone':PHONE}
-    raw=client.post('/register-branch',json=details).json['registration_token']
-    otp=client.post('/register-branch/code',json={'registration_token':raw}).json
-    code=re.search(r'\b[0-9]{6}\b',state.identity.sent[-1][2]).group()
-    client.get('/yclients/marketplace/connect?salon_id=98')
-    completed=client.post('/register-branch/complete',json={**details,'registration_token':raw,'challenge_id':otp['challenge_id'],'code':code,'username':'marketplace-admin@example.invalid','password':PASSWORD})
-    assert completed.status_code==400 and state.identity.branches.get_branch('99') is None
+    state.api.install.assert_not_called()
 
 
 def test_expired_handoff_cannot_silently_become_manual_registration(marketplace):

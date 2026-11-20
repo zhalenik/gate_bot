@@ -27,7 +27,9 @@ CLIENT_EVENTS = ('access_granted', 'access_changed', 'access_revoked')
 ADMIN_EVENTS = ('gate_requested', 'gate_denied', 'gate_error', 'admin_contact_requested',
                 'invitation_accepted', 'access_changed', 'crm_error', 'crm_recovered',
                 'modem_error', 'modem_recovered', 'delivery_failed', 'subscription_expiring',
-                'subscription_expired', 'quota_warning', 'quota_exhausted', 'sms_received', 'call_received')
+                'subscription_expired', 'quota_warning', 'quota_exhausted', 'sms_received', 'call_received',
+                'branch_registered', 'marketplace_disconnected')
+GLOBAL_ADMIN_EVENTS = frozenset(('sms_received', 'call_received', 'branch_registered'))
 CHANNELS = ('email', 'telegram', 'max', 'chatpush', 'sms')
 CLIENT_CHANNELS = ('email', 'telegram', 'max', 'messengers', 'sms', 'push')
 ADMIN_CHANNELS = ('email', 'telegram', 'max')
@@ -37,6 +39,11 @@ DEFAULT_ADMIN_EVENTS = frozenset(('subscription_expiring', 'subscription_expired
 def default_admin_preferences():
     return {'events': {event: {channel: channel == 'telegram' and event in DEFAULT_ADMIN_EVENTS
                               for channel in ADMIN_CHANNELS} for event in ADMIN_EVENTS}}
+
+
+def admin_receives_event(admin, branch_id, event):
+    return bool(admin.get('is_super') or
+                (event not in GLOBAL_ADMIN_EVENTS and str(branch_id) in admin['branch_ids']))
 
 
 def valid_phone(value):
@@ -100,6 +107,8 @@ class IdentityService:
             ]
             for sql in statements:
                 db.execute(sql)
+            # Access diagnostics now belong to the browser view that requested them.
+            db.execute('DROP TABLE IF EXISTS integration_checks')
             # Freeze the old effective choices once, before changing defaults for new accounts.
             db.execute('CREATE TABLE IF NOT EXISTS identity_migrations(name TEXT PRIMARY KEY,applied REAL NOT NULL)')
             if not db.execute('SELECT 1 FROM identity_migrations WHERE name=?', ('admin_notification_defaults_v2',)).fetchone():
@@ -210,6 +219,13 @@ class IdentityService:
                     else:
                         counts['unlinked_accounts']+=1;continue
                 person_id=admin['person_id']
+                if (admin.get('marketplace_password_setup_required')
+                        and db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="password_reset_requests"').fetchone()
+                        and db.execute('SELECT 1 FROM password_reset_requests r JOIN identity_otp o ON o.id=r.challenge_id '
+                                       'WHERE r.username=? AND r.person_id=? AND r.state="completed" AND o.state="used"',
+                                       (username,person_id)).fetchone()):
+                    # Earlier releases kept this flag even after successful phone recovery.
+                    admin.pop('marketplace_password_setup_required')
                 if not db.execute('SELECT 1 FROM persons WHERE id=?',(person_id,)).fetchone():
                     raise ValueError('Администратор ссылается на отсутствующую личность')
                 inserted=db.execute('INSERT OR IGNORE INTO web_accounts(username,person_id) VALUES(?,?)',(username,person_id)).rowcount
@@ -255,7 +271,7 @@ class IdentityService:
         accounts=read_document(db,'admins.json')
         for account in accounts.values():
             if account.get('person_id')==person_id and not account.get('is_super') and str(account.get('branch_id'))!=str(branch_id):
-                raise ValueError('Администратор уже закреплён за другим филиалом. Обратитесь к суперадминистратору')
+                raise ValueError('Администратор уже закреплён за другим филиалом. Обратитесь в поддержку GateBot')
 
     def _admin_grant(self,db,person_id,branch_id):
         links=read_document(db,'links.json')
@@ -356,13 +372,21 @@ class IdentityService:
             return {'branch_name':branch.get('name',''),'expires_at':row['expires'],'phone_fixed':bool(row['phone'])}
 
     def request_otp(self,raw,phone=None,ip='',*,registration=False):
+        def resolve(db):
+            row=self._registration(db,raw) if registration else self._invitation(db,raw)
+            subject=('registration:' if registration else 'invitation:')+row['id']
+            return subject,row['phone'] or phone,row['branch_id']
+        return self.request_phone_otp(resolve,ip)
+
+    def request_phone_otp(self,resolve,ip):
+        """Validate the hand-off and reserve its challenge together, then send outside the transaction."""
         from registration_sms import sms_recipient
         now=self.clock();challenge=uuid.uuid4().hex;code=f'{secrets.randbelow(1000000):06d}'
         with self.product.connect() as db:
-            row=self._registration(db,raw) if registration else self._invitation(db,raw)
-            phone=valid_phone(row['phone'] or phone)
+            subject,phone,branch_id=resolve(db)
+            phone=valid_phone(phone)
             recipient=sms_recipient(phone)
-            subject=('registration:' if registration else 'invitation:')+row['id'];ip_hash=self._hash(ip)
+            ip_hash=self._hash(ip)
             recent=db.execute('SELECT created FROM identity_otp WHERE phone=? ORDER BY created DESC LIMIT 1',(phone,)).fetchone()
             if recent and recent['created']>now-60:
                 raise OtpRateLimit(math.ceil(recent['created'] + 60 - now), 'Дождитесь окончания таймера повторной отправки')
@@ -372,7 +396,7 @@ class IdentityService:
             db.execute('INSERT INTO identity_otp(id,subject,phone,code_hash,expires,state,created,ip_hash) VALUES(?,?,?,?,?,"sending",?,?)',(challenge,subject,phone,self._code_hash(challenge,code),now+300,now,ip_hash))
         # Keep the code in ONE UCS2 segment. Waiting for a second segment can
         # hide the whole message on the phone even after the network accepted it.
-        delivery=self._send('sms',recipient,'GateBot: '+code+'. Код действует 5 минут. Никому не сообщайте.',{'event':'verification_code','purpose':'otp','billing_exempt':'registration','idempotency_key':challenge,'branch_id':row['branch_id']})
+        delivery=self._send('sms',recipient,'GateBot: '+code+'. Код действует 5 минут. Никому не сообщайте.',{'event':'verification_code','purpose':'otp','billing_exempt':'registration','idempotency_key':challenge,'branch_id':branch_id})
         delivery={key:value for key,value in delivery.items() if key!='_development_redirect'}
         # Queued means the concrete transport durably owns the send; unknown/failed
         # never activate the challenge. A real code remains necessary in all cases.
@@ -387,21 +411,24 @@ class IdentityService:
 
     def otp_status(self, raw, *, registration=False):
         """Status is bound to the invitation; no phone, code or hash is returned."""
-        now=self.clock()
         with self.product.connect() as db:
             row=self._registration(db,raw) if registration else self._invitation(db,raw)
             subject=('registration:' if registration else 'invitation:')+row['id']
-            otp=db.execute('SELECT * FROM identity_otp WHERE subject=? ORDER BY created DESC LIMIT 1',(subject,)).fetchone()
-            if not otp:return {'challenge_id':None,'retry_after':0,'server_time':now,'ready':False}
-            delivery=json.loads(otp['delivery'] or '{}')
-            if self.delivery_status:
-                delivery=self.delivery_status('sms',otp['id']) or delivery
-            terminal=delivery.get('delivery') or delivery.get('status')
-            ready=otp['state']=='ready' and otp['expires']>now and self._otp_delivery_allowed(otp) and terminal not in {'failed','error','cancelled','expired','simulated'}
-            return {'challenge_id':otp['id'],'retry_after':max(0,math.ceil(otp['created']+60-now)),
-                    'resend_at':otp['created']+60,'server_time':now,'expires_at':otp['expires'],
-                    'ready':ready,'delivery':{k:delivery.get(k) for k in ('status','delivery','code','confirmed')},
-                    'phone_hint':'••• '+otp['phone'][-4:]}
+            return self.otp_subject_status(db, subject)
+
+    def otp_subject_status(self, db, subject):
+        now=self.clock()
+        otp=db.execute('SELECT * FROM identity_otp WHERE subject=? ORDER BY created DESC LIMIT 1',(subject,)).fetchone()
+        if not otp:return {'challenge_id':None,'retry_after':0,'server_time':now,'ready':False}
+        delivery=json.loads(otp['delivery'] or '{}')
+        if self.delivery_status:
+            delivery=self.delivery_status('sms',otp['id']) or delivery
+        terminal=delivery.get('delivery') or delivery.get('status')
+        ready=otp['state']=='ready' and otp['expires']>now and self._otp_delivery_allowed(otp) and terminal not in {'failed','error','cancelled','expired','simulated'}
+        return {'challenge_id':otp['id'],'retry_after':max(0,math.ceil(otp['created']+60-now)),
+                'resend_at':otp['created']+60,'server_time':now,'expires_at':otp['expires'],
+                'ready':ready,'delivery':{k:delivery.get(k) for k in ('status','delivery','code','confirmed')},
+                'phone_hint':'••• '+otp['phone'][-4:]}
 
     def _otp_delivery_allowed(self, row):
         """A development redirect never becomes real phone proof in production."""
@@ -434,13 +461,13 @@ class IdentityService:
                     person_id=existing.get('person_id')
                     person=db.execute('SELECT * FROM persons WHERE id=?',(person_id,)).fetchone()
                     if not person or person['phone']!=otp['phone']:raise ValueError('Телефон существующего аккаунта не совпадает')
-                    if existing.get('is_super'):raise ValueError('Суперадминистратору не требуется приглашение')
+                    if existing.get('is_super'):raise ValueError('Эту учётную запись нельзя пригласить в филиал')
                     self._require_single_branch(db,person_id,invitation['branch_id'])
                 else:
                     username=valid_email(username)
                     if not username:raise ValueError('Укажите email — он будет логином')
                     verified=db.execute('SELECT id FROM persons WHERE phone=? AND phone_verified=1',(otp['phone'],)).fetchall()
-                    if len(verified)>1:raise ValueError('Номер связан с несколькими профилями. Обратитесь к суперадминистратору')
+                    if len(verified)>1:raise ValueError('Номер связан с несколькими профилями. Обратитесь в поддержку GateBot')
                     person_id=verified[0]['id'] if verified else None
                     if person_id and db.execute('SELECT 1 FROM web_accounts WHERE person_id=?',(person_id,)).fetchone():raise ValueError('Для этого телефона уже есть аккаунт. Используйте существующий логин')
                     if not person_id and invitation['client_token']:
@@ -567,7 +594,7 @@ class IdentityService:
         is_super=bool(person_id and person_id in supers)
         is_admin=bool(is_super or (person_id and person_id in active))
         last=bool(not is_super and person_id in active and len(active)<=1)
-        reason=('Суперадминистратора нельзя удалить или лишить прав через карточку клиента' if is_super else
+        reason=('Права администрации сервиса GateBot нельзя изменить через карточку клиента' if is_super else
                 'Это последний администратор филиала. Сначала назначьте другого администратора' if last else '')
         return {'is_admin':is_admin,'is_super':is_super,'person_id':person_id,'last_admin':last,
                 'can_revoke':bool(is_admin and not is_super and not last),'can_delete':not (is_super or last),'reason':reason}
@@ -633,7 +660,7 @@ class IdentityService:
             proof=self._hash(str(admin.get('password_hash'))+'|'+str(admin.get('session_version',0)))
             if not hmac.compare_digest(json.loads(row['payload']).get('auth_proof',''),proof):raise ValueError('Аккаунт изменился. Получите новую ссылку привязки')
             conflicts=db.execute('SELECT * FROM bot_bindings WHERE platform=? AND (user_id=? OR person_id=?)',(platform,str(user_id),row['person_id'])).fetchall()
-            if any(r['person_id']!=row['person_id'] or r['user_id']!=str(user_id) for r in conflicts):raise ValueError('Бот уже привязан; обратитесь к суперадминистратору')
+            if any(r['person_id']!=row['person_id'] or r['user_id']!=str(user_id) for r in conflicts):raise ValueError('Бот уже привязан. Обратитесь в поддержку GateBot')
             db.execute('INSERT INTO bot_bindings(platform,user_id,person_id,assurance) VALUES(?,?,?,"admin_verified") ON CONFLICT(platform,user_id) DO UPDATE SET assurance="admin_verified",revision=revision+1',(platform,str(user_id),row['person_id']))
             db.execute('UPDATE identity_tickets SET used=1 WHERE token_hash=?',(self._hash(ticket),))
             field='tg_id' if platform=='telegram' else 'max_id';links=read_document(db,'links.json')
@@ -752,7 +779,7 @@ class IdentityService:
             if not row or not client or email==client.get('email',''):return
             actor=self._scope(db,username,client['branch_id'])
             if not actor.get('is_super') and any(admin.get('is_super') for admin in self._person_admins(db,row['person_id'])):
-                raise PermissionError('Email суперадминистратора может изменить только суперадминистратор')
+                raise PermissionError('Недостаточно прав для изменения email этой учётной записи')
 
     def save_prefs_for_token(self,token,payload,*,actor_username=None):
         channels=payload.get('channels',{});enabled=payload.get('enabled')
@@ -884,8 +911,12 @@ class IdentityService:
             contact=self._admin_contact(db,admin)
             row=db.execute('SELECT payload FROM notification_preferences WHERE person_id=? AND audience="admin" AND branch_id=""',(admin['person_id'],)).fetchone()
             prefs=json.loads(row['payload']) if row else default_admin_preferences()
+            prefs['events']={**default_admin_preferences()['events'], **prefs.get('events',{})}
             if not admin.get('is_super'):
-                prefs['events']={e:c for e,c in prefs.get('events',{}).items() if e not in {'sms_received','call_received'}}
+                prefs['events']={e:c for e,c in prefs['events'].items() if e not in GLOBAL_ADMIN_EVENTS}
+                branch=read_document(db,'branches.json').get(str(admin['branch_id']),{})
+                if not branch.get('yclients_enabled',True):
+                    prefs['events'].pop('marketplace_disconnected',None)
             bindings={r['platform']:True for r in db.execute('SELECT platform FROM bot_bindings WHERE person_id=? AND assurance="admin_verified"',(admin['person_id'],))}
             return {**prefs,'person_id':admin['person_id'],'requires_phone':False,'email':contact['email'],'email_verified':contact['email_verified'],
                 'channels':{'email':bool(contact['email']),**{p:bindings.get(p,False) for p in ('telegram','max')}},'is_super':bool(admin.get('is_super'))}
@@ -896,7 +927,8 @@ class IdentityService:
         with self.product.connect() as db:
             admin=self._admin(db,username)
             if not admin['person_id']:raise ValueError('Сначала укажите телефон аккаунта через консоль')
-            if not admin.get('is_super') and any(any(events.get(e,{}).values()) for e in ('sms_received','call_received')):raise PermissionError('События SIM800 доступны только суперадминистратору')
+            if not admin.get('is_super') and any(any(events.get(e,{}).values()) for e in GLOBAL_ADMIN_EVENTS):
+                raise PermissionError('Эти события доступны только администрации сервиса GateBot')
             normalized={'events':{e:{c:bool(events.get(e,{}).get(c,False)) for c in ('email','telegram','max')} for e in ADMIN_EVENTS}}
             db.execute('INSERT INTO notification_preferences(person_id,audience,branch_id,payload) VALUES(?,"admin","",?) ON CONFLICT(person_id,audience,branch_id) DO UPDATE SET payload=excluded.payload',(admin['person_id'],json.dumps(normalized)))
         return self.admin_preferences(username)
@@ -908,7 +940,7 @@ class IdentityService:
             for account in db.execute('SELECT username,person_id FROM web_accounts').fetchall():
                 try:admin=self._admin(db,account['username'])
                 except PermissionError:continue
-                if not admin.get('is_super') and (event in {'sms_received','call_received'} or str(branch_id) not in admin['branch_ids']):continue
+                if not admin_receives_event(admin,branch_id,event):continue
                 pref=db.execute('SELECT payload FROM notification_preferences WHERE person_id=? AND audience="admin" AND branch_id=""',(account['person_id'],)).fetchone()
                 channels=json.loads(pref['payload']).get('events',{}).get(event,{}) if pref else default_admin_preferences()['events'][event]
                 contact=self._admin_contact(db,admin)
@@ -917,11 +949,17 @@ class IdentityService:
                     if channels.get(binding['platform']):result.append({'person_id':account['person_id'],'username':account['username'],'channel':binding['platform'],'target':binding['user_id']})
         return result
 
-    def register_branch(self,branch_id,name,person_name,phone,*,yclients_enabled=True,connection_mode='direct'):
+    def branch_registered(self, branch_id, source, person_id):
+        if self.event_sink:
+            label = 'Маркетплейс YCLIENTS' if source == 'marketplace' else 'Форма GateBot'
+            self.event_sink('branch_registered', str(branch_id), {
+                'event_id': f'registration:{branch_id}:{person_id}', 'message': label,
+            })
+
+    def register_branch(self,branch_id,name,person_name,phone,*,yclients_enabled=True):
         from branch_manager import allocate_internal_branch_id
         phone=valid_phone(phone)
         if type(yclients_enabled) is not bool:raise ValueError('Выберите тип филиала')
-        if connection_mode not in {'direct','marketplace'} or (connection_mode=='marketplace' and not yclients_enabled):raise ValueError('Некорректный способ подключения YCLIENTS')
         if not isinstance(name,str) or not name.strip() or len(name.strip())>200 or not isinstance(person_name,str) or not person_name.strip() or len(person_name.strip())>200:raise ValueError('Заполните название филиала и имя (до 200 символов), телефон')
         if yclients_enabled:
             branch_id=str(branch_id)
@@ -937,12 +975,13 @@ class IdentityService:
             if recent>=5:raise ValueError('Слишком много попыток регистрации')
             if not yclients_enabled:branch_id=str(allocate_internal_branch_id(db,branches))
             elif db.execute('SELECT 1 FROM branch_registrations WHERE branch_id=? AND yclients_enabled=0',(branch_id,)).fetchone():raise ValueError('Идентификатор уже зарезервирован')
-            db.execute('INSERT INTO branch_registrations(id,token_hash,branch_id,name,person_name,phone,expires,state,created,yclients_enabled,connection_mode) VALUES(?,?,?,?,?,?,?,"pending",?,?,?)',(identifier,self._hash(raw),branch_id,name.strip()[:200],person_name.strip()[:200],phone,self.clock()+3600,self.clock(),int(yclients_enabled),connection_mode))
+            db.execute('INSERT INTO branch_registrations(id,token_hash,branch_id,name,person_name,phone,expires,state,created,yclients_enabled) VALUES(?,?,?,?,?,?,?,"pending",?,?)',(identifier,self._hash(raw),branch_id,name.strip()[:200],person_name.strip()[:200],phone,self.clock()+3600,self.clock(),int(yclients_enabled)))
         return {'registration_token':raw,'expires_at':self.clock()+3600,'yclients_enabled':yclients_enabled}
 
     def _registration(self,db,raw):
         row=db.execute('SELECT * FROM branch_registrations WHERE token_hash=?',(self._hash(raw),)).fetchone()
         if not row or row['state']!='pending' or row['expires']<=self.clock():raise ValueError('Регистрация истекла или завершена')
+        if row['connection_mode']=='marketplace':raise ValueError('Продолжите регистрацию из карточки GateBot в YCLIENTS')
         return row
 
     def complete_registration(self,raw,challenge,code,username,password,*,billing=None,details=None):
@@ -964,32 +1003,51 @@ class IdentityService:
             if otp:
                 branches=read_document(db,'branches.json');admins=read_document(db,'admins.json')
                 if row['branch_id'] in branches or AdminAuth.resolve_username(admins,username) in admins:raise ValueError('Филиал или email уже зарегистрирован')
-                if db.execute('SELECT 1 FROM persons p JOIN web_accounts a ON a.person_id=p.id WHERE p.phone=?',(otp['phone'],)).fetchone():raise ValueError('У телефона уже есть аккаунт; используйте приглашение или обратитесь к суперадминистратору')
+                if db.execute('SELECT 1 FROM persons p JOIN web_accounts a ON a.person_id=p.id WHERE p.phone=?',(otp['phone'],)).fetchone():raise ValueError('У телефона уже есть аккаунт. Воспользуйтесь приглашением или обратитесь в поддержку GateBot')
                 person_id=self._person(db,row['person_name'],otp['phone'],verified=True)
                 db.execute('UPDATE persons SET email=? WHERE id=?',(username,person_id))
-                crm_enabled=bool(row['yclients_enabled']);status='pending_verification' if crm_enabled else 'active'
-                branches[row['branch_id']]={'branch_id':int(row['branch_id']),'name':row['name'],'timezone':'Europe/Moscow','enabled':not crm_enabled,'yclients_enabled':crm_enabled,'id_origin':'yclients' if crm_enabled else 'internal','onboarding_status':status,'hardware_routes_verified':False,'buttons':[]}
+                crm_enabled=bool(row['yclients_enabled'])
+                branches[row['branch_id']]={'branch_id':int(row['branch_id']),'name':row['name'],'timezone':'Europe/Moscow','enabled':True,'yclients_enabled':crm_enabled,'id_origin':'yclients' if crm_enabled else 'internal','onboarding_status':'active','hardware_routes_verified':False,'buttons':[]}
                 if crm_enabled:branches[row['branch_id']]['yclients_connection_mode']=row['connection_mode']
                 admins[username]={'name':row['person_name'],'phone':otp['phone'],'person_id':person_id,'password_hash':AdminAuth.hash_password(password),'branch_id':int(row['branch_id']),'is_super':False,'disabled':False,'session_version':1}
                 write_document(db,'branches.json',branches);write_document(db,'admins.json',admins)
                 db.execute('INSERT INTO web_accounts(username,person_id) VALUES(?,?)',(username,person_id));self._membership(db,person_id,row['branch_id'])
-                if not crm_enabled:
-                    billing.activate_trial(row['branch_id'],timezone='Europe/Moscow',at=self.clock(),db=db)
+                billing.activate_trial(row['branch_id'],timezone='Europe/Moscow',at=self.clock(),db=db)
                 db.execute('UPDATE identity_otp SET state="used" WHERE id=?',(challenge,));db.execute('UPDATE branch_registrations SET state="completed" WHERE id=?',(row['id'],))
-                result={'username':username,'branch_id':row['branch_id'],'person_id':person_id,'status':status,'yclients_enabled':crm_enabled}
+                result={'username':username,'branch_id':row['branch_id'],'person_id':person_id,'status':'active','yclients_enabled':crm_enabled}
                 if self.welcome_sink:self.welcome_sink(person_id,row['branch_id'],username)
+                self.branch_registered(row['branch_id'],'manual',person_id)
         if result is None:raise ValueError('Код неверен, истёк или исчерпан лимит попыток')
         return result
 
-    def activate_branch(self,username,branch_id,billing):
+    def activate_registration_trial_if_unused(self, db, billing, branch_id, branch):
+        """A former pending workspace can already have a paid, cancelled or used term."""
+        used = db.execute('SELECT 1 FROM billing_terms WHERE branch_id=? AND source<>"legacy" '
+                          'UNION ALL SELECT 1 FROM gate_requests WHERE branch_id=? '
+                          'UNION ALL SELECT 1 FROM billing_renewals WHERE branch_id=? AND access_cancelled=1 '
+                          'UNION ALL SELECT 1 FROM billing_accounts WHERE branch_id=? AND suspended=1 LIMIT 1',
+                          (branch_id,) * 4).fetchone()
+        if not used:
+            billing.activate_trial(branch_id, timezone=branch.get('timezone','Europe/Moscow'), at=self.clock(), db=db)
+
+    def activate_pending_manual_registrations(self, billing):
+        """Upgrade SMS-completed manual registrations without changing an existing subscription."""
         with self.product.connect() as db:
-            admin=self._scope(db,username,branch_id)
-            if not admin.get('is_super'):raise PermissionError('Активировать маршруты может только суперадминистратор')
-            branches=read_document(db,'branches.json');branch=branches[str(branch_id)]
-            if branch.get('onboarding_status')!='pending_verification':raise ValueError('Филиал не ожидает проверки')
-            branch.update(enabled=True,onboarding_status='active');write_document(db,'branches.json',branches)
-            billing.activate_trial(str(branch_id),timezone=branch.get('timezone','Europe/Moscow'),db=db)
-        return {'status':'active'}
+            branches = read_document(db,'branches.json')
+            changed = False
+            for key, branch in branches.items():
+                if (branch.get('onboarding_status') != 'pending_verification' or not branch.get('yclients_enabled', True)
+                        or branch.get('yclients_connection_mode', 'direct') != 'direct'):
+                    continue
+                registered = db.execute('SELECT 1 FROM branch_registrations WHERE branch_id=? AND state="completed" '
+                                        'AND yclients_enabled=1 AND connection_mode="direct"', (key,)).fetchone()
+                if not registered:
+                    continue
+                branch.update(enabled=True, onboarding_status='active')
+                changed = True
+                self.activate_registration_trial_if_unused(db, billing, key, branch)
+            if changed:
+                write_document(db,'branches.json',branches)
 
     def _fernet(self):
         from cryptography.fernet import Fernet
@@ -1026,8 +1084,6 @@ class IdentityService:
                 write_document(db,'branches.json',branches)
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='marketplace_branches'").fetchone():
                     db.execute('INSERT INTO marketplace_branches VALUES(?,"direct",1,?) ON CONFLICT(branch_id) DO UPDATE SET state="direct",generation=generation+1,updated=excluded.updated',(str(branch_id),self.clock()))
-            self._integration_checks_table(db)
-            db.execute('DELETE FROM integration_checks WHERE branch_id=? AND kind=?',(str(branch_id),kind))
             if kind=='yclients':
                 from yclients_connection import account_profile
                 profile=account_profile(account)
@@ -1052,11 +1108,7 @@ class IdentityService:
     def integration_status(self,username,branch_id):
         with self.product.connect() as db:
             self._integration_scope(db,username,branch_id)
-            self._integration_checks_table(db)
             result={r['kind']:{'configured':True,'updated':r['updated']} for r in db.execute('SELECT kind,updated FROM identity_integrations WHERE branch_id=?',(str(branch_id),))}
-            for row in db.execute('SELECT kind,result,checked_at FROM integration_checks WHERE branch_id=?',(str(branch_id),)):
-                if row['kind']=='chatpush':continue
-                result.setdefault(row['kind'],{'configured':False}).update(check=json.loads(row['result']),checked_at=row['checked_at'])
             branch=read_document(db,'branches.json')[str(branch_id)]
             source=branch.get('yclients_connection_source')
             state=branch.get('yclients_marketplace_state')
@@ -1079,26 +1131,3 @@ class IdentityService:
         branch=read_document(db,'branches.json').get(str(branch_id),{})
         if branch.get('yclients_enabled',True) is False:raise PermissionError('Подключения YCLIENTS и ChatPush доступны только филиалам с YCLIENTS')
         return admin
-
-    @staticmethod
-    def _integration_checks_table(db):
-        db.execute('CREATE TABLE IF NOT EXISTS integration_checks(branch_id TEXT NOT NULL,kind TEXT NOT NULL,result TEXT NOT NULL,checked_at REAL NOT NULL,PRIMARY KEY(branch_id,kind))')
-
-    def record_integration_check(self,username,branch_id,kind,result,expected_credentials=None):
-        if kind!='yclients' or not isinstance(result,dict):raise ValueError('Некорректная проверка подключения')
-        # Only our fixed, non-sensitive diagnostic vocabulary is persisted.
-        codes={'ready','verified','permission_missing','staff_restricted','permissions_missing','contacts_unconfirmed','credentials_missing','authorization_failed','access_denied','branch_unavailable','rate_limited','provider_unavailable','invalid_response','transport_error','provider_rejected','invalid_account','invalid_provider_response','duplicate_requires_reconciliation'}
-        code=result.get('code') if result.get('code') in codes else ('ready' if result.get('connected') is True else 'provider_unavailable')
-        safe={'connected':result.get('connected') is True,'code':code,'checks':[]}
-        for item in result.get('checks',[]):
-            if isinstance(item,dict) and item.get('key') in {'branch','records','contacts','client_directory','all_staff','records_api','account'} and item.get('state') in {'success','warning','error'}:
-                safe['checks'].append({'key':item['key'],'state':item['state'],'code':item.get('code') if item.get('code') in codes else 'provider_unavailable'})
-        with self.product.connect() as db:
-            self._integration_scope(db,username,branch_id)
-            if expected_credentials is not None:
-                row=db.execute('SELECT ciphertext FROM identity_integrations WHERE branch_id=? AND kind=?',(str(branch_id),kind)).fetchone()
-                current=json.loads(self._fernet().decrypt(row['ciphertext'].encode())) if row else {}
-                if current!=expected_credentials:return False
-            self._integration_checks_table(db)
-            db.execute('INSERT INTO integration_checks VALUES(?,?,?,?) ON CONFLICT(branch_id,kind) DO UPDATE SET result=excluded.result,checked_at=excluded.checked_at',(str(branch_id),kind,json.dumps(safe),self.clock()))
-        return True

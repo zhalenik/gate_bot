@@ -97,6 +97,7 @@ class PasswordRecovery:
             if not account:raise ValueError('Аккаунт изменился. Начните восстановление заново')
             admins=read_document(db,'admins.json');admin=admins[row['username']]
             admin['password_hash']=AdminAuth.hash_password(password)
+            admin.pop('marketplace_password_setup_required', None)
             admin['session_version']=int(admin.get('session_version',0))+1
             write_document(db,'admins.json',admins)
             db.execute('UPDATE password_reset_sessions SET used=1 WHERE request_hash IN (SELECT token_hash FROM password_reset_requests WHERE username=?)',(row['username'],))

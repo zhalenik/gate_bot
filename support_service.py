@@ -31,7 +31,7 @@ class SupportService:
     def _actor(self, db, username, branch=None, *, super_only=False):
         actor = self.identity._scope(db,username,branch) if branch is not None else self.identity._admin(db,username)
         if super_only and not actor.get('is_super'):
-            raise PermissionError('Обращения других администраторов доступны только суперадминистратору')
+            raise PermissionError('Нет доступа к чужим обращениям')
         return actor
 
     def _thread(self, db, username, thread_id):
@@ -140,7 +140,7 @@ class SupportService:
 
     def bot_actor(self, platform, user_id):
         actor=self.identity.bot_admin(platform,str(user_id))
-        if not actor or not actor.get('is_super'):raise PermissionError('Поддержка в боте доступна суперадминистратору')
+        if not actor or not actor.get('is_super'):raise PermissionError('Для обращения в поддержку откройте чат в кабинете GateBot')
         return actor
 
     def _recipient(self, db, row):

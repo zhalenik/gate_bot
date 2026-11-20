@@ -5,7 +5,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from identity_service import ADMIN_EVENTS
 from access_service import AccessService
 from admin_auth import AdminAuth
 from application_services import ApplicationServices
@@ -37,7 +36,7 @@ def product(tmp_path, monkeypatch):
     # Delivery tests explicitly opt in; account defaults have separate regressions.
     for username in ('supertest', 'branchtest'):
         services.identity.save_admin_preferences(username, {'events': {event: {'telegram': True}
-            for event in ADMIN_EVENTS if username == 'supertest' or event not in {'sms_received', 'call_received'}}})
+            for event in services.identity.admin_preferences(username)['events']}})
     for username, platform, uid in [('supertest','telegram','90'),('branchtest','telegram','91')]:
         ticket = services.identity.issue_bind_ticket(username, platform)
         services.identity.bind_ticket(platform, uid, ticket)

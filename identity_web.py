@@ -1,7 +1,7 @@
 """Identity/onboarding views. Provider lookups keep tenant checks current."""
 from functools import wraps
 import secrets
-from flask import Blueprint, abort, jsonify, render_template, request, session
+from flask import Blueprint, abort, jsonify, redirect, render_template, request, session
 from storage import config
 from identity_service import ADMIN_EVENTS, OtpRateLimit
 
@@ -76,20 +76,20 @@ def create_blueprint(provider):
 
     @bp.get('/register-branch')
     def registration_page():
-        from yclients_marketplace_web import registration_defaults, SESSION_KEYS
+        from yclients_marketplace_web import SESSION_KEYS
         if request.args.get('mode')=='direct':
             for key in SESSION_KEYS:session.pop(key,None)
-        return page('register','Подключить филиал',initial=registration_defaults(provider))
+        elif any(session.get(key) for key in SESSION_KEYS):
+            return redirect('/yclients/marketplace', code=303)
+        return page('register','Подключить филиал',initial={})
 
     @bp.post('/register-branch')
     def registration_create():
-        from yclients_marketplace_web import registration_context
-        data=body();context=registration_context(provider)
-        if context:
-            if data.get('branch_id') not in (None,'',context['branch_id'],int(context['branch_id'])):
-                raise ValueError('Филиал выбран в YCLIENTS. Начните новый переход для другого филиала')
-            if data.get('yclients_enabled',True) not in (True,'true'):raise ValueError('Это регистрация через маркетплейс YCLIENTS')
-        return jsonify(svc().register_branch(context['branch_id'] if context else data.get('branch_id'),data.get('branch_name'),data.get('name'),data.get('phone'),yclients_enabled=True if context else data.get('yclients_enabled',True),connection_mode='marketplace' if context else 'direct'))
+        from yclients_marketplace_web import SESSION_KEYS
+        data=body()
+        if any(session.get(key) for key in SESSION_KEYS):
+            raise ValueError('Продолжите подключение на странице маркетплейса GateBot')
+        return jsonify(svc().register_branch(data.get('branch_id'),data.get('branch_name'),data.get('name'),data.get('phone'),yclients_enabled=data.get('yclients_enabled',True)))
 
     @bp.post('/register-branch/code')
     def registration_code():
@@ -100,25 +100,9 @@ def create_blueprint(provider):
 
     @bp.post('/register-branch/complete')
     def registration_complete():
-        from yclients_marketplace_web import registration_context
         data=body()
-        with svc().product.connect() as db:
-            registration=svc()._registration(db,data.get('registration_token'))
-            if registration['connection_mode']=='marketplace':
-                context=registration_context(provider)
-                if not context or context['branch_id']!=registration['branch_id']:
-                    raise ValueError('Продолжите регистрацию из исходного перехода YCLIENTS')
-                if data.get('branch_id') not in (None,'',context['branch_id'],int(context['branch_id'])):
-                    raise ValueError('Филиал выбран в YCLIENTS')
-                data.update(branch_id=context['branch_id'],yclients_enabled=True)
-            result=svc().complete_registration(data.get('registration_token'),data.get('challenge_id'),data.get('code'),data.get('username'),data.get('password'),billing=services().get('billing'),details=data)
+        result=svc().complete_registration(data.get('registration_token'),data.get('challenge_id'),data.get('code'),data.get('username'),data.get('password'),billing=services().get('billing'),details=data)
         return jsonify(result)
-
-    @bp.post('/admin/api/identity/branches/<branch_id>/activate')
-    def activate(branch_id):
-        username,admin=actor();billing=services().get('billing')
-        if billing is None:raise ValueError('Сервис подписок не настроен')
-        return jsonify(svc().activate_branch(username,branch_id,billing))
 
     @bp.get('/preferences/<token>')
     def preferences_page(token):return page('preferences','Уведомления',token=token,preferences=svc().prefs_for_token(token))
@@ -151,7 +135,8 @@ def create_blueprint(provider):
 
     @bp.get('/admin/notification-settings')
     def admin_preferences_page():
-        username,admin=actor();return page('admin_preferences','Мои уведомления',admin=admin,preferences=svc().admin_preferences(username),events=ADMIN_EVENTS)
+        username,admin=actor();prefs=svc().admin_preferences(username)
+        return page('admin_preferences','Мои уведомления',admin=admin,preferences=prefs,events=[event for event in ADMIN_EVENTS if event in prefs['events']])
 
     @bp.post('/admin/api/identity/notification-settings')
     def admin_preferences_save():
@@ -207,14 +192,19 @@ def create_blueprint(provider):
 
     @bp.post('/admin/api/identity/integrations/<kind>/check')
     def integration_check(kind):
-        username,admin=actor();selected=branch(body());svc().integration_status(username,selected)
+        username,admin=actor();selected=branch(body());status=svc().integration_status(username,selected)
         if kind!='yclients':abort(404)
         credentials=svc().integration_credentials(selected,kind)
-        if not credentials:raise ValueError('Сначала сохраните подключение')
+        if not credentials:
+            message=('Откройте карточку GateBot в маркетплейсе YCLIENTS и нажмите «Подключить».'
+                     if status[kind]['mode']=='marketplace' else 'Войдите в учётную запись YCLIENTS этого филиала.')
+            return jsonify(connected=False,code='credentials_missing',message=message,checks=[])
         checker=services().get('check_yclients')
-        if kind=='yclients' and checker:
+        if checker:
             result=checker(selected,credentials)
-            svc().record_integration_check(username,selected,kind,result,credentials)
+            svc().integration_status(username,selected)
+            if svc().integration_credentials(selected,kind)!=credentials:
+                return jsonify(connected=False,code='connection_changed',message='Подключение изменилось. Проверьте доступ ещё раз.',checks=[])
             return jsonify(result)
         raise ValueError('Проверка подключения недоступна')
 
@@ -248,9 +238,8 @@ def create_blueprint(provider):
                 checker=YClientsConnector().check_permissions
             check=checker(selected,credentials)
             if check.get('connected') is not True:
-                svc().record_integration_check(username,selected,'yclients',check)
                 return jsonify(status='error',requires_2fa=False,configured=False,check=check,message=check.get('message','Недостаточно прав пользователя YCLIENTS')),400
             svc().save_integration(username,selected,'yclients',credentials,verified_direct=True,account=result.get('account'))
-            svc().record_integration_check(username,selected,'yclients',check,credentials)
+            return jsonify(status='success',requires_2fa=False,configured=True,check=check)
         return jsonify(status='success',requires_2fa=bool(result.get('requires_2fa')),configured=bool(result.get('user_token')))
     return bp

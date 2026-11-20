@@ -16,7 +16,7 @@ def create_blueprint(provider):
     def invalid(error):return jsonify(status='error',message=str(error)),400
 
     @bp.errorhandler(PermissionError)
-    def forbidden(error):return jsonify(status='error',message='Системные настройки доступны только суперадминистратору'),403
+    def forbidden(error):return jsonify(status='error',message='Нет доступа к системным настройкам'),403
 
     @bp.errorhandler(RuntimeError)
     def unavailable(error):return jsonify(status='error',message='Системные настройки недоступны. Проверьте резервную копию файла настроек и ключа.'),503

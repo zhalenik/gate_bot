@@ -181,17 +181,34 @@ class MarketplaceService:
             result = []
             account = self._onboarding_account(db, intent)
             complete = self._automatic_profile(intent)
-            missing_id = bool(complete and not account and not
-                              (intent['profile'].get('user_id') or intent['profile'].get('salon_id')))
+            missing_id = bool(complete and not account and not self._identifies_installer(intent['profile']))
             auto = complete and not missing_id
             for branch_id in intent['branches']:
                 accessible = bool(admin and (admin.get('is_super') or branch_id in admin['branch_ids']))
                 branch = branches.get(branch_id) if accessible else None
                 attempt = db.execute('SELECT state,code FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?', (intent['id_hash'], branch_id)).fetchone() if accessible or auto else None
-                current = db.execute('SELECT state FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone() if accessible else None
+                current = db.execute('SELECT state,generation FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone() if accessible or attempt else None
+                state = current['state'] if current else attempt['state'] if attempt else 'pending'
+                confirmed = self._confirmed_generation(attempt, current)
+                if state == 'active' and not accessible and not confirmed and not (account and account['branch_id'] == branch_id):
+                    state = 'unknown'
                 result.append({'id': branch_id, 'name': branch.get('name') if branch else None,
                     'accessible': accessible, 'pending_verification': bool(branch and branch.get('onboarding_status') == 'pending_verification'),
-                    'state': current['state'] if current else attempt['state'] if attempt else 'pending'})
+                    'registration_required': bool(branch_id not in branches and confirmed),
+                    'state': state})
+                if result[-1]['registration_required'] and intent['expires'] > self.clock():
+                    subject = self._registration_subject(intent, branch_id, current['generation'])
+                    latest = db.execute('SELECT subject,phone,state FROM identity_otp WHERE subject=? OR subject LIKE ? '
+                                        'ORDER BY created DESC,rowid DESC LIMIT 1', (subject, subject + ':original:%')).fetchone()
+                    if latest:
+                        original = latest['subject'] != subject
+                        target = latest['subject'].rsplit(':', 1)[1] if original else latest['phone']
+                        otp = self.identity.otp_subject_status(db, latest['subject'])
+                        result[-1]['otp'] = {'phone':target, 'step':'original' if original else 'registration',
+                                              **{k:otp[k] for k in ('ready','phone_hint','challenge_id','retry_after')}}
+                        if latest['state'] == 'marketplace_verified':
+                            # Original proof is complete. The next send goes to the new number.
+                            result[-1]['otp'].update(step='registration', ready=False, retry_after=0)
             return {'branches': result, 'profile': intent['profile'], 'expires_at': intent['expires'],
                     'expired': intent['expires'] <= self.clock(), 'configured': self.configured(), 'enabled': self.enabled,
                     'authenticated': bool(admin), 'auto_onboarding': auto,
@@ -199,11 +216,18 @@ class MarketplaceService:
 
     @staticmethod
     def _automatic_profile(intent):
-        from identity_service import valid_email, valid_phone
+        return bool(intent['profile'])
+
+    @staticmethod
+    def _signed_phone(profile):
+        from identity_service import valid_phone
         try:
-            return bool(valid_phone(intent['profile'].get('phone')) and valid_email(intent['profile'].get('email')))
+            return valid_phone(profile.get('phone'))
         except ValueError:
-            return False
+            return None
+
+    def _identifies_installer(self, profile):
+        return bool(profile.get('user_id') or (profile.get('salon_id') and self._signed_phone(profile)))
 
     def _onboarding_account(self, db, intent, branch_id=None):
         query = 'SELECT * FROM marketplace_registrations WHERE intent_hash=?'
@@ -220,22 +244,42 @@ class MarketplaceService:
             return None
         if admin.get('is_super') or str(admin.get('branch_id')) != row['branch_id']:
             return None
-        required = bool(admin.get('marketplace_password_setup_required'))
-        proof = self._hash(str(admin.get('person_id')) + '|' + str(admin.get('password_hash')) + '|' + str(admin.get('session_version', 0)))
-        return {'username': row['username'], 'password_setup_required': required,
-                'can_set_password': bool(required and row['created_account'] and intent['expires'] > self.clock()
-                                         and hmac.compare_digest(row['auth_proof'], proof))}
+        return {'username': row['username'], 'branch_id': row['branch_id'], 'can_set_password': False}
+
+    @staticmethod
+    def _confirmed_generation(attempt, current):
+        return bool(current and current['state'] == 'active' and attempt and attempt['state'] == 'active'
+                    and attempt['code'] == 'consent:' + str(current['generation']))
+
+    @staticmethod
+    def _registration_subject(intent, branch_id, generation):
+        return ':'.join(('marketplace', intent['id_hash'], branch_id, str(generation)))
 
     def _deactivate_local(self, db, branch_id, state):
         if state not in {'uninstalled', 'frozen'}:
             return
         branches = read_document(db, 'branches.json')
         branch = branches.get(branch_id)
-        if branch and branch.get('yclients_connection_source') != 'direct':
+        if (branch and branch.get('yclients_enabled', True)
+                and branch.get('yclients_connection_source') != 'direct'
+                and branch.get('yclients_connection_mode') != 'direct'):
+            previous = branch.get('yclients_marketplace_state')
             branch['yclients_marketplace_state'] = state
+            if previous not in {'uninstalled', 'frozen'}:
+                # Invalidate polls already in flight, even if the branch reconnects before they finish.
+                branch['yclients_sync_revision'] = branch.get('yclients_sync_revision', 0) + 1
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='appointment_schedule'").fetchone():
+                    db.execute('UPDATE appointment_schedule SET active=0 WHERE branch_id=?', (branch_id,))
             write_document(db, 'branches.json', branches)
             if state == 'uninstalled':
                 db.execute('DELETE FROM identity_integrations WHERE branch_id=? AND kind="yclients"', (branch_id,))
+            if previous == 'active' and self.identity.event_sink:
+                self.identity.event_sink('marketplace_disconnected', branch_id, {
+                    'event_id': secrets.token_hex(16),
+                    'message': 'Автоматическая выдача пропусков по записям YCLIENTS остановлена. '
+                               'Подписка GateBot продолжает действовать на прежних условиях. Профиль филиала сохранён. '
+                               'Для удаления аккаунта обратитесь в поддержку GateBot.',
+                })
 
     def onboard(self, raw, browser, branch_id, *, reconcile=False):
         """Accept YC consent automatically without a GateBot superadmin review.
@@ -243,7 +287,7 @@ class MarketplaceService:
         Durable claims prevent duplicate installations. An uncertain POST is
         reconciled with GET, never blindly retried. No DB lock spans the network.
         """
-        from marketplace_onboarding import provision_marketplace, validate_marketplace_target
+        from marketplace_onboarding import provision_marketplace, reconnect_profile, validate_marketplace_target
         branch_id = positive_id(branch_id)
         api = self._api()
         if not self.enabled:
@@ -260,8 +304,9 @@ class MarketplaceService:
             if not self._automatic_profile(intent):
                 raise MarketplaceError('Для автоматического подключения включите передачу данных пользователя '
                                        'в карточке приложения YCLIENTS и укажите телефон и email пользователя.')
-            validate_marketplace_target(self.identity, db, branch_id, intent['profile'])
-            attempt = db.execute('SELECT state FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?',
+            if branch_id in read_document(db, 'branches.json'):
+                validate_marketplace_target(self.identity, db, branch_id, reconnect_profile(db, branch_id, profile))
+            attempt = db.execute('SELECT state,code FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?',
                                  (intent['id_hash'], branch_id)).fetchone()
             current = db.execute('SELECT * FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
             if reconcile and not current and not attempt:
@@ -269,9 +314,12 @@ class MarketplaceService:
             account = self._onboarding_account(db, intent, branch_id)
             if attempt and account and not reconcile:
                 return {'state': current['state'] if current else attempt['state'], 'account': account, 'replayed': True}
-            if not signed_user and not signed_branch:
-                raise MarketplaceError('Нужен новый переход из карточки GateBot в YCLIENTS: '
-                                       'в сохранённых данных нет идентификатора пользователя или филиала.')
+            if not reconcile and self._confirmed_generation(attempt, current) and branch_id not in read_document(db, 'branches.json'):
+                return {'state': 'active', 'registration_required': True}
+            if attempt and current and current['state'] in {'uninstalled','frozen'}:
+                reconcile = True
+            if not self._identifies_installer(profile):
+                raise MarketplaceError('Данных для регистрации недостаточно. Снова откройте GateBot из карточки YCLIENTS с передачей данных пользователя.')
             if current and current['state'] == 'installing':
                 # A concurrent request must not verify/provision before the first
                 # POST has returned. A stale claim can be checked after its timeout.
@@ -326,33 +374,128 @@ class MarketplaceService:
             current = db.execute('SELECT generation,state FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
             if not current or current['generation'] != generation or current['state'] != 'active':
                 return {'state': 'unknown', 'code': 'connection_changed'}
-            result = provision_marketplace(self.identity, db, branch_id, intent['profile'],
-                                           {'name': intent['profile'].get('salon_name')})
+            db.execute('UPDATE marketplace_attempts SET code=? WHERE intent_hash=? AND branch_id=?',
+                       ('consent:' + str(generation), intent['id_hash'], branch_id))
+            if branch_id not in read_document(db, 'branches.json'):
+                return {'state': 'active', 'registration_required': True}
+            result = provision_marketplace(self.identity, db, branch_id, reconnect_profile(db, branch_id, intent['profile']), {})
             self._activate_local(db, result['username'], branch_id, generation)
-            admin = self.identity._admin(db, result['username'])
-            proof = self._hash(str(admin.get('person_id')) + '|' + str(admin.get('password_hash')) + '|' + str(admin.get('session_version', 0)))
-            db.execute('INSERT INTO marketplace_registrations VALUES(?,?,?,?,?) '
-                       'ON CONFLICT(intent_hash,branch_id) DO NOTHING',
-                       (intent['id_hash'], branch_id, result['username'], int(result['created']), proof))
+            self._record_account(db, intent, branch_id, result['username'])
             return {'state': 'active', 'account': self._onboarding_account(db, intent, branch_id)}
 
-    def set_onboarding_password(self, raw, browser, password, confirm):
-        from marketplace_onboarding import set_marketplace_password
+    @staticmethod
+    def _record_account(db, intent, branch_id, username):
+        db.execute('INSERT INTO marketplace_registrations(intent_hash,branch_id,username,created_account) VALUES(?,?,?,0) '
+                   'ON CONFLICT(intent_hash,branch_id) DO NOTHING', (intent['id_hash'], branch_id, username))
+
+    def _registration_context(self, db, raw, browser, branch_id):
+        intent = self._intent(db, raw, browser)
+        if not self.enabled or not self.configured() or branch_id not in intent['branches']:
+            raise PermissionError('Регистрация недоступна для этого подключения')
+        if not self._identifies_installer(intent['profile']):
+            raise MarketplaceError('Для регистрации откройте GateBot из карточки YCLIENTS с передачей данных пользователя.')
+        attempt = db.execute('SELECT state,code FROM marketplace_attempts WHERE intent_hash=? AND branch_id=?',
+                             (intent['id_hash'], branch_id)).fetchone()
+        current = db.execute('SELECT state,generation FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
+        if not self._confirmed_generation(attempt, current):
+            raise MarketplaceError('Сначала подтвердите подключение филиала в YCLIENTS')
+        if branch_id in read_document(db, 'branches.json'):
+            raise PermissionError('Филиал уже зарегистрирован. Войдите в его кабинет GateBot')
+        subject = self._registration_subject(intent, branch_id, current['generation'])
+        return intent, subject, current['generation']
+
+    def _original_phone_challenge(self, db, intent, subject, phone):
+        """Return the additional proof required to replace a signed, usable YC phone."""
+        original = self._signed_phone(intent['profile'])
+        if original is None or original == phone:
+            return None
+        original_subject = subject + ':original:' + phone
+        verified = db.execute('SELECT * FROM identity_otp WHERE subject=? AND phone=? AND state="marketplace_verified" '
+                              'ORDER BY created DESC LIMIT 1', (original_subject, original)).fetchone()
+        if verified and self.identity._otp_delivery_allowed(verified):
+            return None
+        return original_subject, original
+
+    def verify_original_phone(self, raw, browser, branch_id, phone, challenge, code):
+        from identity_service import valid_phone
+        branch_id, phone = positive_id(branch_id), valid_phone(phone)
+        if not isinstance(challenge, str):
+            raise ValueError('Запросите код на номер из YCLIENTS')
         with self.store.connect() as db:
-            intent = self._intent(db, raw, browser)
-            account = self._onboarding_account(db, intent)
-            if not account or not account['can_set_password']:
-                raise PermissionError('Установка пароля недоступна. Войдите в свой аккаунт или восстановите пароль.')
-            set_marketplace_password(self.identity, db, account['username'], password, confirm)
-            return account['username']
+            intent, subject, _ = self._registration_context(db, raw, browser, branch_id)
+            original = self._original_phone_challenge(db, intent, subject, phone)
+            if original:
+                otp = self.identity._check_otp(db, original[0], challenge, code)
+                if otp and otp['phone'] == original[1]:
+                    db.execute('UPDATE identity_otp SET state="marketplace_verified" WHERE id=?', (challenge,))
+                    return
+            else:
+                # A retry after a lost response can resume the next send using this same verified challenge.
+                prior = db.execute('SELECT * FROM identity_otp WHERE id=? AND subject=? AND state="marketplace_verified"',
+                                   (challenge, subject + ':original:' + phone)).fetchone()
+                if prior and self.identity._otp_delivery_allowed(prior):
+                    return
+        raise ValueError('Проверьте код для номера из YCLIENTS или запросите новый')
+
+    def request_registration_code(self, raw, browser, branch_id, phone, ip):
+        from identity_service import valid_phone
+        branch_id = positive_id(branch_id)
+        phone = valid_phone(phone)
+        step = 'registration'
+        def resolve(db):
+            nonlocal step
+            intent, subject, _ = self._registration_context(db, raw, browser, branch_id)
+            original = self._original_phone_challenge(db, intent, subject, phone)
+            if original:
+                step = 'original'
+                return original[0], original[1], branch_id
+            return subject, phone, branch_id
+        result = self.identity.request_phone_otp(resolve, ip)
+        return {**result, 'step':step}
+
+    def complete_registration(self, raw, browser, branch_id, profile, challenge, code, password, confirm):
+        from admin_auth import AdminAuth
+        from marketplace_onboarding import provision_marketplace, validate_marketplace_target
+        branch_id = positive_id(branch_id)
+        AdminAuth.validate_new_password(password)
+        if password != confirm:
+            raise ValueError('Пароли не совпадают')
+        if not isinstance(profile, dict) or set(profile) != {'name', 'salon_name', 'phone', 'email'}:
+            raise ValueError('Заполните данные филиала и администратора')
+        if not isinstance(profile['salon_name'], str) or not 1 <= len(profile['salon_name'].strip()) <= 200:
+            raise ValueError('Укажите название филиала (до 200 символов)')
+        if not isinstance(challenge, str):
+            raise ValueError('Запросите код для подтверждения телефона')
+        with self.store.connect() as db:
+            intent, subject, generation = self._registration_context(db, raw, browser, branch_id)
+            profile = validate_marketplace_target(self.identity, db, branch_id, profile)
+            if self._original_phone_challenge(db, intent, subject, profile['phone']):
+                raise ValueError('Сначала подтвердите номер телефона из YCLIENTS')
+            otp = self.identity._check_otp(db, subject, challenge, code)
+            if otp and otp['phone'] == profile['phone']:
+                result = provision_marketplace(self.identity, db, branch_id, profile, {}, password=password,
+                                               signed_profile=intent['profile'])
+                self._activate_local(db, result['username'], branch_id, generation)
+                self._record_account(db, intent, branch_id, result['username'])
+                db.execute('UPDATE identity_otp SET state="used" WHERE id=?', (challenge,))
+                return result['username']
+        # Commit the failed attempt before reporting it.
+        raise ValueError('Код неверен или истёк. Проверьте номер телефона и код из SMS.')
 
     def _authorize(self, db, username, branch_id):
-        self.identity._scope(db, username, branch_id)
+        admin = self.identity._scope(db, username, branch_id)
         branch = read_document(db, 'branches.json')[branch_id]
         if branch.get('yclients_enabled', True) is False:
             raise MarketplaceError('Этот филиал работает без YCLIENTS')
         if branch.get('onboarding_status') == 'pending_verification':
-            raise MarketplaceError('Подключение нового филиала сначала должен подтвердить суперадминистратор')
+            raise MarketplaceError('Начните подключение из карточки GateBot в YCLIENTS с передачей данных пользователя')
+        if (not admin.get('is_super') and branch.get('yclients_connection_mode', 'direct') == 'direct'
+                and branch.get('yclients_connection_source') != 'direct'):
+            manual = db.execute('SELECT 1 FROM branch_registrations WHERE branch_id=? AND state="completed" '
+                                'AND connection_mode="direct"', (branch_id,)).fetchone()
+            if manual or branch.get('id_origin') == 'yclients':
+                # A self-entered salon ID gives access only to the new local workspace.
+                raise MarketplaceError('Сначала подключите учётную запись YCLIENTS этого филиала в разделе «Интеграции»')
 
     def _activate_local(self, db, username, branch_id, generation):
         self._authorize(db, username, branch_id)
@@ -409,12 +552,7 @@ class MarketplaceService:
                            (result['state'], self.clock(), branch_id, generation))
                 current = db.execute('SELECT generation FROM marketplace_branches WHERE branch_id=?', (branch_id,)).fetchone()
                 if current and current['generation'] == generation and result['state'] in {'uninstalled', 'frozen'}:
-                    branches = read_document(db, 'branches.json')
-                    if branches[branch_id].get('yclients_connection_source') != 'direct':
-                        branches[branch_id]['yclients_marketplace_state'] = result['state']
-                        write_document(db, 'branches.json', branches)
-                        if result['state'] == 'uninstalled':
-                            db.execute('DELETE FROM identity_integrations WHERE branch_id=? AND kind="yclients"', (branch_id,))
+                    self._deactivate_local(db, branch_id, result['state'])
             db.execute('INSERT INTO marketplace_attempts VALUES(?,?,?,?,?) ON CONFLICT(intent_hash,branch_id) DO UPDATE SET state=excluded.state,updated=excluded.updated,code=excluded.code',
                        (intent['id_hash'], branch_id, result['state'], self.clock(), result.get('code')))
         return result
@@ -430,14 +568,7 @@ class MarketplaceService:
         branch_id = positive_id(payload.get('salon_id'))
         state = 'uninstalled' if payload['event'] == 'uninstall' else 'frozen'
         with self.store.connect() as db:
-            branches = read_document(db, 'branches.json')
             db.execute('INSERT INTO marketplace_branches VALUES(?,?,1,?) ON CONFLICT(branch_id) DO UPDATE SET state=excluded.state,generation=generation+1,updated=excluded.updated',
                        (branch_id, state, self.clock()))
-            if branch_id not in branches:
-                return {'status': 'success'}
-            if branches[branch_id].get('yclients_connection_source') != 'direct':
-                branches[branch_id]['yclients_marketplace_state'] = state
-                write_document(db, 'branches.json', branches)
-                if state == 'uninstalled':
-                    db.execute('DELETE FROM identity_integrations WHERE branch_id=? AND kind="yclients"', (branch_id,))
+            self._deactivate_local(db, branch_id, state)
         return {'status': 'success'}

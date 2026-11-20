@@ -14,6 +14,7 @@ pytestmark = pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS') != '1', 
 def _state(**changes):
     return dict(auto_onboarding=True, authenticated=False, configured=True, enabled=True,
                 expired=False, expires_at=time.time() + 3600, account=None,
+                profile={'name':'Owner','salon_name':'Example salon','email':'owner@example.invalid','phone':'+15550100555'},
                 branches=[{'id': '456', 'name': 'Example branch', 'state': 'pending', 'accessible': False}], **changes)
 
 
@@ -24,7 +25,8 @@ def _show(web, page, origin, state):
     page.goto(origin + '/yclients/marketplace')
 
 
-def test_auto_install_reconcile_and_password_completion(web, browser_ui):
+@pytest.mark.parametrize('change_phone',[False,True])
+def test_auto_install_reconcile_and_password_completion(web, browser_ui, change_phone):
     page, origin, expect, errors = browser_ui
     sent, passwords = [], []
 
@@ -32,8 +34,7 @@ def test_auto_install_reconcile_and_password_completion(web, browser_ui):
         sent.append(route.request.post_data_json)
         assert route.request.headers.get('x-csrf-token')
         route.fulfill(json={'state': 'unknown'} if len(sent) == 1 else {
-            'state': 'active', 'account': {'username': 'owner@example.invalid',
-                                         'password_setup_required': True, 'can_set_password': True}})
+            'state': 'active', 'registration_required':True})
 
     def password(route):
         passwords.append(route.request.post_data_json)
@@ -41,7 +42,14 @@ def test_auto_install_reconcile_and_password_completion(web, browser_ui):
         route.fulfill(json={'redirect_url': '/admin/integrations'})
 
     page.route('**/yclients/marketplace/onboard', onboard)
-    page.route('**/yclients/marketplace/password', password)
+    sent_code=[]
+    def sms(route):
+        sent_code.append(route.request.post_data_json)
+        original=change_phone and len(sent_code)==1
+        route.fulfill(json={'ready':True,'retry_after':60,'challenge_id':'original' if original else 'offline-challenge',
+                            'phone_hint':'••• 0555','step':'original' if original else 'registration'})
+    page.route('**/yclients/marketplace/code', sms)
+    page.route('**/yclients/marketplace/register', password)
     page.route('**/admin/integrations', lambda route: route.fulfill(content_type='text/html', body='<h1>Cabinet ready</h1>'))
     _show(web, page, origin, _state())
     expect(page.locator('#marketplaceNotice')).to_contain_text('Ответ пока не подтверждён')
@@ -50,6 +58,26 @@ def test_auto_install_reconcile_and_password_completion(web, browser_ui):
     page.get_by_role('button', name='Проверить состояние', exact=True).click()
     expect(page.locator('#marketplacePasswordForm')).to_be_visible()
     assert sent[-1] == {'branch_id': '456', 'reconcile': True}
+    expect(page.locator('#marketplaceName')).to_have_value('Owner')
+    expect(page.locator('#marketplaceBranchName')).to_have_value('Example salon')
+    page.locator('#marketplaceName').fill('Updated name')
+    phone='+15550100666' if change_phone else '+15550100555'
+    if change_phone:
+        page.locator('#marketplacePhone').fill(phone)
+        expect(page.locator('#marketplacePhoneChange')).to_be_visible()
+        assert not sent_code
+    page.locator('#marketplaceSendCode').click()
+    if change_phone:
+        expect(page.locator('#marketplacePasswordSave')).to_be_disabled()
+        expect(page.locator('#marketplaceCodeStatus')).to_contain_text('из YCLIENTS')
+        page.locator('#marketplaceCode').fill('654321')
+        page.locator('#marketplaceVerifyOriginal').click()
+    expect(page.locator('#marketplaceCodeStatus')).to_contain_text('Код отправлен')
+    expect(page.locator('#marketplaceSendCode')).to_be_disabled()
+    assert sent_code[0] == {'branch_id':'456','phone':phone}
+    if change_phone:
+        assert sent_code[1] == {**sent_code[0],'original_challenge':'original','original_code':'654321'}
+    page.locator('#marketplaceCode').fill('123456')
     page.locator('#marketplacePassword').fill('Offline-example-password')
     page.locator('#marketplacePasswordConfirm').fill('Different-example-password')
     page.locator('#marketplacePasswordSave').click()
@@ -58,7 +86,8 @@ def test_auto_install_reconcile_and_password_completion(web, browser_ui):
     page.locator('#marketplacePasswordConfirm').fill('Offline-example-password')
     page.locator('#marketplacePasswordSave').click()
     page.wait_for_url('**/admin/integrations')
-    assert passwords == [{'password': 'Offline-example-password', 'confirm': 'Offline-example-password'}]
+    assert len(passwords)==1 and passwords[0]['profile']['name']=='Updated name'
+    assert passwords[0]['challenge']=='offline-challenge' and passwords[0]['code']=='123456'
     assert len(sent) == 2 and web.calls == []
 
 

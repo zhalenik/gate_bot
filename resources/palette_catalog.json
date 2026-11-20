@@ -1,5 +1,5 @@
 {
-  "catalog_version": "1b5bf8337a39bef38ded6fc557f006073e8c1fb40b44f52157f1ba733605d1d6",
+  "catalog_version": "d5eb0526276b350ede99fa7f1a9bc1487313ca4dfba7502725ae0366b1320534",
   "entries": [
     {
       "id": "theme-sidebar-0e4ee20f4ddc",
@@ -328,6 +328,13 @@
           "file": "static/css/help.css",
           "line": 11,
           "selector": ".help-group",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/integrations.css",
+          "line": 12,
+          "selector": ".integration-disconnect-info",
           "property": "color",
           "context": ""
         },
@@ -1435,7 +1442,7 @@
         },
         {
           "file": "static/css/integrations.css",
-          "line": 3,
+          "line": 4,
           "selector": ".integration-branch select",
           "property": "color",
           "context": ""
@@ -1975,7 +1982,7 @@
         },
         {
           "file": "static/css/integrations.css",
-          "line": 25,
+          "line": 26,
           "selector": ".yclients-sync-panel progress",
           "property": "accent-color",
           "context": ""
@@ -2840,9 +2847,16 @@
         },
         {
           "file": "static/css/integrations.css",
-          "line": 3,
+          "line": 4,
           "selector": ".integration-branch select",
           "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/integrations.css",
+          "line": 12,
+          "selector": ".integration-disconnect-info",
+          "property": "border-top",
           "context": ""
         },
         {
@@ -3472,7 +3486,7 @@
         },
         {
           "file": "static/css/integrations.css",
-          "line": 25,
+          "line": 26,
           "selector": ".yclients-sync-panel progress",
           "property": "accent-color",
           "context": ""
@@ -5940,7 +5954,7 @@
       "locations": [
         {
           "file": "static/css/integrations.css",
-          "line": 3,
+          "line": 4,
           "selector": ".integration-branch select",
           "property": "background",
           "context": ""

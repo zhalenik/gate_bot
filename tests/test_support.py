@@ -126,6 +126,8 @@ def test_bot_reply_rechecks_super_role_after_prompt(support,tmp_path):
 
 
 def test_help_has_role_and_branch_type_specific_instructions():
+    for uses_crm in (True,False):
+        assert 'суперадминистратор' not in str(articles_for(False,uses_crm)).lower()
     branch={item['id'] for item in articles_for(False,False)}
     assert {'standalone','passes','subscription','support','qr'}<=branch
     assert not {'modem','smtp','logs','plans','yclients-connect','chatpush'}&branch

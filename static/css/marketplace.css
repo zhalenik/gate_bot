@@ -1,0 +1,39 @@
+.marketplace-registration {
+  max-width: 760px;
+}
+
+#marketplaceBranches,
+#marketplaceAccount {
+  margin-top: 18px;
+}
+
+#marketplaceAccountText {
+  margin-bottom: 22px;
+}
+
+#marketplacePasswordForm:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+  max-width: none;
+}
+
+#marketplacePasswordForm .form-group {
+  min-width: 0;
+  margin: 0;
+}
+
+#marketplaceSendCode {
+  margin-top: 21px;
+}
+
+#marketplacePasswordSave {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (max-width: 600px) {
+  #marketplacePasswordForm:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
+  #marketplaceSendCode { margin-top: 0; }
+  #marketplacePasswordSave { justify-self: stretch; }
+}

@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -32,6 +33,18 @@ def auto_begin(state):
     return state.service.begin(signed_args(), state.browser)
 
 
+def sms(s, raw, profile=PROFILE):
+    challenge = s.service.request_registration_code(raw, s.browser, '99', profile['phone'], 'local-test')
+    assert challenge['ready']
+    code = re.search(r'\b[0-9]{6}\b', s.identity.sent[-1][2]).group()
+    return challenge['challenge_id'], code
+
+
+def finish(s, raw, profile=PROFILE):
+    challenge, code = sms(s, raw, profile)
+    return s.service.complete_registration(raw, s.browser, '99', profile, challenge, code, PASSWORD, PASSWORD)
+
+
 @pytest.mark.parametrize('local_legacy_attempt,provider_pending,field',
                          [(True, False, 'id'), (False, False, 'user_id'), (False, True, 'id')])
 def test_signed_installer_completes_without_directory_permission(marketplace, local_legacy_attempt, provider_pending, field):
@@ -59,7 +72,9 @@ def test_signed_installer_completes_without_directory_permission(marketplace, lo
     s.service.api = MarketplaceAPI('offline-partner-key', '123', session=transport, installation_enabled=True)
     raw = s.service.begin(signed_args(profile={**PROFILE, field: 112}), s.browser)
     result = s.service.onboard(raw, s.browser, '99')
-    assert result['state'] == 'active' and result['account']['can_set_password']
+    assert result['state'] == 'active' and result['registration_required']
+    assert s.identity.branches.get_branch('99') is None
+    finish(s, raw)
     assert s.identity.branches.get_branch('99').enabled
     assert transport.request.call_count == (3 if provider_pending else 1)
 
@@ -93,11 +108,16 @@ def test_disconnect_during_first_status_read_cancels_install(marketplace):
 
 def test_signed_install_creates_active_branch_admin_client_trial_and_system_credentials(marketplace):
     s = marketplace
+    events=[]
+    s.identity.service.event_sink=lambda *args: events.append(args)
     raw = auto_begin(s)
     assert s.service.view(raw, s.browser)['auto_onboarding']
     s.api.install.assert_not_called()  # GET hand-off itself has no external effect.
     result = s.service.onboard(raw, s.browser, '99')
-    assert result['state'] == 'active' and result['account']['can_set_password']
+    assert result['state'] == 'active' and result['registration_required']
+    assert not events
+    assert s.identity.branches.get_branch('99') is None
+    finish(s, raw)
     branch = s.identity.branches.load_branches()['99']
     assert branch['enabled'] and branch['onboarding_status'] == 'active'
     assert branch['buttons'] == [] and not branch['hardware_routes_verified']
@@ -108,29 +128,60 @@ def test_signed_install_creates_active_branch_admin_client_trial_and_system_cred
     assert not admin['is_super'] and admin['branch_id'] == 99
     clients = [row for row in s.identity.links.load_links().values() if row['branch_id'] == 99]
     assert len(clients) == 1 and clients[0]['admin_role_active'] and clients[0]['email'] == PROFILE['email']
-    assert not s.identity.sent
+    assert len(s.identity.sent) == 1 and s.identity.sent[0][0] == 'sms'
     assert s.api.install.call_args.args == ('99',)
     assert s.api.status.call_args.kwargs == {'user_id': '112'}
     s.service.onboard(raw, s.browser, '99')
     assert s.api.install.call_count == 1 and s.api.status.call_count == 2
+    assert [event[:2] for event in events] == [('branch_registered','99')]
+    assert 'YCLIENTS' in events[0][2]['message']
 
 
-def test_new_password_requires_original_browser_and_cannot_reset_existing_account(marketplace):
+def test_sms_bound_to_browser_phone_and_branch_preserves_edited_owner_on_reconnect(marketplace):
     s = marketplace
     raw = auto_begin(s)
     s.service.onboard(raw, s.browser, '99')
-    another = auto_begin(s)
-    result = s.service.onboard(another, s.browser, '99')
-    assert not result['account']['can_set_password']
-    with pytest.raises(PermissionError):
-        s.service.set_onboarding_password(another, s.browser, PASSWORD, PASSWORD)
+    edited = {**PROFILE, 'salon_name':'Updated salon', 'name':'New name',
+              'email':'edited@example.invalid','phone':'+15550100555'}
+    original, original_code = sms(s, raw, edited)
+    assert s.identity.sent[-1][1] == PROFILE['phone']
+    assert s.service.view(raw,s.browser)['branches'][0]['otp']['step']=='original'
+    with pytest.raises(ValueError):
+        s.service.complete_registration(raw, s.browser, '99', edited, original, original_code, PASSWORD, PASSWORD)
+    with pytest.raises(ValueError):
+        s.service.verify_original_phone(raw, s.browser, '99', '+15550100666', original, original_code)
+    with pytest.raises(ValueError):
+        s.service.verify_original_phone(raw, s.browser, '99', edited['phone'], original, 'wrong')
+    s.service.verify_original_phone(raw,s.browser,'99',edited['phone'],original,original_code)
+    challenge, code = sms(s, raw, edited)
+    assert s.identity.sent[-1][1] == edited['phone'] and len(s.identity.sent) == 2
+    def complete(token=raw, browser=s.browser, profile=edited, value=code):
+        return s.service.complete_registration(token, browser, '99', profile, challenge, value, PASSWORD, PASSWORD)
     with pytest.raises(MarketplaceError):
-        s.service.set_onboarding_password(raw, 'other-browser', PASSWORD, PASSWORD)
-    assert s.service.set_onboarding_password(raw, s.browser, PASSWORD, PASSWORD) == PROFILE['email']
-    assert s.identity.auth.verify_admin(PROFILE['email'], PASSWORD)
+        complete(browser='other-browser')
+    another = auto_begin(s)
+    s.service.onboard(another, s.browser, '99')
+    with pytest.raises(ValueError):
+        complete(token=another)
+    with pytest.raises(ValueError):
+        complete(profile=PROFILE)
+    with pytest.raises(ValueError):
+        complete(value='invalid')
+    assert s.service.view(raw,s.browser)['branches'][0]['otp']['challenge_id'] == challenge
+    assert s.identity.branches.get_branch('99') is None
+    assert not s.identity.service.integration_credentials('99', 'yclients')
+    with s.service.store.connect() as db:
+        assert db.execute('SELECT attempts FROM identity_otp WHERE id=?', (challenge,)).fetchone()[0] == 2
+    assert complete() == edited['email']
+    assert s.identity.auth.verify_admin(edited['email'], PASSWORD)
+    assert s.identity.branches.load_branches()['99']['name'] == edited['salon_name']
+    assert s.identity.auth.get_admin(edited['email'])['phone'] == edited['phone']
     with pytest.raises(PermissionError):
-        s.service.set_onboarding_password(raw, s.browser, PASSWORD, PASSWORD)
-    assert not s.service.view(raw, s.browser)['account']['can_set_password']
+        complete()
+    resumed = s.service.onboard(another, s.browser, '99')
+    assert resumed['account']['username'] == edited['email'] and not resumed['account']['can_set_password']
+    with pytest.raises(PermissionError):
+        complete(token=another)
     assert s.api.install.call_count == 1
 
 
@@ -148,6 +199,27 @@ def test_wrong_company_profile_never_creates_branch_or_local_rights(marketplace)
     # Fixing the verification failure checks the installation; no second POST.
     assert s.service.onboard(raw, s.browser, '99', reconcile=True)['state'] == 'active'
     assert s.api.install.call_count == 1
+
+
+def test_incomplete_signed_contacts_can_be_completed_after_installer_validation(marketplace):
+    s = marketplace
+    raw = s.service.begin(signed_args(profile={'id': 112, 'name': 'Owner'}), s.browser)
+    s.api.status.return_value = {'state': 'active', 'installer_matches': True}
+    assert s.service.view(raw, s.browser)['auto_onboarding']
+    assert s.service.onboard(raw, s.browser, '99')['registration_required']
+    assert finish(s, raw) == PROFILE['email']
+
+
+def test_signed_salon_alone_without_installer_or_original_phone_requires_new_redirect(marketplace):
+    s = marketplace
+    raw = s.service.begin(signed_args(profile={'salon_id':99,'email':'owner@example.invalid'}), s.browser)
+    state = s.service.view(raw, s.browser)
+    assert state['needs_fresh_redirect'] and not state['auto_onboarding']
+    with pytest.raises(MarketplaceError):
+        s.service.onboard(raw,s.browser,'99')
+    with pytest.raises(MarketplaceError):
+        s.service.request_registration_code(raw,s.browser,'99',PROFILE['phone'],'local-test')
+    assert not s.identity.sent and not s.api.method_calls
 
 
 def test_unknown_install_reconciles_by_get_and_keeps_local_state_uncreated(marketplace):
@@ -180,7 +252,7 @@ def test_signed_old_pending_marketplace_branch_activates_without_super_review(ma
     s = marketplace
     raw = auto_begin(s)
     s.service.onboard(raw, s.browser, '99')
-    s.service.set_onboarding_password(raw, s.browser, PASSWORD, PASSWORD)
+    finish(s, raw)
     with s.service.store.connect() as db:
         branches = read_document(db, 'branches.json')
         branches['99'].update(enabled=False, onboarding_status='pending_verification')
@@ -208,9 +280,13 @@ def test_invalid_missing_expired_and_foreign_handoffs_never_install(marketplace)
 
 def test_active_admin_cannot_acquire_second_branch_by_signed_profile(marketplace):
     s = marketplace
-    s.service.onboard(auto_begin(s), s.browser, '99')
+    raw = auto_begin(s)
+    s.service.onboard(raw, s.browser, '99')
+    finish(s,raw)
     token = s.service.begin(signed_args('98'), s.browser)
-    with pytest.raises(PermissionError): s.service.onboard(token, s.browser, '98')
+    s.service.onboard(token, s.browser, '98')
+    with pytest.raises(PermissionError):
+        s.service.complete_registration(token, s.browser, '98', PROFILE, 'none', '123456', PASSWORD, PASSWORD)
     assert s.identity.branches.get_branch('98') is None
     assert s.api.install.call_count == 1
 
@@ -220,6 +296,7 @@ def test_automatic_reconcile_stops_reader_and_preserves_local_access(marketplace
     s = marketplace
     raw = auto_begin(s)
     s.service.onboard(raw, s.browser, '99')
+    finish(s,raw)
     links = s.identity.links.load_links()
     s.api.status.side_effect = None
     s.api.status.return_value = {'state': state}
@@ -229,16 +306,16 @@ def test_automatic_reconcile_stops_reader_and_preserves_local_access(marketplace
     assert s.identity.links.load_links() == links and s.identity.branches.get_branch('99').enabled
 
 
-def test_password_reset_invalidates_original_first_password_grant(marketplace):
+def test_disconnect_and_expiry_block_registration_even_with_correct_sms(marketplace):
     s = marketplace
     raw = auto_begin(s)
     s.service.onboard(raw, s.browser, '99')
-    with s.service.store.connect() as db:
-        admins = read_document(db, 'admins.json')
-        admins[PROFILE['email']]['session_version'] += 1
-        write_document(db, 'admins.json', admins)
-    with pytest.raises(PermissionError):
-        s.service.set_onboarding_password(raw, s.browser, PASSWORD, PASSWORD)
+    challenge, code = sms(s, raw)
+    s.service.disconnect({'salon_id':99,'application_id':123,'partner_token':'offline-partner-key','event':'uninstall'})
+    with pytest.raises(MarketplaceError):
+        s.service.complete_registration(raw, s.browser, '99', PROFILE, challenge, code, PASSWORD, PASSWORD)
+    assert s.identity.branches.get_branch('99') is None
+    assert not s.identity.service.integration_credentials('99', 'yclients')
 
 
 def test_first_onboarding_cannot_skip_consent_install_by_requesting_reconcile(marketplace):
@@ -279,7 +356,8 @@ def test_signed_salon_id_binds_contact_profile_to_one_branch(marketplace, select
     raw = s.service.begin(signed_args(branch=selected, profile=profile), s.browser)
     s.api.status.return_value = {'state': 'active'}
     result = s.service.onboard(raw, s.browser, selected)
-    assert result['state'] == 'active' and result['account']['username'] == PROFILE['email']
+    assert result['state'] == 'active' and result['registration_required']
+    finish(s, raw)
     assert s.identity.branches.get_branch(selected).enabled
     s.api.status.assert_called_once_with(selected)
     s.api.install.assert_not_called()
@@ -305,13 +383,19 @@ def test_real_app_automatic_post_is_csrf_bound_and_first_password_logs_in(market
     assert client.post('/yclients/marketplace/onboard', json={'branch_id': '99'}).status_code == 403
     result = client.post('/yclients/marketplace/onboard', json={'branch_id': '99'}, headers={'X-CSRF-Token': csrf})
     assert result.status_code == 200 and result.json['state'] == 'active'
-    # Another browser receives no first-password grant or administrative session.
-    assert module.app.test_client().post('/yclients/marketplace/password', json={'password': PASSWORD, 'confirm': PASSWORD}).status_code in (400, 403)
-    bad = client.post('/yclients/marketplace/password', json={'password': PASSWORD, 'confirm': 'mismatch'}, headers={'X-CSRF-Token': csrf})
-    assert bad.status_code == 400
-    result = client.post('/yclients/marketplace/password', json={'password': PASSWORD, 'confirm': PASSWORD}, headers={'X-CSRF-Token': csrf})
+    assert result.json['registration_required']
+    assert s.identity.branches.get_branch('99') is None
+    headers = {'X-CSRF-Token': csrf}
+    assert client.post('/yclients/marketplace/code', json={'branch_id':'99','phone':PROFILE['phone']}).status_code == 403
+    sms_result = client.post('/yclients/marketplace/code', json={'branch_id':'99','phone':PROFILE['phone']}, headers=headers)
+    assert sms_result.status_code == 200 and sms_result.json['ready']
+    code = re.search(r'\b[0-9]{6}\b', s.identity.sent[-1][2]).group()
+    payload = {'branch_id':'99','profile':PROFILE,'challenge':sms_result.json['challenge_id'],
+               'code':code,'password':PASSWORD,'confirm':PASSWORD}
+    assert client.post('/yclients/marketplace/register', json={**payload,'confirm':'mismatch'}, headers=headers).status_code == 400
+    assert client.post('/yclients/marketplace/register', json={**payload,'code':'wrong'}, headers=headers).status_code == 400
+    result = client.post('/yclients/marketplace/register', json=payload, headers=headers)
     assert result.status_code == 200 and result.json['redirect_url'] == '/admin/integrations'
     with client.session_transaction() as session:
         assert session['admin_username'] == PROFILE['email'] and session['admin_logged_in']
         assert 'yc_marketplace_intent' not in session
-    assert not s.identity.sent

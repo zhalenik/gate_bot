@@ -14,7 +14,7 @@ class TelephonyService:
 
     def submit(self, admin, actor, data):
         if not admin or admin.get('is_super') is not True or admin.get('disabled'):
-            raise PermissionError('Требуются права суперадминистратора')
+            raise PermissionError('Нет доступа к журналу связи')
         kind, phone = data.get('kind'), data.get('phone')
         source = None
         if kind == 'sms_delete':

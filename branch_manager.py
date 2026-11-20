@@ -91,7 +91,9 @@ class BranchManager:
     def _dict_to_branch_object(self, branch_dict):
         data = deepcopy(self._validate(branch_dict))
         buttons = [SimpleNamespace(id=self._button_id(button), stable_id=button.get('stable_id') or hashlib.sha256((str(data['branch_id'])+':gate:'+str(index)).encode()).hexdigest()[:24], type=button['type'], label=str(button.get('label', '')), phone=button['phone']) for index,button in enumerate(data.get('buttons', []))]
-        return SimpleNamespace(branch_id=int(data['branch_id']), name=str(data.get('name', '')), logo=str(data.get('logo', '')), timezone=data.get('timezone', 'Europe/Moscow'), enabled=data.get('enabled', True) is True, yclients_enabled=data.get('yclients_enabled',True), sms_notifications_enabled=data.get('sms_notifications_enabled',False), id_origin=data.get('id_origin','yclients'), buttons=buttons)
+        return SimpleNamespace(branch_id=int(data['branch_id']), name=str(data.get('name', '')), logo=str(data.get('logo', '')), timezone=data.get('timezone', 'Europe/Moscow'), enabled=data.get('enabled', True) is True, yclients_enabled=data.get('yclients_enabled',True), sms_notifications_enabled=data.get('sms_notifications_enabled',False), id_origin=data.get('id_origin','yclients'), buttons=buttons,
+                               yclients_marketplace_state=data.get('yclients_marketplace_state'),
+                               yclients_sync_revision=data.get('yclients_sync_revision',0))
 
     def allocate_internal_id(self, db=None):
         if db is not None:

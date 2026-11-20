@@ -3,10 +3,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from admin_auth import AdminAuth
 from identity_service import default_admin_preferences
 from marketplace_onboarding import (
-    provision_marketplace, set_marketplace_password, validate_marketplace_target,
+    provision_marketplace, validate_marketplace_target,
 )
 from storage.sql_documents import read_document, write_document
 from test_identity_product import identities, PASSWORD
@@ -19,7 +18,7 @@ PROFILE = {'name': 'Marketplace owner', 'email': 'marketplace@example.invalid',
 def provision(state, branch='33', profile=None, company=None):
     with state.product.connect() as db:
         return provision_marketplace(state.service, db, branch, profile or PROFILE,
-                                     company or {}, billing=state.billing)
+                                     company or {}, billing=state.billing, password=PASSWORD)
 
 
 def test_verified_registration_creates_one_admin_client_and_trial_without_super_review(identities):
@@ -33,7 +32,7 @@ def test_verified_registration_creates_one_admin_client_and_trial_without_super_
     assert branch['enabled'] and branch['onboarding_status'] == 'active'
     assert branch['yclients_connection_mode'] == 'marketplace'
     assert branch['buttons'] == [] and branch['hardware_routes_verified'] is False
-    assert created['created'] and created['password_setup_required']
+    assert created['created'] and not created['password_setup_required']
     assert state.service.web_admin(created['username'])['branch_ids'] == ['33']
     clients = [c for c in state.links.load_links().values() if c['branch_id'] == 33]
     assert len(clients) == 1
@@ -167,27 +166,5 @@ def test_billing_failure_rolls_back_branch_account_and_client_together(identitie
     before = (state.auth.load_admins(), state.branches.load_branches(), state.links.load_links())
     with pytest.raises(ValueError, match='trial unavailable'):
         with state.product.connect() as db:
-            provision_marketplace(state.service, db, '33', PROFILE, {}, billing=broken)
+            provision_marketplace(state.service, db, '33', PROFILE, {}, billing=broken, password=PASSWORD)
     assert before == (state.auth.load_admins(), state.branches.load_branches(), state.links.load_links())
-
-
-def test_password_setup_requires_matching_confirmation_and_is_one_time(identities):
-    state = identities
-    created = provision(state)
-    username = created['username']
-    old = state.auth.load_admins()[username]
-    with pytest.raises(ValueError, match='совпадают'):
-        with state.product.connect() as db:
-            set_marketplace_password(state.service, db, username, PASSWORD, PASSWORD + '-other')
-    with state.product.connect() as db:
-        result = set_marketplace_password(state.service, db, username, PASSWORD, PASSWORD)
-    assert not result['password_setup_required']
-    saved = state.auth.load_admins()[username]
-    assert AdminAuth.verify_password(PASSWORD, saved['password_hash'])
-    assert saved['session_version'] == old['session_version'] + 1
-    with pytest.raises(PermissionError):
-        with state.product.connect() as db:
-            set_marketplace_password(state.service, db, username, PASSWORD + '-new', PASSWORD + '-new')
-    with pytest.raises(PermissionError):
-        with state.product.connect() as db:
-            set_marketplace_password(state.service, db, 'owner', PASSWORD, PASSWORD)

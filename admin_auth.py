@@ -55,7 +55,7 @@ class AdminAuth:
             return False
 
     def _scope_is_valid(self, admin: Any) -> bool:
-        if not isinstance(admin, dict) or admin.get("disabled", False):
+        if not isinstance(admin, dict) or admin.get("disabled", False) or admin.get("marketplace_password_setup_required"):
             return False
         if admin.get("is_super") is True:
             return True
@@ -201,6 +201,6 @@ class AdminAuth:
             if admin is None:
                 return self._unauthorized()
             if admin.get("is_super") is not True:
-                return jsonify(status="error", message="Требуются права суперадминистратора"), 403
+                return jsonify(status="error", message="Недостаточно прав для этого действия"), 403
             return function(*args, **kwargs)
         return decorated

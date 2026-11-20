@@ -109,7 +109,7 @@ development поверх production env. Не переносите тестов�
 
 Используется Apps → Discover Apps → ⋮ → Install via YAML с именем приложения `gatebot`.
 Файл `examples/truenas.example.yaml` подготовлен специально для этого сервера:
-- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.17` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
+- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.18` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
 - только внутренний HTTP `31500:5000`; TLS завершается существующим Nginx Proxy Manager с Let's Encrypt. В NPM: `bot.zhvakin.space` → `http://<LAN-IP-TRUENAS>:31500`, Force SSL, без прямого внешнего доступа к порту;
 - приватный файл `/mnt/ssd-pool/apps-data/gatebot/gatebot.env`; данные `state/` и `system-config/` в том же каталоге на SSD;
 - первые испытания в `development` с отключёнными настоящими отправками и модемом; production включается отдельно после приёмки.
@@ -126,7 +126,7 @@ development поверх production env. Не переносите тестов�
 - фиксированный `/dev/serial/by-id/...` и правильный host group ID для устройства;
 - внешний HTTPS через Nginx Proxy Manager.
 
-В YAML зафиксирован тег `0.2.0-alpha.17`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
+В YAML зафиксирован тег `0.2.0-alpha.18`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
 
 Шаблон содержит два обязательных mount: данные в `/state` и bootstrap-настройки
 в `/app/private/system-config`. Для второго задайте отдельный постоянный host path;
@@ -141,6 +141,8 @@ development поверх production env. Не переносите тестов�
 системного пользователя не создают подключение филиала сами по себе.
 
 ## Nginx Proxy Manager
+
+Для встроенной регистрации YCLIENTS пропустите заголовки GateBot на `GET /yclients/marketplace/connect` и `GET /yclients/marketplace` без дополнительного `X-Frame-Options: DENY` или `SAMEORIGIN` и без более строгого `frame-ancestors`. GateBot сам отдаёт для этих двух страниц `Content-Security-Policy: frame-ancestors https://yclients.ru https://*.yclients.ru`. Проверьте оба ответа после прокси средствами браузера в разделе Network. Страницы кабинета сохраняют защиту от встраивания. При блокировке cookie браузером форма предлагает продолжить в отдельной вкладке.
 
 Proxy Host направляет домен на внутренний адрес сервера и порт приложения. `BASE_URL` — точный внешний HTTPS URL, `SESSION_COOKIE_SECURE=true`. Не выставлять admin/http порт напрямую в Интернет. Перед включением внешнего доступа пройти checklist ролей, CSRF, backup/restore и целевого webhook режима.
 

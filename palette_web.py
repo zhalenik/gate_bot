@@ -35,7 +35,7 @@ def create_blueprint(provider):
 
     @bp.errorhandler(PermissionError)
     def denied(error):
-        return jsonify(status='error', message='Цвета интерфейса настраивает только суперадминистратор'), 403
+        return jsonify(status='error', message='Недостаточно прав для настройки палитры'), 403
 
     @bp.get('/admin/palette')
     def page():

@@ -139,21 +139,39 @@ def test_standalone_blocks_saved_credentials_all_integration_api_and_check(ident
     authorizer.assert_not_called()
 
 
-def test_diagnostics_are_sanitized_and_stale_check_does_not_replace_current(identities):
-    service=identities.service;old={'user_token':'old-token'};new={'user_token':'new-token'}
-    service.save_integration('north','11','yclients',old)
-    check={'connected':True,'code':'ready','message':'private-payload','secret':'private-token','checks':[{'key':'records','state':'success','code':'verified','raw':'private'}]}
-    service.record_integration_check('north','11','yclients',check,old)
-    assert 'private' not in json.dumps(service.integration_status('north','11'))
-    service.save_integration('north','11','yclients',new)
-    assert service.record_integration_check('north','11','yclients',check,old) is False
-    assert 'check' not in service.integration_status('north','11')['yclients']
+def test_access_check_is_transient_and_ignores_connection_changed_during_read(identities):
+    service=identities.service
+    service.save_integration('north','11','yclients',{'user_token':'old-token'})
+    check={'connected':True,'code':'ready','checks':[{'key':'records','state':'success','code':'verified'}]}
+    checker=Mock(return_value=check)
+    client=web(identities,check_yclients=checker)
+    path='/admin/api/identity/integrations/yclients/check'
+    assert client.post(path,json={'branch_id':'11'}).json==check
+    assert 'check' not in client.get('/admin/api/identity/integrations?branch_id=11').json['integrations']['yclients']
+
+    def disconnect_during_read(*args):
+        with identities.product.connect() as db:
+            branches=read_document(db,'branches.json')
+            branches['11'].update(yclients_marketplace_state='uninstalled',yclients_connection_mode='marketplace')
+            write_document(db,'branches.json',branches)
+        return check
+
+    checker.side_effect=disconnect_during_read
+    assert client.post(path,json={'branch_id':'11'}).json['code']=='connection_changed'
+    disconnected=client.post(path,json={'branch_id':'11'}).json
+    assert disconnected['code']=='credentials_missing' and not disconnected['checks']
+    assert 'маркетплейсе' in disconnected['message']
+    assert checker.call_count==2
 
 
-def test_chatpush_old_account_check_is_hidden_and_no_longer_available(identities):
+def test_legacy_diagnostics_are_removed_on_upgrade(identities):
     state=identities;state.service.save_integration('north','11','chatpush',{'token':'offline-private-token'})
     with state.product.connect() as db:
-        db.execute('INSERT INTO integration_checks VALUES(?,?,?,?)',('11','chatpush',json.dumps({'connected':True,'code':'ready'}),1))
+        db.execute('CREATE TABLE integration_checks(branch_id TEXT,kind TEXT,result TEXT,checked_at REAL)')
+        db.execute('INSERT INTO integration_checks VALUES(?,?,?,?)',('11','yclients',json.dumps({'connected':True,'code':'ready'}),1))
+    type(state.service)(state.product)
+    with state.product.connect() as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='integration_checks'").fetchone()
     result=web(state).post('/admin/api/identity/integrations/chatpush/check',json={'branch_id':'11'})
     assert result.status_code==404
     assert 'check' not in state.service.integration_status('north','11')['chatpush']

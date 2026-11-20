@@ -4,7 +4,8 @@ import re
 
 import pytest
 
-from identity_service import ADMIN_EVENTS, DEFAULT_ADMIN_EVENTS, IdentityService
+from identity_service import ADMIN_EVENTS, GLOBAL_ADMIN_EVENTS, DEFAULT_ADMIN_EVENTS, IdentityService
+from product_notifications import ProductNotifications
 from storage.sql_documents import read_document, write_document
 from test_identity_product import identities, PASSWORD, PHONE, accept
 
@@ -15,18 +16,31 @@ def test_new_branch_never_copies_superadmin_client(identities, crm):
     owner = state.service.web_admin('owner')['person_id']
     original = {token for token, c in state.links.load_links().items() if c['person_id'] == owner}
     assert len(original) == 1
+    notices = ProductNotifications(state.service, state.links, state.branches, state.billing)
+    state.service.event_sink = notices.event
+    ticket = state.service.issue_bind_ticket('owner', 'max')
+    state.service.bind_ticket('max', '88009', ticket)
+    state.service.save_admin_preferences('owner', {'events': {'branch_registered': {'max': True}}})
     registration = state.service.register_branch('99' if crm else None, 'New branch', 'New admin', PHONE, yclients_enabled=crm)
     otp = state.service.request_otp(registration['registration_token'], registration=True)
     code = re.search(r'\b[0-9]{6}\b', state.sent[-1][2]).group()
     result = state.service.complete_registration(registration['registration_token'], otp['challenge_id'], code, 'new@example.invalid', PASSWORD)
-    if crm:
-        state.service.activate_branch('owner', result['branch_id'], state.billing)
     state.service.import_legacy()
     state.service.attach_console_account('owner', '+15550100999')
     assert {token for token, c in state.links.load_links().items() if c['person_id'] == owner} == original
     # Global management scope remains independent of branch client records.
     assert state.service.list_admins('owner', result['branch_id'])
-    assert set(state.service.admin_preferences('new@example.invalid')['events']) == set(ADMIN_EVENTS) - {'sms_received', 'call_received'}
+    expected=set(ADMIN_EVENTS) - GLOBAL_ADMIN_EVENTS
+    if not crm:
+        expected.remove('marketplace_disconnected')
+    assert set(state.service.admin_preferences('new@example.invalid')['events']) == expected
+    # Even a repeated event from the source cannot duplicate the inbox or external effect.
+    state.service.branch_registered(result['branch_id'], 'manual', result['person_id'])
+    with state.product.connect() as db:
+        assert [r['person_id'] for r in db.execute("SELECT person_id FROM notification_inbox WHERE event='branch_registered'")] == [owner]
+        assert [r['channel'] for r in db.execute("SELECT channel FROM message_outbox WHERE event='branch_registered'")] == ['max']
+    with pytest.raises(PermissionError):
+        state.service.save_admin_preferences(result['username'], {'events': {'branch_registered': {'max': True}}})
 
 
 def test_invited_admin_defaults_and_delivery_match(identities):

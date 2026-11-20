@@ -18,6 +18,12 @@ class _SchedulerStopping(Exception):
     pass
 
 
+def _can_sync(branch, *, expected_revision=None):
+    return (branch is not None and branch.enabled and branch.yclients_enabled
+            and branch.yclients_marketplace_state not in {'frozen', 'uninstalled'}
+            and (expected_revision is None or branch.yclients_sync_revision == expected_revision))
+
+
 class Scheduler:
     def __init__(self, link_manager=None, branch_manager=None, crm=None, event_sink=None):
         self.link_manager = link_manager or LinkManager()
@@ -101,12 +107,10 @@ class Scheduler:
         if not config.YCLIENTS_ENABLED and self.crm is None:
             return {}
         result = {}
-        raw = self.branch_manager.load_branches()
         for branch in self.branch_manager.get_all_branches():
             if self._stop.is_set():
                 break
-            if (not branch.enabled or not getattr(branch, 'yclients_enabled', True) or
-                    raw.get(str(branch.branch_id), {}).get('yclients_marketplace_state') in {'frozen', 'uninstalled'}):
+            if not _can_sync(branch):
                 continue
             at = now(branch.timezone)
             # Match DocumentStore's lock order; links + schedule + outbox commit
@@ -116,7 +120,7 @@ class Scheduler:
                     if self._stop.is_set():
                         break
                     current=self.branch_manager.get_branch(branch.branch_id)
-                    if current is None or not current.enabled or not getattr(current,'yclients_enabled',True):
+                    if not _can_sync(current):
                         continue
                     branch=current
                     row = db.execute('SELECT * FROM appointment_schedule WHERE branch_id=? AND active=1', (str(branch.branch_id),)).fetchone()
@@ -169,6 +173,9 @@ class Scheduler:
                 if not getattr(branch,'yclients_enabled',True):
                     self.last_runs[str(branch.branch_id)] = result[str(branch.branch_id)] = {'status':'skipped','reason':'standalone'}
                     continue
+                if branch.yclients_marketplace_state in {'frozen', 'uninstalled'}:
+                    self.last_runs[str(branch.branch_id)] = result[str(branch.branch_id)] = {'status':'skipped','reason':'marketplace_disconnected'}
+                    continue
                 correlation = logger.set_correlation_id()
                 try:
                     at = now(branch.timezone)
@@ -186,7 +193,7 @@ class Scheduler:
                         # flight. Never recreate its schedule or clients from
                         # the stale object captured before that request.
                         current=self.branch_manager.get_branch(branch.branch_id)
-                        if current is None or not current.enabled or not getattr(current,'yclients_enabled',True):
+                        if not _can_sync(current, expected_revision=branch.yclients_sync_revision):
                             continue
                         branch=current
                         completed = now(branch.timezone)
@@ -204,7 +211,8 @@ class Scheduler:
                     break
                 except Exception as error:
                     with self.store.connect() as db:
-                        if self.branch_manager.get_branch(branch.branch_id) is None:
+                        current = self.branch_manager.get_branch(branch.branch_id)
+                        if not _can_sync(current, expected_revision=branch.yclients_sync_revision):
                             continue
                         db.execute('UPDATE appointment_schedule SET active=0 WHERE branch_id=?', (str(branch.branch_id),))
                     status = {'status': 'error', 'at': now().isoformat(), 'error_type': type(error).__name__}

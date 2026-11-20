@@ -34,7 +34,7 @@ class BrandingSettings:
 
     def _super(self, db, username):
         if self.identity._admin(db, username).get('is_super') is not True:
-            raise PermissionError('Оформление сервиса меняет только суперадминистратор')
+            raise PermissionError('Недостаточно прав для изменения оформления сервиса')
 
     @staticmethod
     def _state(db):
@@ -125,7 +125,7 @@ def create_blueprint(provider):
 
     @bp.errorhandler(PermissionError)
     def forbidden(error):
-        return jsonify(status='error', message='Оформление сервиса меняет только суперадминистратор'), 403
+        return jsonify(status='error', message='Недостаточно прав для изменения оформления сервиса'), 403
 
     @bp.get('/admin/api/branding')
     def read():

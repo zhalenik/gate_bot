@@ -21,7 +21,7 @@ def create_blueprint(provider):
 
     @bp.errorhandler(PermissionError)
     def denied(error):
-        return jsonify(status='error', message='SMTP настраивает только суперадминистратор'), 403
+        return jsonify(status='error', message='Недостаточно прав для настройки SMTP'), 403
 
     @bp.get('/admin/smtp')
     def page():

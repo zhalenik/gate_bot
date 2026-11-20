@@ -184,12 +184,12 @@ function displayUsers(users) {
         }
         const nameCell=cell('Имя');nameCell.append(element('span','',user.user_name||'—'));
         const role=user.admin_role||{};
-        if(role.is_admin||role.is_super){const badge=element('span','client-role-badge',role.is_super?'Суперадминистратор':role.last_admin?'Администратор · единственный':'Администратор');nameCell.append(element('br'),badge);}
+        if(role.is_admin||role.is_super){const badge=element('span','client-role-badge',role.is_super?'Администрация сервиса GateBot':role.last_admin?'Администратор · единственный':'Администратор');nameCell.append(element('br'),badge);}
         cell('Телефон', user.phone || '—');
         cell('Email', user.email || '—');
         cell('Филиал', user.branch_name || '—').classList.add('client-branch');
         const passCell=cell('Пропуск');passCell.append(button(pass.text, () => onPassButtonClick(user.token, !!user.gate_access), 'btn-pass ' + pass.className));
-        const branchReason={pending_verification:'Филиал ожидает подтверждения',branch_disabled:'Доступ филиала выключен',branch_missing:'Филиал не настроен'}[user.branch_access_reason];
+        const branchReason={branch_disabled:'Доступ филиала выключен',branch_missing:'Филиал не настроен'}[user.branch_access_reason];
         if(branchReason)passCell.append(element('small','client-branch-access-hint',branchReason));
         const changedCell=cell('Изменён');
         if(user.pass_changed_at){
@@ -297,7 +297,7 @@ function openEditUserModal(token) {
     const roleInfo=element('div','client-role-details');roleInfo.hidden=true;roleInfo.dataset.roleInfo='true';view.body.append(roleInfo);
     function showRole(role){
         if(!view.modal.isConnected)return;roleInfo.replaceChildren();roleInfo.hidden=!role.is_admin&&!role.is_super;if(roleInfo.hidden)return;
-        roleInfo.append(element('strong','',role.is_super?'Суперадминистратор':'Администратор филиала'),element('p','form-hint',role.reason||'Права администратора действуют в веб-кабинете и ботах. Можно отозвать роль, сохранив карточку клиента.'));
+        roleInfo.append(element('strong','',role.is_super?'Администрация сервиса GateBot':'Администратор филиала'),element('p','form-hint',role.reason||'Права администратора действуют в веб-кабинете и ботах. Можно отозвать роль, сохранив карточку клиента.'));
         const revoke=button('Отозвать права администратора',()=>confirmRevokeClientAdmin(user,view),'btn-action btn-deny');revoke.disabled=role.can_revoke!==true;roleInfo.append(revoke);
     }
     if(user.admin_role){showRole({...user.admin_role,can_revoke:false});api('/admin/api/client-role?token='+encodeURIComponent(token)).then(result=>{user.admin_role=result.admin_role;showRole(result.admin_role);}).catch(error=>{if(view.modal.isConnected){roleInfo.hidden=false;roleInfo.append(element('p','form-hint',error.message));}});}

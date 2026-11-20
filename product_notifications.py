@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 
+from identity_service import admin_receives_event
 from link_manager import access_is_active
 from storage import config
 from storage.sql_documents import read_document
@@ -21,6 +22,7 @@ TITLES = {
     'delivery_failed': 'Уведомление не отправлено', 'subscription_expiring': 'Подписка скоро закончится',
     'subscription_expired': 'Подписка закончилась', 'quota_warning': 'Квота подходит к концу',
     'quota_exhausted': 'Квота исчерпана', 'sms_received': 'Входящая SMS', 'call_received': 'Входящий звонок',
+    'branch_registered': 'Зарегистрирован филиал', 'marketplace_disconnected': 'Подключение к YCLIENTS отключено',
 }
 
 
@@ -167,7 +169,7 @@ class ProductNotifications:
                     admin = self.identity.web_admin(row['username'])
                 except PermissionError:
                     continue
-                if not admin.get('is_super') and (event in {'sms_received','call_received'} or str(branch_id) not in admin['branch_ids']):
+                if not admin_receives_event(admin, branch_id, event):
                     continue
                 key = hashlib.sha256(json.dumps([event, event_id, row['person_id']]).encode()).hexdigest()
                 db.execute('INSERT OR IGNORE INTO notification_inbox VALUES(?,?,?,?,?,?,NULL)',

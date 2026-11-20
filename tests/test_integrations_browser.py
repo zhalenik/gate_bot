@@ -71,7 +71,7 @@ def test_marketplace_integration_has_status_and_no_manual_login(web,browser_ui,t
         write_document(db,'branches.json',branches)
     identity.save_integration('super','12','yclients',{'user_token':'offline-system-token'},marketplace=True)
     authorizer=Mock(side_effect=AssertionError('No manual auth for marketplace'))
-    checker=Mock(return_value={'status':'success','connected':True,'code':'ready','checks':[]})
+    checker=Mock(return_value={'status':'success','connected':True,'code':'ready','checks':[{'key':'contacts','state':'success','code':'verified'}]})
     monkeypatch.setattr('yclients_connection.YClientsConnector.authorize',authorizer)
     monkeypatch.setattr('yclients_connection.YClientsConnector.check_permissions',checker)
     page,origin,expect,errors=browser_ui
@@ -81,20 +81,33 @@ def test_marketplace_integration_has_status_and_no_manual_login(web,browser_ui,t
     expect(yc.locator('[name=password]')).to_be_hidden()
     yc.get_by_role('button',name='Проверить доступ',exact=True).click()
     expect(yc).to_contain_text('Подключение проверено')
+    expect(yc.locator('.integration-checks')).to_contain_text('Телефоны клиентов в записях')
+    page.reload()
+    expect(yc.get_by_role('button',name='Проверить доступ')).to_be_enabled()
+    expect(yc.locator('.integration-checks')).to_have_count(0)
+    with identity.product.connect() as db:
+        branches=read_document(db,'branches.json');branches['12']['yclients_marketplace_state']='uninstalled'
+        write_document(db,'branches.json',branches)
+    page.reload()
+    expect(yc).to_contain_text('Подключение остановлено')
+    expect(yc.locator('.integration-checks')).to_have_count(0)
+    expect(yc.get_by_role('link',name='поддержку GateBot')).to_have_attribute('href','/admin/support')
+    yc.get_by_role('button',name='Проверить доступ').click()
+    expect(page.locator('#identityNotice')).to_contain_text('карточку GateBot')
     authorizer.assert_not_called();checker.assert_called_once()
     page.set_viewport_size({'width':390,'height':844})
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    assert page.locator('.integration-grid').evaluate('(grid) => grid.nextElementSibling.getBoundingClientRect().top - grid.getBoundingClientRect().bottom >= 16')
 
 
-def test_marketplace_registration_hides_branch_id_and_yclients_credentials(web,browser_ui):
+def test_unsigned_marketplace_redirect_requires_login_and_leaves_manual_registration_separate(web,browser_ui):
     page,origin,expect,errors=browser_ui
     page.goto(origin+'/yclients/marketplace/connect?salon_id=998')
     page.goto(origin+'/register-branch?marketplace=1')
-    expect(page.locator('#identityDescription')).to_contain_text('Филиал уже выбран')
-    expect(page.locator('[name=branch_id]')).to_have_value('998')
-    expect(page.locator('[name=branch_id]')).to_be_hidden()
-    expect(page.locator('[name=yclients_enabled]')).to_be_hidden()
-    expect(page.get_by_label('Пароль GateBot (от 12 символов)',exact=True)).to_be_visible()
+    expect(page.get_by_role('heading',name='Вход в GateBot')).to_be_visible()
+    expect(page.get_by_role('link',name='Войти',exact=True)).to_have_attribute('href','/admin/login?next=marketplace')
+    expect(page.locator('#marketplacePasswordForm')).to_be_hidden()
     expect(page.get_by_label('Пароль YCLIENTS',exact=True)).to_have_count(0)
-    page.get_by_role('link',name='Другой способ регистрации',exact=True).click()
+    page.goto(origin+'/')
+    page.get_by_role('link',name='Зарегистрировать филиал').click()
     expect(page.locator('[name=branch_id]')).to_be_visible()

@@ -2,6 +2,7 @@
 import secrets
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, session
 from yclients_marketplace import MarketplaceService, MarketplaceError
+from marketplace_frame import claim_first_party_link, in_marketplace_frame, issue_first_party_link
 
 
 SESSION_KEYS = ('yc_marketplace_browser', 'yc_marketplace_intent')
@@ -40,14 +41,34 @@ def create_blueprint(provider):
         browser = session.get('yc_marketplace_browser') or secrets.token_urlsafe(32)
         raw = marketplace.begin(request.args, browser)
         session['yc_marketplace_browser'], session['yc_marketplace_intent'] = browser, raw
+        if in_marketplace_frame(request):
+            ticket = issue_first_party_link(marketplace, raw, browser)
+            session['yc_frame_ticket'] = ticket
+            return redirect('/yclients/marketplace?frame=start#' + ticket, code=303)
         # Remove signed personal data from the address before rendering assets.
         return redirect('/yclients/marketplace', code=303)
 
     @bp.get('/yclients/marketplace')
     def page():
+        if request.args.get('frame') == 'start':
+            return render_template('marketplace/frame_start.html', client_page=True)
         marketplace, raw, browser, username, admin = current()
         return render_template('marketplace/connect.html', state=marketplace.view(raw,browser,username),
+                               frame_ticket=session.get('yc_frame_ticket') if in_marketplace_frame(request) else None,
                                admin_page=bool(admin), is_super=bool(admin and admin.get('is_super')))
+
+    @bp.route('/yclients/marketplace/resume', methods=['GET', 'POST'])
+    def resume():
+        if request.method == 'GET':
+            return render_template('marketplace/resume.html', client_page=True)
+        _, marketplace = services()
+        data = request.get_json(silent=True) or {}
+        ticket = data.get('ticket') if isinstance(data, dict) else None
+        browser = secrets.token_urlsafe(32)
+        if not claim_first_party_link(marketplace, ticket, browser):
+            raise MarketplaceError('Переход уже использован или истёк. Откройте подключение из YCLIENTS ещё раз.')
+        session['yc_marketplace_browser'], session['yc_marketplace_intent'] = browser, ticket
+        return jsonify(status='success')
 
     @bp.get('/yclients/marketplace/state')
     def state():
@@ -73,19 +94,36 @@ def create_blueprint(provider):
         return jsonify(marketplace.onboard(raw, browser, body.get('branch_id'),
                                           reconcile=body.get('reconcile') is True))
 
-    @bp.post('/yclients/marketplace/password')
-    def password():
+    @bp.post('/yclients/marketplace/code')
+    def registration_code():
+        from identity_service import OtpRateLimit
         marketplace, raw, browser, _, _ = current()
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) - {'password', 'confirm'}:
+        if not isinstance(body, dict) or set(body) not in ({'branch_id', 'phone'},
+                                                         {'branch_id', 'phone', 'original_challenge', 'original_code'}):
             abort(400)
+        if 'original_challenge' in body:
+            marketplace.verify_original_phone(raw, browser, body['branch_id'], body['phone'],
+                                              body['original_challenge'], body['original_code'])
         try:
-            username = marketplace.set_onboarding_password(raw, browser, body.get('password'), body.get('confirm'))
-        except ValueError as error:
-            raise MarketplaceError(str(error)) from None
+            challenge = marketplace.request_registration_code(raw, browser, body['branch_id'], body['phone'], request.remote_addr or '')
+        except OtpRateLimit as exc:
+            return jsonify(message=str(exc), retry_after=exc.retry_after), 429
+        return jsonify({key: challenge[key] for key in ('challenge_id', 'ready', 'retry_after', 'phone_hint', 'step')})
+
+    @bp.post('/yclients/marketplace/register')
+    def register():
+        marketplace, raw, browser, _, _ = current()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or set(body) != {'branch_id', 'profile', 'challenge', 'code', 'password', 'confirm'}:
+            abort(400)
+        username = marketplace.complete_registration(raw, browser, body['branch_id'], body['profile'], body['challenge'],
+                                                     body['code'], body['password'], body['confirm'])
+        if request.args.get('frame') == '1':
+            return jsonify(status='success', redirect_url='/admin/integrations')
         dependencies, _ = services()
         if not dependencies['auth'].login_admin(username, body.get('password')):
-            raise MarketplaceError('Пароль сохранён. Войдите в кабинет с email и новым паролем.')
+            raise MarketplaceError('Регистрация завершена. Войдите в кабинет с вашим email и паролем.')
         return jsonify(status='success', redirect_url='/admin/integrations')
 
     @bp.post('/webhook/yclients/marketplace')
@@ -98,36 +136,3 @@ def create_blueprint(provider):
         return jsonify(marketplace.disconnect(request.get_json(silent=True)))
 
     return bp
-
-
-def registration_defaults(provider):
-    """Optional form hints, never a grant of branch ownership or OTP bypass."""
-    raw, browser = session.get('yc_marketplace_intent'), session.get('yc_marketplace_browser')
-    if not raw or not browser:
-        return {}
-    dependencies = provider()
-    marketplace = dependencies.get('marketplace') or MarketplaceService(dependencies['service'])
-    try:
-        state = marketplace.view(raw, browser)
-    except MarketplaceError:
-        return {}
-    if state['expired']:
-        return {}
-    profile = state['profile']
-    return {'branch_id': state['branches'][0]['id'], 'branch_name': profile.get('salon_name',''),
-            'name': profile.get('name',''), 'phone': profile.get('phone',''), 'email':profile.get('email',''), 'marketplace': True}
-
-
-def registration_context(provider):
-    """The branch is server-selected from the browser hand-off, never form data.
-
-    salon_id is not an ownership proof. OTP and super review remain required.
-    """
-    raw,browser=session.get('yc_marketplace_intent'),session.get('yc_marketplace_browser')
-    if not raw and not browser:return None
-    if not raw or not browser:raise MarketplaceError('Начните подключение из карточки GateBot в YCLIENTS')
-    dependencies=provider()
-    marketplace=dependencies.get('marketplace') or MarketplaceService(dependencies['service'])
-    with marketplace.store.connect() as db:
-        intent=marketplace._intent(db,raw,browser)
-    return {'branch_id':intent['branches'][0],'connection_mode':'marketplace'}

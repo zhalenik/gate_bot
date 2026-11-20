@@ -23,7 +23,7 @@ class BranchLifecycleService:
 
     def _context(self,db,username,branch_id):
         actor=self.identity._admin(db,username)
-        if actor.get('is_super') is not True:raise PermissionError('Удаление филиала доступно только суперадминистратору')
+        if actor.get('is_super') is not True:raise PermissionError('Для удаления филиала обратитесь в поддержку GateBot')
         self.identity._scope(db,username,branch_id)
         branch_id=str(branch_id)
         branches=read_document(db,'branches.json');links=read_document(db,'links.json');admins=read_document(db,'admins.json')

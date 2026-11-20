@@ -1,11 +1,33 @@
-"""Real application routes for standalone creation and protected hardware setup."""
+"""Real application routes for branch registration and scoped hardware setup."""
+import re
 import pytest
-from test_web_security import web, login, post
+from test_web_security import web, login, post, TEST_PASSWORD
 from storage.sql_documents import migrate_legacy, DocumentStore, read_document
 
 
 def settings(**extra):
     return dict(name='Local parking',timezone='Europe/Moscow',enabled=True,logo='',buttons=[],**extra)
+
+
+def test_manual_yclients_registration_can_save_own_gate_immediately(web,tmp_path,monkeypatch):
+    migrate_legacy(tmp_path,activate=True)
+    monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
+    identity=web.module.product_services().identity
+    messages=[]
+    identity.sender=lambda channel,target,text,context: messages.append(text) or {'status':'sent'}
+    raw=identity.register_branch('315','New parking','New owner','+15550100911')['registration_token']
+    challenge=identity.request_otp(raw,registration=True)['challenge_id']
+    code=re.search(r'\b[0-9]{6}\b',messages[-1]).group()
+    username='new-owner@example.invalid'
+    identity.complete_registration(raw,challenge,code,username,TEST_PASSWORD)
+    client=web.app.test_client()
+    csrf=login(client,username)
+    edits=settings(branch_id=315,yclients_enabled=True)
+    edits['buttons']=[{'type':'gate','label':'Entry','phone':'+15550100912'}]
+    assert post(client,csrf,'/admin/api/branch-settings',edits).status_code==200
+    assert web.branches.get_branch(315).buttons[0].label=='Entry'
+    assert post(client,csrf,'/admin/api/branch-settings',{**edits,'branch_id':12}).status_code==403
+    assert not identity.integration_credentials('315','yclients') and not web.calls
 
 
 def test_super_creates_standalone_without_external_id_and_trial_is_not_reissued(web,tmp_path,monkeypatch):
@@ -58,7 +80,7 @@ def test_super_rename_does_not_approve_empty_hardware_routes(web):
     assert web.branches.load_branches()['12']['hardware_routes_verified'] is True
 
 
-def test_standalone_manual_link_uses_sms_and_never_chatpush(web,monkeypatch):
+def test_standalone_manual_link_uses_paid_sms_only_after_opt_in(web,monkeypatch):
     from storage import config
     from unittest.mock import Mock
     import chatpush
@@ -69,8 +91,14 @@ def test_standalone_manual_link_uses_sms_and_never_chatpush(web,monkeypatch):
     send=Mock(return_value={'status':'success','delivery':'queued'})
     monkeypatch.setattr(web.module.product_services().notifications,'send',send)
     client=web.app.test_client();csrf=login(client)
+    refused=post(client,csrf,'/admin/api/send-link',{'token':web.token_a})
+    assert refused.status_code==503 and refused.json['delivery']['status']=='unavailable'
+    send.assert_not_called()
+    web.branches.update_settings(12,{'sms_notifications_enabled':True})
     response=post(client,csrf,'/admin/api/send-link',{'token':web.token_a})
     assert response.status_code==200 and send.call_args.args[0]=='sms'
+    context=send.call_args.args[3]
+    assert context['branch_id']=='12' and context['event']=='manual_pass' and context['preference_channel']=='sms'
     forbidden.assert_not_called()
 
 

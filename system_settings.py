@@ -21,7 +21,7 @@ class SystemSettings:
 
     def _super(self,username):
         if self.identity.web_admin(username).get('is_super') is not True:
-            raise PermissionError('Системные настройки доступны только суперадминистратору')
+            raise PermissionError('Нет доступа к системным настройкам')
 
     def public(self,username):
         self._super(username)

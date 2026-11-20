@@ -28,11 +28,13 @@ from branch_hours import access_hours_state
 from admin_auth import AdminAuth
 from branch_manager import BranchManager
 from link_manager import LinkManager, access_is_active, normalize_phone
+from marketplace_frame import FRAME_ANCESTORS, MarketplaceSessionInterface
 from storage import config
 from timeutil import end_of_day, now, parse_datetime, timezone
 import logger
 
 app = Flask(__name__)
+app.session_interface = MarketplaceSessionInterface()
 app.config.update(
     SECRET_KEY=config.SECRET_KEY,
     SESSION_COOKIE_HTTPONLY=True,
@@ -123,7 +125,10 @@ def protect_request():
 @app.after_request
 def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    if request.method == 'GET' and request.endpoint in {'yclients_marketplace.entry', 'yclients_marketplace.page'}:
+        response.headers['Content-Security-Policy'] = FRAME_ANCESTORS
+    else:
+        response.headers['X-Frame-Options'] = 'DENY'
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Request-ID"] = getattr(g, "correlation_id", "")
     response.headers["Cache-Control"] = "no-cache" if request.endpoint == 'palette.public_styles' else "no-store"
@@ -478,6 +483,7 @@ def notifications_page():
 @app.get('/admin/api/notification-inbox')
 @admin_auth.require_auth
 def notification_inbox():
+    from identity_service import admin_receives_event
     services = product_services()
     admin = services.identity.web_admin(session['admin_username'])
     if not admin.get('person_id'):
@@ -486,7 +492,7 @@ def notification_inbox():
         rows = db.execute('SELECT * FROM notification_inbox WHERE person_id=? ORDER BY created DESC LIMIT 100', (admin['person_id'],)).fetchall()
     items = []
     for row in rows:
-        if not admin.get('is_super') and (row['event'] in {'sms_received','call_received'} or str(row['branch_id']) not in admin['branch_ids']):
+        if not admin_receives_event(admin, row['branch_id'], row['event']):
             continue
         items.append({'id': row['id'], 'event': row['event'], 'created': row['created'], 'read': bool(row['read_at']),
                       **services.notifications._decrypt(row['payload'])})
@@ -510,13 +516,13 @@ def access_contact():
 @app.post('/admin/api/notification-inbox/<identifier>/read')
 @admin_auth.require_auth
 def read_notification(identifier):
+    from identity_service import admin_receives_event
     services = product_services()
     admin = services.identity.web_admin(session['admin_username'])
     with services.store.connect() as db:
         row = db.execute('SELECT branch_id,event FROM notification_inbox WHERE id=? AND person_id=?',
                          (identifier, admin.get('person_id'))).fetchone()
-        if not row or (not admin.get('is_super') and (row['event'] in {'sms_received','call_received'} or
-                       str(row['branch_id']) not in admin['branch_ids'])):
+        if not row or not admin_receives_event(admin, row['branch_id'], row['event']):
             abort(404)
         db.execute('UPDATE notification_inbox SET read_at=? WHERE id=? AND person_id=?', (time.time(), identifier, admin.get('person_id')))
     return jsonify(status='success')
@@ -812,10 +818,7 @@ def api_branch_settings():
     raw_branch = branch_manager.load_branches().get(str(branch_id), {})
     yclients_enabled = _boolean(data.get('yclients_enabled', raw_branch.get('yclients_enabled', True)), 'Использовать YCLIENTS')
     if scope is not None and yclients_enabled != raw_branch.get('yclients_enabled', True):
-        abort(403, description='Тип филиала изменяет суперадминистратор')
-    if scope is not None and raw_branch.get('onboarding_status') == 'pending_verification':
-        if data.get('enabled'):
-            abort(403, description='Активацию нового филиала YCLIENTS подтверждает суперадминистратор')
+        abort(403, description='Для изменения типа филиала обратитесь в поддержку GateBot')
     if create and existing:
         abort(409, description="Филиал с таким ID уже существует")
     if not create and existing is None:
@@ -888,7 +891,6 @@ def _users_in_scope():
 def api_get_users():
     from storage.pass_changes import changed_at
     users = []
-    branch_states = branch_manager.load_branches()
     for user in _users_in_scope():
         user = dict(user)
         branch = branch_manager.get_branch(user.get("branch_id"))
@@ -908,7 +910,6 @@ def api_get_users():
                     access_expires_days=days, gate_access=active,
                     access_available=bool(active and branch is not None and branch.enabled),
                     branch_access_reason=('branch_missing' if branch is None else
-                        'pending_verification' if not branch.enabled and branch_states.get(str(user.get('branch_id')),{}).get('onboarding_status')=='pending_verification' else
                         'branch_disabled' if not branch.enabled else None),
                     has_bot=bool(user.get("tg_id") or user.get("max_id")),
                     has_telegram=bool(user.get("tg_id")), has_max=bool(user.get("max_id")),

@@ -25,6 +25,32 @@ def jpeg():
     return output.getvalue()
 
 
+def two_color_image():
+    pixels=Image.new('RGB',(80,40),'red')
+    pixels.paste('blue',(40,0,80,40))
+    output=io.BytesIO()
+    pixels.save(output,'PNG')
+    return output.getvalue()
+
+
+@pytest.mark.parametrize('kind',['logo','icon'])
+def test_published_crop_can_pan_to_both_edges_of_original(palette_web,kind):
+    client=palette_web.app.test_client()
+    headers={'X-CSRF-Token':login(client,'super')}
+    api='/admin/api/branding/'+kind
+    fields={'icon_fit':'cover','icon_zoom':'200','icon_x':'0','icon_transparent':'on'}
+    first=client.post(api,headers=headers,data={**fields,'revision':'0','image':(io.BytesIO(two_color_image()),'logo.png')}).json
+    second=client.post(api,headers=headers,data={**fields,'revision':str(first['revision']),'icon_x':'100'}).json
+    assert first[kind+'_source_url']==second[kind+'_source_url']
+    for entry,color in [(first,(255,0,0)),(second,(0,0,255))]:
+        keys=['logo_url'] if kind=='logo' else ['icon_url','icon192_url','icon512_url','apple_icon_url']
+        for key in keys:
+            response=client.get(entry[key])
+            with Image.open(io.BytesIO(response.data)) as pixels:
+                assert pixels.convert('RGB').getpixel((pixels.width//2,pixels.height//2))==color
+            response.close()
+
+
 @pytest.mark.parametrize('unsafe', [
     b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" onload="alert(1)"/>',
     b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
@@ -93,8 +119,9 @@ def test_icon_can_be_reframed_without_uploading_its_original_again(palette_web):
     result=client.post('/admin/api/branding/icon',headers=headers,data={
         'revision':str(before['revision']),'icon_fit':'contain','icon_padding':'15','icon_transparent':'on'})
     after=result.json
-    assert result.status_code==200 and before['icon_url']==after['icon_url']
-    assert after['icon_frame']=={'fit':'contain','padding':15,'background':'transparent'}
+    assert result.status_code==200 and before['icon_source_url']==after['icon_source_url']
+    assert after['icon_url']==after['icon192_url']
+    assert after['icon_frame']=={'fit':'contain','padding':15,'background':'transparent','zoom':100,'x':50,'y':50}
     image=Image.open(io.BytesIO(client.get(after['icon192_url']).data))
     assert image.getpixel((0,0))[-1]==0 and image.getpixel((96,96))[-1]==255
     assert client.get('/admin/api/branding').json['icon192_url']==after['icon192_url']

@@ -11,9 +11,9 @@
     const installed=()=>display.matches||navigator.standalone===true;
     const supported=()=>isSecureContext&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
     const el=(tag,text='',className='')=>{const node=document.createElement(tag);node.textContent=text;if(className)node.className=className;return node;};
-    const tools=document.querySelector('[data-client-pwa-tools]');
+    const installCard=document.getElementById('clientInstallCard');
     let offline=false,probeBusy=false,deferredInstall=null,registrationPromise=null,localSubscription=null;
-    let pushState={supported:false},promptKey='',prompted=false,pushBusy=false,installCard=null,tabs=null;
+    let pushState={supported:false},promptKey='',prompted=false,pushBusy=false,tabs=null;
     const offlineNotice=el('div','Отсутствует подключение к интернету');offlineNotice.id='clientOfflineNotice';offlineNotice.hidden=true;offlineNotice.setAttribute('role','status');document.body.append(offlineNotice);
 
     function publish(reason='state',preferences=null){
@@ -140,11 +140,6 @@
     }
     function renderShell(){
         document.body.classList.toggle('client-pwa-installed',installed());
-        if(tools&&!installCard){
-            installCard=el('section','','client-install-card');installCard.id='clientInstallCard';
-            installCard.append(el('h2','Пропуск на главном экране'),el('p','Открывайте ворота из GateBot — персональная ссылка всегда под рукой.'));
-            const control=el('button','Установить GateBot','btn-primary');control.type='button';control.onclick=()=>install().catch(()=>installationGuide());installCard.append(control);tools.append(installCard);
-        }
         if(installCard)installCard.hidden=installed()||!isSecureContext||!('serviceWorker' in navigator);
         if(tabs)tabs.remove();tabs=null;
         if(installed()){
@@ -168,6 +163,7 @@
         else if(!offline){const view=dialog('GateBot установлен','Откройте GateBot с главного экрана, чтобы включить уведомления о пропуске.');view.control('Понятно',()=>view.node.close(),true);}
     });
     display.addEventListener?.('change',()=>{renderShell();refreshPush().then(consentPrompt).catch(()=>{});});
+    installCard?.querySelector('[data-client-install]').addEventListener('click',()=>install().catch(()=>installationGuide()));
     renderShell();
     (async()=>{
         if(!isSecureContext||!('serviceWorker' in navigator))return;

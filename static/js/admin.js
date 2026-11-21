@@ -687,49 +687,87 @@ async function initializeBranchSettings() {
         document.getElementById('settingsYclientsHint').textContent=creating&&!crm?'Внутренний ID назначится автоматически при создании.':internalId?'Филиал работает самостоятельно. Внутренний ID сохраняется на весь срок работы.':'Для самостоятельного филиала интеграции YCLIENTS и сервис рассылки недоступны.';
     }
     crmMode.addEventListener('change',showBranchMode);
-    function showLogo(url) {
+    const logoCrop=document.getElementById('branchLogoCrop'), logoApply=document.getElementById('settingsLogoApply');
+    const logoDefaults={fit:'contain',background:'transparent'};
+    let logoSource='', logoDraft='';
+    function clearLogoDraft() {
+        if(logoDraft)URL.revokeObjectURL(logoDraft);
+        logoDraft='';
+        logoUpload.value='';
+    }
+    function previewLogo() {
+        logoCrop.hidden=!(logoDraft||logoSource);
+        if(!logoCrop.hidden)window.GateBotIconFrame.preview(logoCrop,logoDraft||logoSource);
+    }
+    function showLogo(url, metadata) {
+        const selectedBranch=branchId.value;
+        clearLogoDraft();
         logoValue.value = url || '';
         logoPreview.hidden = !url;
         if (url) logoPreview.src = url; else logoPreview.removeAttribute('src');
         logoRemove.hidden = !url;
+        logoSource=metadata?.source_url||'';
+        window.GateBotIconFrame.fill(logoCrop,metadata?.frame||logoDefaults);
+        previewLogo();
+        if(!metadata && url?.startsWith('/media/branch-logos/')) {
+            fetch('/admin/api/branches/'+encodeURIComponent(selectedBranch)+'/logo',{credentials:'same-origin'})
+                .then(response=>{if(!response.ok)throw Error();return response.json();}).then(data=>{
+                    if(branchId.value!==selectedBranch || logoValue.value!==data.logo || logoDraft)return;
+                    logoSource=data.source_url;
+                    window.GateBotIconFrame.fill(logoCrop,data.frame);previewLogo();
+                }).catch(()=>{if(branchId.value===selectedBranch)logoStatus.textContent='Не удалось загрузить исходный логотип.';});
+        }
     }
-    async function changeLogo(file) {
+    async function changeLogo(remove) {
         if (creating || form.dataset.ready !== 'true') return;
-        if (file && file.size > 5 * 1024 * 1024) {
+        const file=logoUpload.files[0];
+        if (!remove && file && file.size > 5 * 1024 * 1024) {
             logoStatus.textContent = 'Выберите изображение размером до 5 МБ';
-            logoUpload.value = '';
+            clearLogoDraft();
+            previewLogo();
             return;
         }
         const selectedBranch = branchId.value;
         const save = document.getElementById('saveSettingsButton');
         const add = document.getElementById('newBranchBtn');
-        logoUpload.disabled = logoRemove.disabled = save.disabled = true;
+        logoUpload.disabled = logoRemove.disabled = logoApply.disabled = save.disabled = true;
         if (selector) selector.disabled = true;
         if (add) add.disabled = true;
-        logoStatus.textContent = file ? 'Загружаем изображение…' : 'Удаляем логотип…';
+        logoStatus.textContent = remove ? 'Удаляем логотип…' : 'Сохраняем изображение…';
         try {
             const body = new FormData();
-            if (file) body.append('image', file);
+            if (!remove && file) body.append('image', file);
+            body.append('expected_logo',logoValue.value);
+            if(!remove) {
+                for(const control of logoCrop.elements) {
+                    if(control.name && (control.type!=='checkbox'||control.checked))body.append(control.name,control.value);
+                }
+            }
             const response = await fetch('/admin/api/branches/' + encodeURIComponent(selectedBranch) + '/logo', {
-                method: file ? 'POST' : 'DELETE', credentials: 'same-origin',
+                method: remove ? 'DELETE' : 'POST', credentials: 'same-origin',
                 headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
-                ...(file ? {body} : {})
+                body
             });
             let result;
             try { result = await response.json(); } catch { throw new Error('Не удалось обработать изображение'); }
             if (!response.ok) throw new Error(result.message || 'Не удалось сохранить логотип');
-            if (branchId.value === selectedBranch) showLogo(result.logo);
-            logoStatus.textContent = file ? 'Логотип сохранён' : 'Логотип удалён';
+            if (branchId.value === selectedBranch) showLogo(result.logo,result);
+            logoStatus.textContent = remove ? 'Логотип удалён' : 'Логотип сохранён';
         } catch (error) { logoStatus.textContent = error.message; }
         finally {
-            logoUpload.value = '';
-            logoUpload.disabled = logoRemove.disabled = save.disabled = false;
+            logoUpload.disabled = logoRemove.disabled = logoApply.disabled = save.disabled = false;
             if (selector) selector.disabled = false;
             if (add) add.disabled = false;
         }
     }
-    logoUpload.addEventListener('change', () => { if (logoUpload.files[0]) changeLogo(logoUpload.files[0]); });
-    logoRemove.addEventListener('click', () => changeLogo(null));
+    logoUpload.addEventListener('change', () => {
+        if(logoDraft)URL.revokeObjectURL(logoDraft);
+        logoDraft=logoUpload.files[0]?URL.createObjectURL(logoUpload.files[0]):'';
+        previewLogo();
+    });
+    logoCrop.addEventListener('input',previewLogo);
+    logoApply.addEventListener('click',()=>changeLogo(false));
+    logoRemove.addEventListener('click',()=>changeLogo(true));
     function addRow(value = { type: 'gate', label: 'Въезд', phone: '' }) {
         if (rows.children.length >= 12) { showAlert('Можно добавить до 12 кнопок', 'info'); return; }
         const row = element('tr');
@@ -871,7 +909,7 @@ async function initializeBranchSettings() {
                 enabled: document.getElementById('settingsEnabled').checked,
                 ...(creating ? Object.fromEntries(switches.map(input => [input.dataset.branchSwitch, input.checked])) : {}),
                 pass_duration_hours:Number(document.getElementById('settingsPassHours').value),
-                logo: document.getElementById('settingsLogo').value, buttons
+                buttons
             });
             if (serial !== loadSerial) return;
             creating = false;

@@ -51,6 +51,11 @@ def test_separate_call_and_sms_screens_chats_and_history_clear(web, monkeypatch,
             page.wait_for_url('**/admin/users')
             page.goto(origin + '/admin/telephony')
             playwright.expect(page.locator('#chatList .phone-chat')).to_have_count(1)
+            assert page.locator('#threadEmpty .empty-icon').evaluate("""tile => {
+                const box = tile.getBoundingClientRect(), svg = tile.querySelector('svg').getBoundingClientRect();
+                return svg.width > 0 && Math.abs(svg.left + svg.width/2 - box.left - box.width/2) < 1
+                    && Math.abs(svg.top + svg.height/2 - box.top - box.height/2) < 1;
+            }""")
             playwright.expect(page.locator('#chatList')).to_contain_text('Анна Соколова')
             page.locator('#chatList .phone-chat').click()
             playwright.expect(page.locator('#chatMessages .phone-message')).to_have_count(1)

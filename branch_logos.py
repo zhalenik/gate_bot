@@ -67,11 +67,14 @@ def create_blueprint(provider):
             abort(404)
         return manager
 
-    def discard_unreferenced(old_url, manager):
+    def discard_unreferenced(branch_id, old_url, manager):
         match = re.fullmatch(re.escape(URL_PREFIX) + r'([a-f0-9]{32}\.png)', old_url or '')
-        if match and not any(b.logo == old_url for b in manager.get_all_branches()):
+        if match:
             try:
-                (image_directory() / match[1]).unlink(missing_ok=True)
+                path=image_directory()/match[1]
+                path.with_suffix(f'.b{branch_id}.source.png').unlink(missing_ok=True)
+                if not any(b.logo == old_url for b in manager.get_all_branches()):
+                    path.unlink(missing_ok=True)
             except OSError:
                 # The committed new logo remains usable if cleanup is deferred.
                 logger.event('BRANCH_LOGO_CLEANUP_DEFERRED', level='WARNING')
@@ -80,53 +83,111 @@ def create_blueprint(provider):
     def invalid(error):
         return jsonify(status='error', message=str(error)), 400
 
+    def source_path(branch_id, url):
+        match=re.fullmatch(re.escape(URL_PREFIX) + r'([a-f0-9]{32}\.png)', url or '')
+        if match:
+            display=image_directory()/match[1]
+            source=display.with_suffix(f'.b{branch_id}.source.png')
+            return source if source.is_file() else display
+
+    def editor(branch_id, branch):
+        from branding_images import LOGO_FRAME
+        url=branch.get('logo','')
+        return {'logo':url, 'frame':branch.get('logo_frame',LOGO_FRAME),
+                'source_url':f'/admin/api/branches/{branch_id}/logo/source?v={Path(url).stem}' if source_path(branch_id,url) else None}
+
+    def check_expected(current, expected):
+        if current != expected:
+            abort(409,description='Логотип уже изменён. Обновите страницу.')
+
+    @bp.get('/admin/api/branches/<int:branch_id>/logo')
+    def read(branch_id):
+        return jsonify(editor(branch_id,authorize(branch_id).load_branches()[str(branch_id)]))
+
+    @bp.get('/admin/api/branches/<int:branch_id>/logo/source')
+    def source(branch_id):
+        path=source_path(branch_id,authorize(branch_id).get_branch(branch_id).logo)
+        if not path or not path.is_file(): abort(404)
+        response=send_file(path,mimetype='image/png')
+        response.headers['Cache-Control']='private, no-store'
+        return response
+
     @bp.post('/admin/api/branches/<int:branch_id>/logo')
     def upload(branch_id):
+        from branding_images import LOGO_FRAME, canonical_brand, icon_png, submitted_frame
         manager = authorize(branch_id)
         request.max_content_length = MAX_UPLOAD_BYTES + 65536
         uploaded = request.files.get('image')
-        if uploaded is None:
-            raise ValueError('Выберите файл логотипа')
-        pixels = canonical_image(uploaded.stream.read(MAX_UPLOAD_BYTES + 1))
+        current=manager.get_branch(branch_id).logo
+        expected=request.form.get('expected_logo',current)
+        check_expected(current,expected)
+        frame=submitted_frame(request.form)
+        if uploaded and uploaded.filename:
+            _, _, pixels=canonical_brand(uploaded.stream.read(MAX_UPLOAD_BYTES + 1))
+        else:
+            path=source_path(branch_id,current)
+            if not frame or not path:
+                raise ValueError('Выберите файл логотипа')
+            try:
+                pixels=path.read_bytes()
+            except FileNotFoundError:
+                branch=manager.get_branch(branch_id)
+                if branch is None: abort(404)
+                check_expected(branch.logo,expected)
+                raise ValueError('Загрузите исходное изображение ещё раз') from None
+        frame=frame or LOGO_FRAME
+        rendered=pixels if frame==LOGO_FRAME else icon_png(pixels,None,**frame)
         identifier = secrets.token_hex(16)
         filename = identifier + '.png'
         directory = image_directory()
         directory.mkdir(parents=True, exist_ok=True)
         destination = directory / filename
         url = URL_PREFIX + filename
-        created = False
+        created = []
         try:
-            with destination.open('xb') as output:
-                created = True
-                output.write(pixels)
-                output.flush()
-                os.fsync(output.fileno())
+            files={destination:rendered}
+            if rendered != pixels:
+                files[destination.with_suffix(f'.b{branch_id}.source.png')]=pixels
+            for path,content in files.items():
+                with path.open('xb') as output:
+                    created.append(path)
+                    output.write(content)
+                    output.flush()
+                    os.fsync(output.fileno())
             with manager.store.transaction() as branches:
                 authorize(branch_id)  # Role and active branch can change during decoding.
                 branch = branches.get(str(branch_id))
                 if branch is None:
                     abort(404)
                 old_url = branch.get('logo', '')
+                check_expected(old_url,expected)
                 branch['logo'] = url
+                branch['logo_frame'] = frame
         except BaseException:
-            if created:
-                destination.unlink(missing_ok=True)
+            for path in created:
+                path.unlink(missing_ok=True)
             raise
-        discard_unreferenced(old_url, manager)
+        discard_unreferenced(branch_id, old_url, manager)
         logger.event('BRANCH_LOGO_UPDATED', branch_id=branch_id, actor=session.get('admin_username'))
-        return jsonify(status='success', logo=url)
+        return jsonify(status='success', **editor(branch_id,branch))
 
     @bp.delete('/admin/api/branches/<int:branch_id>/logo')
     def remove(branch_id):
         manager = authorize(branch_id)
+        data=request.get_json() if request.is_json else request.form
+        if not hasattr(data,'get'):
+            raise ValueError('Проверьте параметры удаления логотипа')
+        expected=data.get('expected_logo',manager.get_branch(branch_id).logo)
         with manager.store.transaction() as branches:
             authorize(branch_id)
             branch = branches.get(str(branch_id))
             if branch is None:
                 abort(404)
             old_url = branch.get('logo', '')
+            check_expected(old_url,expected)
             branch['logo'] = ''
-        discard_unreferenced(old_url, manager)
+            branch.pop('logo_frame',None)
+        discard_unreferenced(branch_id, old_url, manager)
         logger.event('BRANCH_LOGO_REMOVED', branch_id=branch_id, actor=session.get('admin_username'))
         return jsonify(status='success', logo='')
 

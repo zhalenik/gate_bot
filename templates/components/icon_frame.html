@@ -1,9 +1,14 @@
 <div class="icon-frame-editor">
-  <div class="icon-frame-preview"><div data-icon-frame><img alt="Предпросмотр иконки приложения"></div></div>
+  <div class="icon-frame-preview" data-aspect="{{ 'source' if crop_logo else 'square' }}"><div data-icon-frame title="Перетащите изображение внутри рамки">
+    <div data-crop-viewport><img alt="{{ 'Предпросмотр кадрирования логотипа' if crop_logo else 'Предпросмотр иконки приложения' }}" draggable="false"></div>
+  </div></div>
   <div class="icon-frame-controls">
-    <label>Кадрирование<select name="icon_fit"><option value="cover">Заполнить квадрат</option><option value="contain">Поместить целиком</option></select></label>
+    <label>Кадрирование<select name="icon_fit"><option value="cover">Заполнить рамку</option><option value="contain">Поместить целиком</option></select></label>
+    <label>Масштаб <output data-zoom-label>100 %</output><input type="range" name="icon_zoom" min="100" max="400" step="1" value="100"></label>
+    <label>По горизонтали<input name="icon_x" type="range" min="0" max="100" value="50"></label>
+    <label>По вертикали<input name="icon_y" type="range" min="0" max="100" value="50"></label>
     <label>Поля с каждой стороны, %<input type="number" name="icon_padding" min="0" max="30" step="1" value="0" required></label>
-    <label>Фон иконки<input type="color" name="icon_background" value="#ffffff"></label>
+    <label>Фон изображения<input type="color" name="icon_background" value="#ffffff"></label>
     <label class="checkbox-label"><input type="checkbox" name="icon_transparent"> Прозрачный фон</label>
   </div>
 </div>

@@ -160,7 +160,22 @@ def test_all_development_settings_are_editable_and_production_key_required(setti
         'DEV_REGISTRATION_SMS_REDIRECT_ENABLED':True,'DEV_REGISTRATION_SMS_PREFIX':'+155501',
         'DEV_REGISTRATION_SMS_PHONE':'+15550100200','GATEBOT_DATA_DIR':'./new-data','GATEBOT_LOG_DIR':'./new-logs'}})
     assert field(saved,'GATEBOT_ENV')['value']=='production'
-    assert field(saved,'DEV_REGISTRATION_SMS_REDIRECT_ENABLED')['value'] is True
+    assert not any(item.get('development_only') for item in saved['fields'])
+    development=settings.public('owner',include_development=True)
+    assert field(development,'DEV_REGISTRATION_SMS_REDIRECT_ENABLED')['value'] is True
+
+
+def test_enabling_test_sms_explicitly_selects_development_on_an_unset_environment(settings,monkeypatch):
+    redirect='DEV_REGISTRATION_SMS_REDIRECT_ENABLED'
+    for environment in (config.SYSTEM_BASE_ENVIRONMENT,config.SYSTEM_ACTIVE_ENVIRONMENT):
+        monkeypatch.delitem(environment,'GATEBOT_ENV',raising=False)
+        monkeypatch.setitem(environment,redirect,'true')
+    before=settings.public('owner')
+    assert field(before,redirect)['value'] is False
+    saved=settings.save('owner',{'revision':before['revision'],'values':{redirect:True}})
+    assert settings.store.read()['values']['GATEBOT_ENV']=='development'
+    assert field(saved,redirect)['value'] is True and field(saved,redirect)['active_value'] is False
+    assert redirect in saved['restart_keys']
 
 
 def test_tenant_cannot_read_or_mutate_and_missing_key_fails_closed(settings):

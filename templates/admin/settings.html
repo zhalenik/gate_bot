@@ -51,10 +51,15 @@
                         <input id="settingsLogo" type="hidden">
                         <div class="branch-logo-editor">
                             <img id="settingsLogoPreview" alt="Логотип филиала" width="88" height="88" hidden>
-                            <div><input id="settingsLogoUpload" type="file" accept="image/png,image/jpeg,image/webp">
-                            <small class="form-hint" id="settingsLogoHint">PNG, JPEG или WebP до 5 МБ. Изображение появится на странице пропуска.</small>
+                            <div><input id="settingsLogoUpload" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg">
+                            <small class="form-hint" id="settingsLogoHint">PNG, JPEG, WebP до 5 МБ или SVG до 512 КБ.</small>
                             <button id="settingsLogoRemove" class="btn-action" type="button" hidden>Удалить логотип</button></div>
                         </div>
+                        <fieldset id="branchLogoCrop" hidden>
+                          <legend>Кадрирование логотипа</legend>
+                          {% with crop_logo=true %}{% include 'components/icon_frame.html' %}{% endwith %}
+                          <button type="button" id="settingsLogoApply" class="btn-action">Применить логотип</button>
+                        </fieldset>
                         <p id="settingsLogoStatus" class="form-hint" role="status"></p>
                     </div>
                 </section>
@@ -131,9 +136,9 @@
         window.IS_SUPER = {{ 'true' if is_super else 'false' }};
         window.BASE_URL = {{ (BASE_URL or "") | tojson }};
     </script>
-<script src="/static/js/admin.js"></script>
+<script src="/static/js/icon-frame.js"></script><script src="/static/js/admin.js"></script>
 <script src="/static/js/gate-qr-admin.js"></script>
 <script src="/static/js/branch-hours.js"></script>
-<script src="/static/js/icon-frame.js"></script><script src="/static/js/appearance-editor.js"></script>
+<script src="/static/js/appearance-editor.js"></script>
 {% if is_super %}<script src="/static/js/branch-lifecycle.js"></script>{% endif %}
 {% endblock %}

@@ -1,6 +1,42 @@
 """Read/save installation settings; ordinary admins never receive settings data."""
-from flask import Blueprint,Response,abort,jsonify,render_template,request,session
+from flask import Blueprint,Response,abort,current_app,jsonify,render_template,request,session
 from system_settings import SystemSettings
+
+
+def _webhook_status(settings):
+    """Only the running worker can confirm provider registration for the active key."""
+    from bot_webhooks import EXTENSION
+    fields = {field['key']:field for field in settings['fields']}
+    inboxes = current_app.extensions.get(EXTENSION, {})
+    failures = current_app.extensions.get('gatebot_bot_startup_errors', {})
+    statuses = {}
+    for platform, prefix, secret in (('telegram','BOT','TELEGRAM_WEBHOOK_SECRET'), ('max','MAX_BOT','MAX_WEBHOOK_SECRET')):
+        keys = {secret, 'BASE_URL', prefix+'_TOKEN', prefix+'_ENABLED', prefix+'_MODE'}
+        failure = failures.get(platform)
+        mode_pending = fields[prefix+'_ENABLED']['restart_required'] or fields[prefix+'_MODE']['restart_required']
+        if platform == 'telegram':
+            keys.add('TELEGRAM_WEBHOOK_URL')
+        if not fields[prefix+'_ENABLED']['value']:
+            state, message = 'disabled', 'Бот выключится после перезапуска.' if mode_pending else 'Бот выключен.'
+        elif fields[prefix+'_MODE']['value'] != 'webhook':
+            state, message = 'polling', 'Polling включится после перезапуска.' if mode_pending else 'Выбран polling.'
+        elif keys.intersection(settings['restart_keys']):
+            state, message = 'pending_restart', 'Новые настройки webhook вступят в силу после перезапуска.'
+        elif failure:
+            state, message = 'error', f"Ошибка подключения ({failure['error_code']}). {failure['action']}"
+        elif getattr(inboxes.get(platform), 'registration_confirmed', False):
+            state, message = 'registered', 'Регистрация webhook подтверждена.'
+        else:
+            state, message = 'unconfirmed', 'Ожидается подтверждение регистрации webhook.'
+        statuses[platform] = {'state':state,'message':message}
+    return statuses
+
+
+def _settings_response(settings, **extra):
+    settings['webhooks'] = _webhook_status(settings)
+    response = jsonify(settings=settings, **extra)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 def create_blueprint(provider):
@@ -28,13 +64,34 @@ def create_blueprint(provider):
 
     @bp.get('/admin/api/system-settings')
     def read():
-        settings,username=context();response=jsonify(settings=settings.public(username));response.headers['Cache-Control']='no-store';return response
+        settings,username=context()
+        return _settings_response(settings.public(username,include_development=request.args.get('edit_environment')=='development'))
 
     @bp.post('/admin/api/system-settings')
     def save():
         settings,username=context();payload=request.get_json(silent=True)
         if not isinstance(payload,dict):abort(400)
-        response=jsonify(status='success',settings=settings.save(username,payload));response.headers['Cache-Control']='no-store';return response
+        return _settings_response(settings.save(username,payload),status='success')
+
+    @bp.post('/admin/api/system-settings/rotate/<target>')
+    def rotate(target):
+        from runtime_control import restart_callback
+        settings,username=context()
+        updated=settings.rotate(username,target,request.get_json(silent=True))
+        mode=_webhook_status(updated).get(target,{}).get('state')
+        apply_now=target=='session' or mode not in {'disabled','polling'}
+        callback=restart_callback() if apply_now else None
+        if callback:
+            message=('Ключ сохранён. GateBot перезапускается. Потребуется новый вход.' if target=='session' else
+                     'Секрет сохранён. После перезапуска GateBot зарегистрирует webhook.')
+        elif apply_now:
+            message='Секрет сохранён. Перезапустите процесс GateBot для применения.'
+        else:
+            message='Секрет сохранён для следующего запуска бота в режиме webhook.'
+        response=_settings_response(updated,message=message,restarting=bool(callback))
+        if callback:
+            response.call_on_close(callback)
+        return response, 202 if callback else 200
 
     @bp.post('/admin/api/system-settings/restart')
     def restart():

@@ -276,6 +276,7 @@ def test_branch_logo_upload_preview_public_pass_and_removal(web,browser_ui):
     expect(page.locator('#settingsLogo')).to_have_attribute('type','hidden')
     with page.expect_response('**/admin/api/branches/12/logo') as result:
         page.locator('#settingsLogoUpload').set_input_files({'name':'logo.png','mimeType':'image/png','buffer':image_bytes()})
+        page.locator('#settingsLogoApply').click()
     assert result.value.status==200
     expect(page.locator('#settingsLogoPreview')).to_be_visible()
     expect(page.locator('#settingsLogoStatus')).to_have_text('Логотип сохранён')

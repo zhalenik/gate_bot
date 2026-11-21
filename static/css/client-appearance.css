@@ -18,8 +18,10 @@
 .custom-client .gate-actions{gap:var(--client-button-gap,10px)}
 .custom-client .pass-brand>div{flex:1;min-width:0;text-align:var(--client-title-align)}
 .custom-client [data-client-branch-name]{text-align:var(--client-title-align)}
+.custom-client[data-logo-position=after] .pass-brand{flex-direction:row-reverse}
 .custom-client[data-logo-position=above] .pass-brand{flex-direction:column;align-items:stretch}
-.custom-client[data-logo-position=above] .pass-brand .branch-logo{align-self:var(--client-logo-align)}
+.custom-client[data-logo-position=below] .pass-brand{flex-direction:column-reverse;align-items:stretch}
+.custom-client:is([data-logo-position=above],[data-logo-position=below]) .pass-brand .branch-logo{align-self:var(--client-logo-align)}
 .shared-gate-button{display:inline-flex;align-items:center;gap:12px}
 .custom-client .guest-card .pass-brand{display:flex;align-items:center;gap:12px}
 .custom-client .guest-card .branch-logo{width:52px;height:52px;object-fit:contain}
@@ -31,3 +33,23 @@
 .gate-button-icon{flex:none}
 .custom-client[data-hide-gate-icon] .gate-button-icon{display:none}
 .custom-client .button-gate[hidden]{display:none}
+
+.custom-client[data-hide-branch-logo] .pass-brand .branch-logo{display:none}
+.custom-client[data-client-dimensions~="logo_size"] .pass-brand .branch-logo{width:var(--client-logo-size);height:var(--client-logo-size);max-width:100%;object-fit:contain}
+.custom-client[data-client-dimensions~="card_radius"] :is(.pass-card,.guest-card,#identityContent,.client-install-card){border-radius:var(--client-card-radius)}
+.custom-client[data-client-gap] :is(.desk-tools,.desk-actions,.pass-contacts,.bot-links,.support-actions,.client-pwa-dialog-actions,.client-feedback-footer,.client-pwa-tabs,.qr-form,.preference-dialog-actions){gap:var(--client-button-gap)}
+.custom-client[data-client-gap] .preferences-link,.custom-client[data-client-gap] .support-preferences,
+.custom-client[data-client-gap] .qr-text-button:not(.qr-form button){margin-top:var(--client-button-gap)}
+.custom-client[data-client-gap] .desk-tools{margin-top:var(--client-button-gap)}
+.custom-client[data-client-gap] .status-message:empty{display:none}
+.custom-client[data-client-gap] .bot-links{flex-wrap:wrap}
+.custom-client[data-client-gap] .bot-links a{flex:1 1 8rem}
+
+.custom-client[data-client-dimensions~="heading_size"] :is(h1,h2,h3):where(:not(.pass-brand h1,[data-client-branch-name])){font-size:var(--client-heading-size)}
+.custom-client[data-client-dimensions~="text_size"] :is(p,label,input,select,textarea,.client-pwa-dialog li):where(:not(.pass-brand p,.access-footer,.branch-banner,.form-hint,.gate-cooldown,.status-message,.preference-channel-status)){font-size:var(--client-text-size)}
+.custom-client[data-client-dimensions~="branch_size"] :is(.pass-brand h1,[data-client-branch-name]){font-size:var(--client-branch-size)}
+.custom-client[data-client-dimensions~="client_size"] .pass-brand p{font-size:var(--client-client-size)}
+.custom-client[data-client-dimensions~="button_size"] :is(button,.contact-link,.preferences-link,.bot-links a,.btn-action,.btn-primary,.client-pwa-tabs a,.client-feedback-footer a){font-size:var(--client-button-size);overflow-wrap:anywhere}
+.custom-client[data-client-dimensions~="caption_size"] :is(small,.form-hint,.pass-eyebrow,.access-badge,.gate-cooldown,.status-message,.preference-channel-status){font-size:var(--client-caption-size)}
+.custom-client[data-client-dimensions~="footer_size"] .access-footer{font-size:var(--client-footer-size)}
+.custom-client [data-pass-copy]{white-space:pre-line;overflow-wrap:anywhere}

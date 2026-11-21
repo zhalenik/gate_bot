@@ -39,7 +39,7 @@ ENVIRONMENT = os.getenv("GATEBOT_ENV", "development")
 EXPLICIT_DEVELOPMENT = os.getenv("GATEBOT_ENV") == "development"
 # Private local acceptance only; the routing helper additionally requires the
 # exact development environment, including when this flag is accidentally set.
-DEV_REGISTRATION_SMS_REDIRECT_ENABLED = env_bool("DEV_REGISTRATION_SMS_REDIRECT_ENABLED")
+DEV_REGISTRATION_SMS_REDIRECT_ENABLED = EXPLICIT_DEVELOPMENT and env_bool("DEV_REGISTRATION_SMS_REDIRECT_ENABLED")
 DEV_REGISTRATION_SMS_PREFIX = os.getenv("DEV_REGISTRATION_SMS_PREFIX", "").strip()
 DEV_REGISTRATION_SMS_PHONE = os.getenv("DEV_REGISTRATION_SMS_PHONE", "").strip()
 TIMEZONE = os.getenv("GATEBOT_TIMEZONE", "Europe/Moscow")

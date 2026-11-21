@@ -2,7 +2,7 @@ import json
 import re
 
 from flask import Blueprint, Response, abort, jsonify, render_template, request, session
-from branch_appearance import ASSETS, FONTS, GLOBAL, client_colors
+from branch_appearance import ASSETS, DIMENSIONS, FONT_SIZES, FONTS, GLOBAL, PASS_COPY, client_colors
 from branch_logos import MAX_UPLOAD_BYTES
 
 
@@ -21,6 +21,9 @@ def css_values(theme):
         values['--client-radius']=str(settings['radius'])+'px'
     if settings['font_size'] is not None:
         values['--client-unit']=str(settings['font_size'])+'px'
+    for key in DIMENSIONS:
+        if settings[key] is not None:
+            values['--client-'+key.replace('_','-')]=str(settings[key])+'px'
     if 'background' in assets:
         values['--client-wallpaper']='url('+assets['background']+')'
     if 'card_background' in assets:
@@ -31,6 +34,10 @@ def css_values(theme):
 def create_blueprint(provider):
     bp = Blueprint('branch_appearance', __name__)
     path='/admin/api/branches/<int:branch_id>/appearance'
+
+    @bp.app_context_processor
+    def appearance_fields():
+        return {'appearance_dimensions':DIMENSIONS,'appearance_font_sizes':FONT_SIZES,'appearance_copy':PASS_COPY}
 
     def admin():
         services=provider()
@@ -66,7 +73,7 @@ def create_blueprint(provider):
         except (KeyError, ValueError):
             abort(400)
         required={'settings','revision','remove'}
-        if not isinstance(data,dict) or not required<=data.keys()<=required|{'base_revision'} or request.files.keys()-ASSETS:
+        if not isinstance(data,dict) or not required<=data.keys()<=required|{'base_revision','icon_edit','branding_icon_revision'} or request.files.keys()-ASSETS:
             abort(400)
         files={kind:upload.stream.read(MAX_UPLOAD_BYTES+1) for kind,upload in request.files.items()}
         return jsonify(service.save(username,branch_id,files=files,**data))
@@ -88,7 +95,7 @@ def create_blueprint(provider):
                                client_appearance=view, client_styles=css_values(view),
                                user_name='Анна',branch_name=branch.name if branch else 'Ваш филиал',branch_logo=branch.logo if branch else None,
                                buttons=buttons,
-                               telegram_url=None,max_url=None,token=None)
+                               telegram_url='#',max_url='#',preferences_url='#',token=None)
 
     @bp.get('/media/client-appearance/<branch_id>/<filename>')
     @bp.get('/media/client-icon-source/<branch_id>/<filename>',defaults={'legacy':True})

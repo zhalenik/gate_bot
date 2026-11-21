@@ -41,10 +41,21 @@ def test_landing_client_header_and_branding_uploads(palette_web,browser_ui,tmp_p
     icon.locator('[name=icon_fit]').select_option('contain')
     icon.locator('[name=icon_padding]').fill('12')
     expect(preview).to_have_css('object-fit','contain')
+    icon.locator('[name=icon_zoom]').press('End')
+    expect(icon.locator('[data-zoom-label]')).to_have_text('400 %')
+    target=icon.locator('[data-crop-viewport]')
+    target.scroll_into_view_if_needed()
+    box=target.bounding_box()
+    x=box['x']+box['width']/2
+    y=box['y']+box['height']/2
+    page.mouse.move(x,y);page.mouse.down();page.mouse.move(x-30,y+15);page.mouse.up()
+    assert int(icon.locator('[name=icon_x]').input_value())>50
+    assert int(icon.locator('[name=icon_y]').input_value())<50
     icon.get_by_role('button',name='Сохранить иконку').click()
-    expect(page.locator('#brandingIconPreview')).to_have_attribute('src',__import__('re').compile('/ui/branding/assets/[a-f0-9]{64}.svg'))
+    expect(page.locator('#brandingIconPreview')).to_have_attribute('src',__import__('re').compile('/ui/branding/assets/[a-f0-9]{64}.png'))
     view=page.request.get(origin+'/admin/api/branding').json()
     assert view['icon_frame']['padding']==12
+    assert view['icon_frame']['zoom']==400 and view['icon_frame']['x']>50
     assert page.request.get(origin+view['apple_icon_url']).headers['content-type']=='image/png'
     page.reload();expect(page.locator('[data-brand-logo]')).to_have_attribute('src',view['logo_url'])
     page.set_viewport_size({'width':390,'height':844})

@@ -3,6 +3,8 @@
   const form = document.getElementById('appearanceForm');
   if (!form) return;
   const fields=form.elements, frame=document.getElementById('appearancePreview');
+  const dimensions=Array.from(form.querySelectorAll('[data-appearance-px]'),input=>input.name);
+  const copyFields=Array.from(form.querySelectorAll('[data-appearance-copy]'),input=>input.name);
   const tab=document.getElementById('branch-tab-appearance'), status=document.getElementById('appearanceStatus');
   const globalEditor=document.getElementById('appearanceDefaults');
   const colorList=form.querySelector('[data-branch-colors]'), fileKeys=['pwa','favicon','background','card_background','barrier'];
@@ -30,9 +32,31 @@
     }
     form.querySelector('[data-reset-asset="'+key+'"]').hidden=removed.has(key)||!(blobs[key]||state?.own_assets.includes(key==='pwa'?'pwa_source':key));
   }
+  function editedFrame(){
+    const original=(removed.has('pwa')?state.base_settings:state.settings).icon_frame;
+    return Object.entries(window.GateBotIconFrame.read(form)).some(([key,value])=>
+      key==='background'?value.toLowerCase()!==original[key].toLowerCase():value!==original[key]);
+  }
+  document.addEventListener('gatebot:branding-icon-changed',event=>{
+    if(!state)return;
+    const branding=event.detail, usesDefault=!state.assets.pwa_source||removed.has('pwa')&&!state.inherited_assets.pwa_source;
+    if(usesDefault&&editedFrame()&&!blobs.pwa){
+      notice('Исходная иконка изменилась. Обновите страницу перед кадрированием.',true);
+      return;
+    }
+    state.default_icon_source=branding.icon_source_url;
+    state.branding_icon_revision=branding.icon_revision;
+    if(!state.inherited_assets.pwa_source)state.base_settings.icon_frame=branding.icon_frame;
+    if(!state.assets.pwa_source)state.settings.icon_frame=branding.icon_frame;
+    if(usesDefault&&!blobs.pwa)window.GateBotIconFrame.fill(form,branding.icon_frame);
+    showAsset('pwa');
+  });
   function values(){
     const number=key=>fields[key].value===''?null:Number(fields[key].value);
-    return {font:fields.font.value,font_size:number('font_size'),radius:number('radius'),
+    return {font:fields.font.value,font_size:state.settings.font_size,radius:number('radius'),
+      ...Object.fromEntries(dimensions.map(key=>[key,number(key) ?? state.base_settings[key]])),
+      ...Object.fromEntries(copyFields.map(key=>[key,fields[key].value])),
+      hide_branch_logo:fields.hide_branch_logo.checked,
       button_gap:number('button_gap'),button_align:fields.button_align.value,button_icon:fields.button_icon.checked,
       title_align:fields.title_align.value,logo_position:fields.logo_position.value,logo_align:fields.logo_align.value,
       icon_frame:window.GateBotIconFrame.read(form),hide_logo:fields.hide_logo.checked,banner:fields.banner.value,banner_size:number('banner_size'),
@@ -40,7 +64,7 @@
   }
   function preview(){
     if(!state)return;
-    form.querySelector('[data-logo-alignment]').hidden=fields.logo_position.value!=='above';
+    form.querySelector('[data-logo-alignment]').hidden=!['above','below'].includes(fields.logo_position.value);
     showAsset('pwa');
     if(!frame.contentDocument?.body?.hasAttribute('inert'))return;
     const doc=frame.contentDocument, body=doc.body, root=doc.documentElement, draft=values();
@@ -51,8 +75,15 @@
     for(const entry of state.palette)set(entry.variable,draft.colors[entry.id] || state.base_settings.colors[entry.id]);
     set('--client-font',fonts[draft.font]);body.dataset.clientFont=draft.font;
     set('--client-unit',draft.font_size==null?null:draft.font_size+'px');
+    body.dataset.clientDimensions=dimensions.filter(key=>draft[key]!=null).join(' ');
+    for(const key of dimensions)set('--client-'+key.replace('_','-'),draft[key]==null?null:draft[key]+'px');
+    body.toggleAttribute('data-hide-branch-logo',draft.hide_branch_logo);
+    for(const node of doc.querySelectorAll('[data-pass-copy]')){
+      const value=draft[node.dataset.passCopy];node.textContent=value;node.hidden=!value;
+    }
     set('--client-radius',draft.radius==null?null:draft.radius+'px');
     set('--client-button-gap',draft.button_gap==null?null:draft.button_gap+'px');
+    body.toggleAttribute('data-client-gap',draft.button_gap!=null);
     set('--client-button-align',draft.button_align);set('--client-title-align',draft.title_align);
     set('--client-logo-align',{left:'flex-start',center:'center',right:'flex-end'}[draft.logo_align]);
     body.dataset.logoPosition=draft.logo_position;body.dataset.buttonAlign=draft.button_align;
@@ -99,7 +130,8 @@
   function paint(){
     clearFiles();const current=state.settings;
     colors=Object.fromEntries(Object.entries(current.colors).filter(([key,v])=>v!==state.base_settings.colors[key]));
-    for(const key of ['font','font_size','radius','button_gap','button_align','title_align','logo_position','logo_align','banner','banner_size','banner_align','banner_bg','banner_color'])fields[key].value=current[key]??'';
+    for(const key of ['font','radius','button_gap','button_align','title_align','logo_position','logo_align','banner','banner_size','banner_align','banner_bg','banner_color',...dimensions,...copyFields])fields[key].value=current[key]??'';
+    fields.hide_branch_logo.checked=current.hide_branch_logo;
     fields.hide_logo.checked=current.hide_logo;fields.button_icon.checked=current.button_icon;
     window.GateBotIconFrame.fill(form,current.icon_frame);
     const groups=form.querySelector('[data-color-group]');
@@ -153,7 +185,8 @@
   form.onsubmit=async event=>{
     event.preventDefault();if(!state||saving)return;
     const serial=generation, body=new FormData();
-    body.append('appearance',JSON.stringify({revision:state.revision,base_revision:state.base_revision,settings:values(),remove:[...removed]}));
+    body.append('appearance',JSON.stringify({revision:state.revision,base_revision:state.base_revision,settings:values(),remove:[...removed],
+      icon_edit:editedFrame()?'frame':'keep',branding_icon_revision:state.branding_icon_revision}));
     for(const key of fileKeys){const file=fields[key].files[0];if(file)body.append(key,file);}
     saving=true;fields[0].disabled=true;
     try{

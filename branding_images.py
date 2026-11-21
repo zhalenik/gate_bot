@@ -4,7 +4,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 
-from PIL import Image, ImageOps
+from PIL import Image
 
 from branch_logos import canonical_image, MAX_UPLOAD_BYTES
 
@@ -136,24 +136,53 @@ def canonical_brand(data):
     return pixels, 'png', pixels
 
 
-def validate_icon_frame(fit, padding, background):
+FRAME_DEFAULTS = {'fit':'cover', 'padding':0, 'background':'#FFFFFF', 'zoom':100, 'x':50, 'y':50}
+LOGO_FRAME = {**FRAME_DEFAULTS, 'fit':'contain', 'background':'transparent'}
+
+
+def frame_settings(value):
+    if not isinstance(value,dict) or not {'fit','padding','background'} <= value.keys() <= FRAME_DEFAULTS.keys():
+        raise ValueError('Проверьте параметры кадрирования')
+    return validate_icon_frame(**value)
+
+
+def submitted_frame(form):
+    if 'icon_fit' not in form:
+        return None
+    try:
+        numbers={k:int(form.get('icon_'+k, FRAME_DEFAULTS[k])) for k in ('padding','zoom','x','y')}
+    except (TypeError,ValueError):
+        raise ValueError('Проверьте масштаб, поля и положение изображения') from None
+    return validate_icon_frame(form['icon_fit'],background='transparent' if 'icon_transparent' in form else form.get('icon_background'),**numbers)
+
+
+def validate_icon_frame(fit, padding, background, zoom=100, x=50, y=50):
     if fit not in ('cover','contain') or type(padding) is not int or not 0 <= padding <= 30:
         raise ValueError('Выберите кадрирование и поля иконки от 0 до 30 %')
     if background != 'transparent' and (not isinstance(background,str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', background)):
         raise ValueError('Выберите цвет фона иконки')
-    return {'fit':fit,'padding':padding,'background':background}
+    if any(type(value) is not int or not low <= value <= high for value,low,high in ((zoom,100,400),(x,0,100),(y,0,100))):
+        raise ValueError('Масштаб изображения должен быть от 100 до 400 %, положение — от 0 до 100 %')
+    color = background if background == 'transparent' else background.upper()
+    return {'fit':fit,'padding':padding,'background':color,'zoom':zoom,'x':x,'y':y}
 
 
-def icon_png(pixels, size, *, fit='cover', padding=0, background='#FFFFFF'):
-    """Render the square installed icon using the same centered crop as its preview."""
-    validate_icon_frame(fit, padding, background)
+def icon_png(pixels, size, *, fit='cover', padding=0, background='#FFFFFF', zoom=100, x=50, y=50):
+    """Render only the visible source region, even for very wide zoomed uploads."""
+    validate_icon_frame(fit,padding,background,zoom,x,y)
     with Image.open(io.BytesIO(pixels)) as image:
         image = image.convert('RGBA')
-        edge=round(size*(1-2*padding/100))
-        resize = ImageOps.fit if fit=='cover' else ImageOps.contain
-        fitted = resize(image, (edge,edge), Image.Resampling.LANCZOS)
-        canvas = Image.new('RGBA', (size, size), (0,0,0,0) if background=='transparent' else background)
-        canvas.alpha_composite(fitted, ((size-fitted.width)//2, (size-fitted.height)//2))
+        width,height=image.size if size is None else (size,size)
+        inner_w=max(1,round(width*(1-2*padding/100)))
+        inner_h=max(1,round(height*(1-2*padding/100)))
+        fit_scale = max if fit=='cover' else min
+        scale=fit_scale(inner_w/image.width,inner_h/image.height)*zoom/100
+        offset_x=(image.width-inner_w/scale)*x/100
+        offset_y=(image.height-inner_h/scale)*y/100
+        cropped=image.transform((inner_w,inner_h),Image.Transform.AFFINE,(1/scale,0,offset_x,0,1/scale,offset_y),
+                                Image.Resampling.BICUBIC,fillcolor=(0,0,0,0))
+        canvas=Image.new('RGBA',(width,height),(0,0,0,0) if background=='transparent' else background)
+        canvas.alpha_composite(cropped,((width-inner_w)//2,(height-inner_h)//2))
         output = io.BytesIO()
         if background!='transparent':
             canvas=canvas.convert('RGB')

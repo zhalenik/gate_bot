@@ -6,7 +6,7 @@ import json
 import re
 from PIL import Image
 
-from branding_images import canonical_brand, icon_png, validate_icon_frame
+from branding_images import FRAME_DEFAULTS, canonical_brand, frame_settings, icon_png
 from palette_catalog import load_catalog, current_colors
 from palette_settings import PaletteSettings, color_value
 from billing_utils import epoch
@@ -17,8 +17,23 @@ FONTS = {'system':'system-ui, sans-serif', 'humanist':'Trebuchet MS, sans-serif'
          **{font.lower():font+', sans-serif' for font in ('Inter','Rubik','Nunito','Mulish')}}
 ASSETS = {'background','card_background','barrier','favicon','pwa'}
 GLOBAL = 'default'
-ICON_FRAME={'fit':'cover','padding':0,'background':'#FFFFFF'}
+FONT_SIZES = {
+    'branch_size':'Название филиала', 'client_size':'Имя клиента или название ворот',
+    'heading_size':'Заголовки разделов', 'text_size':'Основной текст',
+    'button_size':'Текст кнопок', 'caption_size':'Статусы и мелкие подписи',
+    'footer_size':'Подпись внизу страницы',
+}
+DIMENSIONS = {'card_radius':(0,80), 'logo_size':(16,160), **dict.fromkeys(FONT_SIZES,(10,64))}
+PASS_COPY = {
+    'tools_title':'Всегда под рукой',
+    'tools_description':'Подключите удобный мессенджер, чтобы пользоваться пропуском в боте.',
+    'footer_text':'Персональная ссылка — ваш ключ к пропуску.',
+    'install_title':'Пропуск на главном экране',
+    'install_description':'Открывайте ворота из GateBot — персональная ссылка всегда под рукой.',
+}
+ICON_FRAME=FRAME_DEFAULTS
 DEFAULTS = {'font':'system', 'font_size':None, 'radius':None, 'hide_logo':False,
+            'hide_branch_logo':False, **dict.fromkeys(DIMENSIONS), **PASS_COPY,
             'button_gap':None, 'button_icon':True,'button_align':'left','title_align':'left',
             'logo_position':'before','logo_align':'center', 'icon_frame':ICON_FRAME,
             'banner':'', 'banner_align':'left', 'banner_size':16, 'banner_bg':'#EFF0E8',
@@ -80,20 +95,23 @@ def validate_settings(raw):
     result = {**DEFAULTS, **raw}
     if not isinstance(result['font'],str) or result['font'] not in FONTS or any(
         result[key] not in ('left','center','right') for key in ('button_align','title_align','logo_align','banner_align')
-    ) or result['logo_position'] not in ('before','above'):
+    ) or result['logo_position'] not in ('before','above','after','below'):
         raise ValueError('Выберите шрифт и выравнивание из списка')
     frame=result['icon_frame']
-    if not isinstance(frame,dict) or frame.keys()!=ICON_FRAME.keys() or type(result['button_icon']) is not bool:
+    if type(result['button_icon']) is not bool:
         raise ValueError('Проверьте настройки иконки')
-    result['icon_frame']=validate_icon_frame(**frame)
-    for key,minimum,maximum in [('font_size',12,24),('radius',0,40),('button_gap',0,64),('banner_size',12,36)]:
+    result['icon_frame']=frame_settings(frame)
+    limits={'font_size':(12,24),'radius':(0,40),'button_gap':(0,64),'banner_size':(12,36),**DIMENSIONS}
+    for key,(minimum,maximum) in limits.items():
         value = result[key]
         if value is None and key!='banner_size':
             continue
         if type(value) is not int or not minimum <= value <= maximum:
             raise ValueError('Проверьте размеры текста и скругления')
-    if type(result['hide_logo']) is not bool or not isinstance(result['banner'],str) or len(result['banner'])>400:
-        raise ValueError('Проверьте видимость логотипа и текст баннера (до 400 символов)')
+    if any(type(result[key]) is not bool for key in ('hide_logo','hide_branch_logo')):
+        raise ValueError('Проверьте настройки видимости логотипов')
+    if any(not isinstance(result[key],str) or len(result[key])>400 for key in ('banner', *PASS_COPY)):
+        raise ValueError('Текст каждого поля может содержать до 400 символов')
     for key in ('banner_bg','banner_color'):
         result[key] = color_value(result[key])
     colors = result['colors']
@@ -171,7 +189,8 @@ class BranchAppearance:
         return {'settings':settings,'assets':assets,'revision':revision, 'base_revision':base_revision,
                 'own_assets':list(own_assets),'inherited_assets':common_assets if branch_id!=GLOBAL else {},
                 'base_settings':validate_settings(base) if branch_id!=GLOBAL else validate_settings({'icon_frame':installation.get('icon_frame',ICON_FRAME)}),
-                'default_icon_source':installation.get('icon_url'),
+                'default_icon_source':installation.get('icon_source_url'),
+                'branding_icon_revision':installation.get('icon_revision'),
                 'background_color':chrome.get('--background','#EFF0E8'), 'theme_color':chrome.get('--surface','#FFFFFF')}
 
     def public(self, branch_id):
@@ -194,22 +213,30 @@ class BranchAppearance:
                              for key,entry in client_colors().items()]
             return view
 
-    def save(self, username, branch_id, revision, settings, files, remove, base_revision=None):
+    def save(self, username, branch_id, revision, settings, files, remove, base_revision=None,
+             icon_edit=None, branding_icon_revision=None):
         if type(revision) is not int or revision<0 or not isinstance(remove,list) or any(not isinstance(k,str) or k not in ASSETS for k in remove):
             raise ValueError('Некорректная версия или список изображений')
         if files.keys()-ASSETS or files.keys() & set(remove):
             raise ValueError('Некорректный список изображений')
+        if icon_edit not in (None,'keep','frame'):
+            raise ValueError('Некорректное действие с иконкой')
         settings = validate_settings(settings)
         images = {}
+        depends_on_branding=False
+        frame_owner='base_settings' if 'pwa' in remove else 'settings'
         with self.store.connect() as db:
             self.authorize(db,username,branch_id)
             previous=self._view(db,branch_id,editing=True)
             frame=settings['icon_frame']
-            if 'pwa' in remove:
-                if frame!=previous['base_settings']['icon_frame']:
-                    files={**files,'pwa':self._icon_source(db,GLOBAL if branch_id!=GLOBAL else None)}
-            elif 'pwa' not in files and frame!=previous['settings']['icon_frame']:
-                files={**files,'pwa':self._icon_source(db,branch_id)}
+            edit_frame=icon_edit=='frame' if icon_edit is not None else frame!=previous[frame_owner]['icon_frame']
+            if 'pwa' not in files and edit_frame:
+                source_assets=previous['inherited_assets'] if 'pwa' in remove else previous['assets']
+                depends_on_branding=icon_edit=='frame' and 'pwa_source' not in source_assets
+                if depends_on_branding and previous['branding_icon_revision']!=branding_icon_revision:
+                    raise ValueError('Исходная иконка изменилась. Обновите страницу перед кадрированием.')
+                source_owner=(GLOBAL if branch_id!=GLOBAL else None) if 'pwa' in remove else branch_id
+                files={**files,'pwa':self._icon_source(db,source_owner)}
         for kind,content in files.items():
             images.update(prepare_asset(kind,content,settings['icon_frame']))
         with self.store.connect() as db:
@@ -217,6 +244,10 @@ class BranchAppearance:
             current=self._view(db,branch_id,editing=True)
             if revision != current['revision'] or base_revision is not None and base_revision!=current['base_revision']:
                 raise ValueError('Оформление уже изменилось. Загрузите актуальные настройки.')
+            if depends_on_branding and current['branding_icon_revision']!=branding_icon_revision:
+                raise ValueError('Исходная иконка изменилась. Обновите страницу перед кадрированием.')
+            if icon_edit=='keep' and 'pwa' not in files:
+                settings['icon_frame']=current[frame_owner]['icon_frame']
             baseline=current['base_settings']
             overrides={key:value for key,value in settings.items() if key!='colors' and value!=baseline[key]}
             # Uploaded icons carry their own composition until their source is removed.
@@ -259,7 +290,7 @@ class BranchAppearance:
                     return row[0] if key=='pwa_source' else self._legacy_icon(row[0])
         from branding import BrandingSettings, DEFAULT_ICON, ASSET_PREFIX
         branding=BrandingSettings(self.identity)
-        url=branding.public_view()['icon_url']
+        url=branding.public_view()['icon_source_url']
         return (branding.directory/url.removeprefix(ASSET_PREFIX)).read_bytes() if url.startswith(ASSET_PREFIX) else DEFAULT_ICON.read_bytes()
 
     def asset(self, branch_id, filename, legacy=False):

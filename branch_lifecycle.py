@@ -160,6 +160,8 @@ class BranchLifecycleService:
                 remove('persons','id=?',(person,))
         if isinstance(logo,str) and re.fullmatch(r'/media/branch-logos/[a-f0-9]{32}\.png',logo):
             path=Path(self.store.path).parent/'branch-logos'/Path(logo).name
-            try:path.unlink(missing_ok=True)
+            try:
+                path.unlink(missing_ok=True)
+                path.with_suffix(f'.b{branch_id}.source.png').unlink(missing_ok=True)
             except OSError:pass  # A stale non-public upload must not undo a committed deletion.
         return {'deleted':True,'branch_id':preview['branch_id'],'clients':preview['clients'],'admins':preview['admins']}

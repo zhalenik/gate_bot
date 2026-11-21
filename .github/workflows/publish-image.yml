@@ -70,6 +70,7 @@ jobs:
             type=ref,event=tag
 
       - name: Build and publish linux/amd64 image
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -82,3 +83,25 @@ jobs:
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Start the published image on empty temporary volumes
+        shell: bash
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
+        run: |
+          export SECRET_KEY="$(openssl rand -hex 32)"
+          container=$(docker run -d --network none --env SECRET_KEY --env GATEBOT_ENV=production \
+            --tmpfs /state:uid=568,gid=568,mode=0700 --tmpfs /app/private/system-config:uid=568,gid=568,mode=0700 \
+            --health-interval=2s --health-start-period=2s --health-retries=15 "$IMAGE")
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          for attempt in {1..30}; do
+            state=$(docker inspect --format '{{.State.Status}}/{{.State.Health.Status}}' "$container")
+            if [[ "$state" == "running/healthy" ]]; then
+              docker exec "$container" python -c "from urllib.request import urlopen; assert urlopen('http://127.0.0.1:5000/admin/login', timeout=5).status == 200"
+              exit 0
+            fi
+            [[ "$state" == "running/starting" ]] || break
+            sleep 2
+          done
+          echo "GateBot startup failed ($state)"
+          exit 1

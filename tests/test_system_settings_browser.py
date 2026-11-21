@@ -12,6 +12,33 @@ from storage import config
 pytestmark=pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in browser acceptance')
 
 
+def test_production_sms_visibility_and_polling_secret_rotation(system_web,browser_ui,monkeypatch):
+    web,store=system_web
+    page,origin,expect,errors=browser_ui
+    for env in (config.SYSTEM_BASE_ENVIRONMENT,config.SYSTEM_ACTIVE_ENVIRONMENT):
+        monkeypatch.setitem(env,'GATEBOT_ENV','production')
+    sign_in(page,origin)
+    page.goto(origin+'/admin/system-settings')
+    search=page.locator('#systemSettingsSearch')
+    search.fill('GATEBOT_ENV')
+    env=page.locator('#setting-GATEBOT_ENV')
+    expect(env).to_have_value('production')
+    expect(page.locator('#setting-DEV_REGISTRATION_SMS_PHONE')).to_have_count(0)
+    env.select_option('development')
+    search.fill('DEV_REGISTRATION_SMS_PHONE')
+    expect(page.locator('#setting-DEV_REGISTRATION_SMS_PHONE')).to_be_visible()
+    search.fill('GATEBOT_ENV')
+    env.select_option('production')
+    search.fill('DEV_REGISTRATION_SMS_PHONE')
+    expect(page.locator('#setting-DEV_REGISTRATION_SMS_PHONE')).to_be_hidden()
+    search.fill('TELEGRAM_WEBHOOK_SECRET')
+    page.once('dialog',lambda dialog:dialog.accept())
+    page.get_by_role('button',name='Сгенерировать секрет').click()
+    expect(page.locator('#systemSettingsNotice')).to_contain_text('для следующего запуска')
+    assert store.read()['values']['TELEGRAM_WEBHOOK_SECRET'] not in page.content()
+    assert not errors and not web.calls
+
+
 def test_system_settings_edit_restart_status_secret_retention_and_mobile(system_web,browser_ui):
     web,store=system_web;page,origin,expect,errors=browser_ui
     sign_in(page,origin)
@@ -21,6 +48,13 @@ def test_system_settings_edit_restart_status_secret_retention_and_mobile(system_
     form=page.locator('.system-settings-editor')
     assert page.locator('#systemSettingsGroups > details > summary').all_text_contents() == ['Уведомления','Аппаратные средства','Чат-боты','CRM','Разработка']
     assert set(page.locator('[data-group=bots] [data-block] > summary').all_text_contents()) == {'Telegram Bot','MAX Bot'}
+    assert page.locator('#systemSettingsGroups summary, #systemSettingsGroups summary strong').evaluate_all("""items => {
+        const first = getComputedStyle(items[0]);
+        return items.every(item => {
+            const style = getComputedStyle(item);
+            return style.fontSize === first.fontSize && style.fontWeight === '700';
+        });
+    }""")
     assert page.locator('[data-group=yclients] [data-block=block-schedule]').count()==1
     hardware=page.locator('[data-block=block-hardware]')
     expect(hardware.locator('summary')).to_have_text('Настройки аппаратных вызовов и СМС')
@@ -64,6 +98,34 @@ def test_system_settings_edit_restart_status_secret_retention_and_mobile(system_
     expect(page.locator('a[href="/admin/system-settings"]')).to_have_count(0)
     assert page.goto(origin+'/admin/system-settings').status==403
     assert web.calls==[] and not errors
+
+
+def test_session_rotation_preserves_unsaved_smtp_form(system_web,browser_ui):
+    web,store=system_web
+    page,origin,expect,errors=browser_ui
+    sign_in(page,origin)
+    page.goto(origin+'/admin/system-settings')
+    smtp=page.locator('#smtpForm')
+    page.locator('#systemSmtp > summary').click()
+    expect(smtp.get_by_role('button',name='Сохранить')).to_be_enabled()
+    sender=smtp.locator('input[name=from_name]')
+    previous=sender.input_value()
+    sender.fill('Тестовый отправитель')
+    page.locator('#systemSettingsSearch').fill('SECRET_KEY')
+    page.locator('[data-rotate=session]').click()
+    expect(page.locator('#systemSettingsNotice')).to_contain_text('SMTP')
+    expect(sender).to_have_value('Тестовый отправитель')
+    assert store.read()['revision']=='0'
+    page.locator('#systemSettingsRestart').click()
+    expect(page.locator('#systemSettingsNotice')).to_contain_text('несохранённые изменения')
+    page.locator('#systemSettingsSearch').fill('')
+    sender.fill(previous)
+    page.locator('#systemSettingsSearch').fill('SECRET_KEY')
+    page.once('dialog',lambda dialog:dialog.accept())
+    with page.expect_response(lambda r:r.url.endswith('/rotate/session')) as response:
+        page.locator('[data-rotate=session]').click()
+    assert response.value.ok and store.read()['revision']!='0'
+    assert not web.calls and not errors
 
 
 def test_official_com_url_and_legacy_invalid_fields_can_be_opened_and_fixed(system_web,browser_ui,monkeypatch):

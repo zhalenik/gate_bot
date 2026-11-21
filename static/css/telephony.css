@@ -278,6 +278,9 @@
     padding:30px;
 }
 .empty-icon {
+    display:grid;
+    place-items:center;
+    flex:none;
     width:88px;
     height:88px;
     border-radius:28px;
@@ -286,6 +289,7 @@
     margin-bottom:8px;
 }
 .empty-icon svg {
+    display:block;
     width:43px;
     height:43px;
     stroke-width:1.3;

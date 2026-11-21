@@ -1006,9 +1006,11 @@ def api_branch_settings():
         abort(400, description='Укажите срок разового пропуска от 1 до 168 часов')
     settings = {"name": _text(data.get("name"), "Название филиала", required=True),
                 "timezone": zone, "enabled": _boolean(data.get("enabled"), "Филиал активен"),
-                "logo": _logo_url(data.get("logo")), "buttons": validated_buttons,
+                "buttons": validated_buttons,
                 "yclients_enabled": yclients_enabled,
                 "pass_duration_hours": hours}
+    if 'logo' in data:
+        settings['logo'] = _logo_url(data['logo'])
     for field, label in _BRANCH_NOTIFICATION_SWITCHES.items():
         if field in data:
             settings[field] = _boolean(data[field], label)

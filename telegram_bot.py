@@ -431,6 +431,7 @@ async def _run(stop_event: threading.Event, service: Any = None, inbox=None) -> 
                         allowed_updates=["message","callback_query"],max_connections=1,drop_pending_updates=False):
                     raise RuntimeError('Telegram webhook registration failed')
                 inbox.remember(inbox.registration(True))
+            inbox.registration_confirmed = True
             _READY.set()
             _audit("BOT_WEBHOOK_READY")
             while not stop_event.is_set():

@@ -28,7 +28,7 @@
   {% endfor %}
 </div>
 {% endif %}
-{% if kind == 'preferences' %}<div data-client-pwa-tools></div>{% include 'components/client_footer.html' %}{% endif %}
+{% if kind == 'preferences' %}{% include 'components/client_install_card.html' %}{% include 'components/client_footer.html' %}{% endif %}
 {% if kind == 'integrations' and branches %}
 <template id="yclientsGuide"><details class="integration-guide">
   <summary aria-label="Два способа подключения YCLIENTS" title="Два способа подключения YCLIENTS"><span aria-hidden="true">i</span></summary>

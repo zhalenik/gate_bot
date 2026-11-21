@@ -7,16 +7,27 @@
         <label class="checkbox-label"><input type="checkbox" name="hide_logo"> Скрыть логотип GateBot</label>
         <details open><summary>Текст и кнопки</summary><div class="appearance-fields">
           <label>Шрифт<select name="font"><option value="system">Системный</option><option value="inter">Inter</option><option value="rubik">Rubik</option><option value="nunito">Nunito</option><option value="mulish">Mulish</option><option value="humanist">Trebuchet MS</option><option value="serif">Georgia</option><option value="mono">Courier New</option></select></label>
-          <label>Базовый размер текста, px<input type="number" min="12" max="24" name="font_size" placeholder="По умолчанию"></label>
           <label>Скругление кнопок, px<input type="number" min="0" max="40" name="radius" placeholder="По умолчанию"></label>
-          <label>Расстояние между кнопками ворот, px<input type="number" min="0" max="64" name="button_gap" placeholder="По умолчанию"></label>
+          <label>Скругление блока, px<input type="number" min="0" max="80" name="card_radius" data-appearance-px placeholder="По умолчанию"></label>
+          <label>Расстояние между кнопками, px<input type="number" min="0" max="64" name="button_gap" placeholder="По умолчанию"></label>
           <label>Выравнивание текста кнопки<select name="button_align" aria-label="Выравнивание текста кнопки">{% include 'components/appearance_align.html' %}</select></label>
           <label class="checkbox-label"><input type="checkbox" name="button_icon"> Иконка шлагбаума на кнопках ворот</label>
         </div></details>
+        <details><summary>Размеры текста</summary><div class="appearance-fields">
+          {% for key,label in appearance_font_sizes.items() %}<label>{{ label }}, px<input type="number" name="{{ key }}" min="{{ appearance_dimensions[key][0] }}" max="{{ appearance_dimensions[key][1] }}" data-appearance-px placeholder="По умолчанию"></label>{% endfor %}
+        </div></details>
         <details><summary>Название и логотип филиала</summary><div class="appearance-fields">
+          <label class="checkbox-label"><input type="checkbox" name="hide_branch_logo"> Скрыть логотип филиала</label>
           <label>Выравнивание названия<select name="title_align">{% include 'components/appearance_align.html' %}</select></label>
-          <label>Расположение логотипа<select name="logo_position"><option value="before">Перед названием</option><option value="above">Над названием</option></select></label>
+          <label>Размер логотипа, px<input type="number" name="logo_size" min="16" max="160" data-appearance-px placeholder="По умолчанию"></label>
+          <label>Расположение логотипа<select name="logo_position"><option value="before">Слева от названия</option><option value="after">Справа от названия</option><option value="above">Над названием</option><option value="below">Под названием</option></select></label>
           <label data-logo-alignment>Выравнивание логотипа<select name="logo_align">{% include 'components/appearance_align.html' %}</select></label>
+        </div></details>
+        <details><summary>Текст внизу страницы пропуска</summary><div class="appearance-fields">
+          {% for key,label in [('tools_title','Заголовок блока мессенджеров'),('tools_description','Описание блока мессенджеров'),('footer_text','Подпись внизу страницы'),('install_title','Заголовок блока установки приложения'),('install_description','Описание установки приложения')] %}
+          <label>{{ label }}<textarea name="{{ key }}" data-appearance-copy maxlength="400" rows="2"></textarea></label>
+          {% endfor %}
+          <small>Очистите поле, чтобы скрыть этот текст.</small>
         </div></details>
         <details><summary>Изображения</summary><div class="appearance-fields">
           {% for key,label,formats in [('pwa','Иконка приложения','image/png,image/jpeg,image/webp,image/svg+xml'),('favicon','Значок браузера · SVG','image/svg+xml'),('barrier','Изображение шлагбаума','image/png,image/jpeg,image/webp,image/svg+xml'),('background','Фон страницы','image/png,image/jpeg,image/webp,image/svg+xml'),('card_background','Фон карточки с кнопками ворот','image/png,image/jpeg,image/webp,image/svg+xml')] %}

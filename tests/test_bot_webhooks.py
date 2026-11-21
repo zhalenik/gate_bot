@@ -65,6 +65,11 @@ def test_telegram_runtime_registers_processes_and_switches_back(tmp_path,monkeyp
     application.bot.get_webhook_info.return_value=SimpleNamespace(url=inbox.url)
     asyncio.run(telegram_bot._run(stop,Service(),inbox))
     assert application.bot.set_webhook.await_count==1
+    monkeypatch.setattr(config,'TELEGRAM_WEBHOOK_SECRET','synthetic-rotated-secret')
+    rotated=BotInbox.configured('telegram')
+    asyncio.run(telegram_bot._run(stop,Service(),rotated))
+    assert application.bot.set_webhook.await_args.kwargs['secret_token']==rotated.secret
+    assert application.bot.set_webhook.await_count==2 and rotated.registration_confirmed
     monkeypatch.setattr(config,'BOT_MODE','polling')
     asyncio.run(telegram_bot._run(stop,Service(),BotInbox.configured('telegram')))
     application.bot.delete_webhook.assert_awaited_once_with(drop_pending_updates=False)
@@ -94,6 +99,14 @@ def test_max_runtime_registers_delivers_and_switches_back(tmp_path,monkeypatch):
     api.send_message.assert_called_once()
     assert not api.markers
     api.get_subscriptions.return_value=[{'url':url}]
+    rotated=BotInbox('max','synthetic',state,url=url,secret='synthetic-rotated-secret')
+    api.subscribe.side_effect=lambda *args:stop.set()
+    stop.clear()
+    bot.run(stop,rotated)
+    api.subscribe.assert_called_with(url,rotated.secret)
+    api.unsubscribe.assert_called_once_with(url)
+    assert rotated.registration_confirmed and api.subscribe.call_count==2
+    api.unsubscribe.reset_mock()
     api.get_updates=lambda **_: (stop.set() or {'updates':[],'marker':1})
     stop.clear()
     bot.run(stop,BotInbox('max','synthetic',state))

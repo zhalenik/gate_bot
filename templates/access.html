@@ -6,6 +6,7 @@
 {% block head %}<link rel="stylesheet" href="/static/css/access.css">{% endblock %}
 {% block pwa_head %}{% include 'components/client_pwa_head.html' %}{% endblock %}
 {% block content %}
+{% set copy = client_appearance.settings if client_appearance else appearance_copy %}
 <main class="access-main">
   <section class="pass-card" aria-label="Ваш пропуск">
     <div class="pass-topline"><span class="pass-eyebrow">Персональный пропуск</span><span id="accessBadge" class="access-badge">Проверка…</span></div>
@@ -22,12 +23,13 @@
     {% include 'components/branch_contact.html' %}
   </section>
   <section class="pass-tools" aria-label="Управление пропуском">
-    <h2>Всегда под рукой</h2><p>Подключите удобный мессенджер, чтобы пользоваться пропуском в боте.</p>
+    <h2 data-pass-copy="tools_title"{% if not copy.tools_title %} hidden{% endif %}>{{ copy.tools_title }}</h2>
+    <p data-pass-copy="tools_description"{% if not copy.tools_description %} hidden{% endif %}>{{ copy.tools_description }}</p>
     <div class="bot-links"><a id="telegramLink" href="{{ telegram_url or '#' }}" {% if not telegram_url %}hidden{% endif %} rel="noreferrer"><span class="bot-mark">↗</span><span>Telegram<small>Открыть бота</small></span><span aria-hidden="true">›</span></a><a id="maxLink" href="{{ max_url or '#' }}" {% if not max_url %}hidden{% endif %} rel="noreferrer"><span class="bot-mark max">М</span><span>MAX<small>Открыть бота</small></span><span aria-hidden="true">›</span></a></div>
     <a id="preferencesLink" class="preferences-link" href="{{ preferences_url | default('#', true) }}" {% if not preferences_url | default(false) or is_temporary | default(false) %}hidden{% endif %}>Настроить уведомления <span aria-hidden="true">›</span></a>
   </section>
-  <p class="access-footer">Персональная ссылка — ваш ключ к пропуску.</p>
-  <div data-client-pwa-tools></div>
+  <p class="access-footer" data-pass-copy="footer_text"{% if not copy.footer_text %} hidden{% endif %}>{{ copy.footer_text }}</p>
+  {% include 'components/client_install_card.html' %}
   {% include 'components/client_footer.html' %}
 </main>
 {% endblock %}

@@ -1,0 +1,10 @@
+{% if client_pwa or appearance_preview %}
+{% set copy = client_appearance.settings if client_appearance else appearance_copy %}
+<div data-client-pwa-tools>
+  <section id="clientInstallCard" class="client-install-card"{% if not appearance_preview %} hidden{% endif %}>
+    <h2 data-pass-copy="install_title"{% if not copy.install_title %} hidden{% endif %}>{{ copy.install_title }}</h2>
+    <p data-pass-copy="install_description"{% if not copy.install_description %} hidden{% endif %}>{{ copy.install_description }}</p>
+    <button type="button" class="btn-primary" data-client-install>Установить GateBot</button>
+  </section>
+</div>
+{% endif %}

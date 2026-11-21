@@ -162,6 +162,11 @@ class BranchManager:
             if key in branches and create:
                 raise ValueError('Branch already exists')
             value = deepcopy(branches.get(key, {'branch_id': int(key)}))
+            # Older forms echo a logo URL on unrelated edits. Only the upload
+            # endpoint owns managed files; preserve the latest one under lock.
+            if 'logo' in settings and (str(value.get('logo','')).startswith('/media/branch-logos/')
+                                       or str(settings['logo']).startswith('/media/branch-logos/')):
+                settings = {field:item for field,item in settings.items() if field != 'logo'}
             previous = value.get('buttons', [])
             if 'modem_ids' in settings:
                 from modem_settings import check_assignment, read_modems

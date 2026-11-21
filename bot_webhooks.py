@@ -43,6 +43,7 @@ class BotInbox:
         self.wake = threading.Event()
         self.wake.set()  # Resume updates accepted before the last restart.
         self.secret = ''
+        self.registration_confirmed = False
         if url:
             validate_secret(platform,secret)
             self.secret = secret or hmac.new(token.encode(),('GateBot webhook '+platform+' '+url).encode(),'sha256').hexdigest()

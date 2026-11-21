@@ -95,6 +95,63 @@ def test_restart_after_save_and_private_yaml(system_web, monkeypatch):
     assert yaml.status_code==200 and 'private-vpn' in yaml.text and 'name:pass' not in yaml.text
 
 
+def test_production_hides_development_sms_but_preserves_values(system_web):
+    web, store = system_web
+    client = web.app.test_client()
+    csrf = login(client, 'super')
+    path = '/admin/api/system-settings'
+    phone = '+15550999999'
+    saved = post(client, csrf, path, {'revision':'0','values':{
+        'DEV_REGISTRATION_SMS_PHONE':phone,'GATEBOT_ENV':'production'}})
+    assert saved.status_code == 200 and phone not in saved.text
+    assert not any(field.get('development_only') for field in client.get(path).json['settings']['fields'])
+    preview = client.get(path+'?edit_environment=development')
+    assert any(field.get('value') == phone for field in preview.json['settings']['fields'])
+    assert store.read()['values']['GATEBOT_ENV'] == 'production'
+
+
+@pytest.mark.parametrize('target,key', [('session','SECRET_KEY'),('telegram','TELEGRAM_WEBHOOK_SECRET'),('max','MAX_WEBHOOK_SECRET')])
+def test_rotate_is_private_scoped_and_restart_uses_selected_mode(system_web,monkeypatch,target,key):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from bot_webhooks import EXTENSION
+    web,store=system_web
+    callback=Mock()
+    monkeypatch.setattr('runtime_control._restart',callback)
+    client=web.app.test_client()
+    route='/admin/api/system-settings/rotate/'+target
+    payload={'revision':'0'}
+    assert post(client,login(client,'tenant-a'),route,payload).status_code==403
+    csrf=login(client,'super')
+    assert client.post(route,json=payload).status_code==403
+    response=post(client,csrf,route,payload)
+    first=store.read()['values'][key]
+    assert len(first)>=48 and first not in response.text and first.encode() not in store.path.read_bytes()
+    assert response.status_code==(202 if target=='session' else 200)
+    response.close()
+    assert callback.call_count==(1 if target=='session' else 0)
+    assert post(client,csrf,route,payload).status_code==400
+    if target=='session':
+        return
+    prefix='BOT' if target=='telegram' else 'MAX_BOT'
+    values={prefix+'_ENABLED':True,prefix+'_TOKEN':'synthetic-token',prefix+'_MODE':'webhook','BASE_URL':'https://example.invalid'}
+    payload={'revision':store.read()['revision'],'values':values}
+    response=post(client,csrf,route,payload)
+    second=store.read()['values'][key]
+    assert response.status_code==202 and second!=first and second not in response.text
+    assert response.json['settings']['webhooks'][target]['state']=='pending_restart'
+    response.close()
+    callback.assert_called_once()
+    monkeypatch.setattr(config,'SYSTEM_ACTIVE_ENVIRONMENT',{**config.SYSTEM_BASE_ENVIRONMENT,**store.read()['values']})
+    read=lambda: client.get('/admin/api/system-settings').json['settings']['webhooks'][target]
+    assert read()['state']=='unconfirmed'
+    monkeypatch.setitem(web.app.extensions,EXTENSION,{target:SimpleNamespace(registration_confirmed=True)})
+    assert read()['state']=='registered'
+    monkeypatch.setitem(web.app.extensions,'gatebot_bot_startup_errors',{target:{'error_code':'forbidden','action':'Проверьте права'}})
+    assert read()['state']=='error' and 'forbidden' in read()['message']
+    assert not web.calls
+
+
 def test_official_com_api_address_does_not_break_settings_page_or_saving(system_web,monkeypatch):
     web,store=system_web;client=web.app.test_client();csrf=login(client,'super')
     url='https://api.yclients.com/api/v1'

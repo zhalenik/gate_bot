@@ -16,7 +16,8 @@
         <form class="branding-card" data-branding-kind="logo">
           <h3>Логотип в шапке</h3>
           <div class="branding-preview"><img id="brandingLogoPreview" src="{{ branding.logo_url if branding is defined else '/static/images/logo.svg' }}" alt="Текущий логотип"></div>
-          <label>Изображение логотипа<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" required></label>
+          <label>Изображение логотипа<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"></label>
+          {% with crop_logo=true %}{% include 'components/icon_frame.html' %}{% endwith %}
           <p>PNG, JPEG, WebP до 5 МБ или SVG до 512 КБ. Для шапки лучше подходит горизонтальный логотип.</p>
           <div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить логотип</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартный логотип</button></div>
         </form>

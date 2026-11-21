@@ -1,4 +1,5 @@
-"""Super-only settings editor. Saving does not reconfigure a running runtime."""
+"""Super-only settings editor. Saved values are applied by the runtime on startup."""
+import secrets
 from storage import config
 from system_config_bootstrap import SystemConfigStore
 from system_settings_catalog import BLOCKS, BLOCK_GROUPS, BY_KEY, FIELDS, GROUPS, MODEM_SEEDS, decode, default_values, encode, validate_effective
@@ -23,13 +24,22 @@ class SystemSettings:
         if self.identity.web_admin(username).get('is_super') is not True:
             raise PermissionError('Нет доступа к системным настройкам')
 
-    def public(self,username):
+    def public(self,username,*,include_development=False):
         self._super(username)
-        saved=self.store.read();target=default_values({**config.SYSTEM_BASE_ENVIRONMENT,**saved['values']})
+        saved=self.store.read()
+        configured={**config.SYSTEM_BASE_ENVIRONMENT,**saved['values']}
+        target=default_values(configured)
         running=default_values(config.SYSTEM_ACTIVE_ENVIRONMENT)
+        redirect='DEV_REGISTRATION_SMS_REDIRECT_ENABLED'
+        if configured.get('GATEBOT_ENV') is None and not include_development:
+            target[redirect]='false'
+        if config.SYSTEM_ACTIVE_ENVIRONMENT.get('GATEBOT_ENV')!='development':
+            running[redirect]='false'
         fields=[]
         for descriptor in FIELDS:
             key=descriptor['key']
+            if descriptor.get('development_only') and target['GATEBOT_ENV'] != 'development' and not include_development:
+                continue
             normalized,value,error=_inspect_value(descriptor,target[key])
             active_normalized,active_value,active_error=_inspect_value(descriptor,running[key])
             changed=normalized!=active_normalized
@@ -43,12 +53,23 @@ class SystemSettings:
                 field.pop('default',None)
             else:
                 field.update(value=value,active_value=active_value)
+                if key in {'GATEBOT_ENV','BOT_ENABLED','BOT_MODE','MAX_BOT_ENABLED','MAX_BOT_MODE'}:
+                    _,field['environment_value'],_=_inspect_value(descriptor,config.SYSTEM_BASE_ENVIRONMENT.get(key,descriptor['default']))
             fields.append(field)
         return {'revision':saved['revision'],'groups':GROUPS,'group_order':list(GROUPS),'blocks':BLOCKS,'block_groups':BLOCK_GROUPS,'fields':fields,
+                'overridden_keys':[field['key'] for field in FIELDS if field['key'] in saved['values']],
                 'restart_required':any(field['restart_required'] for field in fields),
                 'restart_keys':[field['key'] for field in fields if field['restart_required']],
                 'invalid_keys':[field['key'] for field in fields if field['validation_error']],
                 'active_invalid_keys':[field['key'] for field in fields if field['active_validation_error']]}
+
+    def rotate(self, username, target, payload):
+        self._super(username)
+        key = next((field['key'] for field in FIELDS if field.get('rotation') == target), None)
+        if not key or not isinstance(payload, dict) or not isinstance(payload.get('values', {}), dict):
+            raise ValueError('Некорректный запрос смены секрета')
+        # Generate on the server and persist with the same optimistic revision as the form.
+        return self.save(username, {**payload, 'values': {**payload.get('values', {}), key: secrets.token_urlsafe(48)}})
 
     def save(self,username,payload):
         self._super(username)
@@ -70,10 +91,21 @@ class SystemSettings:
             # Empty password fields mean retain; clearing requires the explicit action.
             if BY_KEY[key]['secret'] and value=='':continue
             values[key]=encode(BY_KEY[key],value)
+        redirect='DEV_REGISTRATION_SMS_REDIRECT_ENABLED'
+        # The runtime deliberately requires explicit development for this option.
+        if redirect in updates and values[redirect]=='true' and 'GATEBOT_ENV' not in values and 'GATEBOT_ENV' not in config.SYSTEM_BASE_ENVIRONMENT:
+            if 'GATEBOT_ENV' in reset:
+                raise ValueError('Для тестовой переадресации выберите окружение development')
+            values['GATEBOT_ENV']='development'
+            keys.add('GATEBOT_ENV')
         effective=default_values({**config.SYSTEM_BASE_ENVIRONMENT,**values})
         for field in MODEM_SEEDS:
             # A retired single-port environment value must not block edits to unrelated settings.
             effective.pop(field['key'],None)
+        if effective['GATEBOT_ENV']!='development':
+            for field in FIELDS:
+                if field.get('development_only'):
+                    effective.pop(field['key'],None)
         validate_effective(effective)
         # Check authorization again immediately before the private mutation.
         with self.identity.product.connect():

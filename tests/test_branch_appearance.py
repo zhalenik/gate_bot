@@ -79,10 +79,19 @@ def test_live_preview_and_saved_page_in_chrome(appearance,browser_ui):
     page.get_by_label('Текст баннера',exact=True).fill('Гостевая парковка справа')
     page.get_by_label('Скрыть логотип GateBot').check()
     page.get_by_label('Скругление кнопок, px').fill('8')
-    page.get_by_label('Расстояние между кнопками ворот, px').fill('28')
+    page.get_by_label('Расстояние между кнопками, px').fill('28')
+    page.get_by_label('Скругление блока, px').fill('0')
+    page.get_by_text('Размеры текста',exact=True).click()
+    page.get_by_label('Название филиала, px',exact=True).fill('29')
+    page.get_by_label('Текст кнопок, px').fill('18')
+    page.get_by_text('Текст внизу страницы пропуска',exact=True).click()
+    page.get_by_label('Заголовок блока мессенджеров').fill('Мой пропуск')
+    page.get_by_label('Подпись внизу страницы',exact=True).fill('')
+    page.get_by_label('Заголовок блока установки приложения').fill('Установите приложение парковки')
     page.get_by_label('Иконка шлагбаума на кнопках ворот').uncheck()
     page.get_by_text('Название и логотип филиала',exact=True).click()
-    page.get_by_label('Расположение логотипа').select_option('above')
+    page.get_by_label('Размер логотипа, px').fill('63')
+    page.get_by_label('Расположение логотипа').select_option('below')
     page.get_by_label('Выравнивание логотипа').select_option('right')
     preview=page.frame_locator('#appearancePreview')
     expect(preview.locator('[data-branch-banner]')).to_have_text('Гостевая парковка справа')
@@ -90,13 +99,54 @@ def test_live_preview_and_saved_page_in_chrome(appearance,browser_ui):
     expect(preview.locator('.button-gate svg').first).to_be_hidden()
     assert preview.locator('.gate-actions').evaluate("e=>getComputedStyle(e).gap")=='28px'
     assert preview.locator('.branch-logo').evaluate("e=>getComputedStyle(e).alignSelf")=='flex-end'
+    assert preview.locator('.pass-brand').evaluate("e=>getComputedStyle(e).flexDirection")=='column-reverse'
+    assert preview.locator('.branch-logo').evaluate("e=>getComputedStyle(e).width")=='63px'
+    assert preview.locator('.desk-tools').evaluate("e=>getComputedStyle(e).gap")=='28px'
+    expect(preview.locator('#clientInstallCard h2')).to_have_text('Установите приложение парковки')
+    page.get_by_label('Скрыть логотип филиала').check()
     page.get_by_role('button',name='Сохранить оформление').click()
     expect(page.locator('#appearanceStatus')).to_have_text('Оформление сохранено')
     page.goto(origin+'/opn/'+web.token_a)
     expect(page.locator('[data-branch-banner]')).to_be_visible()
     assert page.locator('.gate-action').first.evaluate("b=>getComputedStyle(b).borderTopLeftRadius")=='8px'
+    assert page.locator('.pass-card').evaluate("e=>getComputedStyle(e).borderTopLeftRadius")=='0px'
+    assert page.locator('.pass-brand h1').evaluate("e=>getComputedStyle(e).fontSize")=='29px'
+    assert page.locator('.gate-action').first.evaluate("e=>getComputedStyle(e).fontSize")=='18px'
+    expect(page.locator('.branch-logo')).to_be_hidden()
+    expect(page.locator('.pass-tools h2')).to_have_text('Мой пропуск')
+    expect(page.locator('.access-footer')).to_be_hidden()
     expect(page.locator('.gate-actions .gate-button-icon').first).to_be_hidden()
     assert not web.calls and not errors
+
+
+@pytest.mark.parametrize('endpoint,actor',[('/admin/api/palette/client-appearance','super'),('/admin/api/branches/12/appearance','tenant-a')])
+def test_edit_keeps_new_inherited_icon_and_rejects_only_stale_crop(appearance,endpoint,actor):
+    from branding import BrandingSettings
+    web,services=appearance
+    branding=BrandingSettings(services.identity)
+    client=web.app.test_client()
+    csrf=login(client,actor)
+    previous=client.get(endpoint).json
+    def save(view,settings,edit):
+        payload={'revision':view['revision'],'base_revision':view['base_revision'],'settings':settings,
+                 'remove':[],'icon_edit':edit,'branding_icon_revision':view['branding_icon_revision']}
+        return client.post(endpoint,headers={'X-CSRF-Token':csrf},content_type='multipart/form-data',
+                           data={'appearance':json.dumps(payload)})
+    new_frame={**previous['settings']['icon_frame'],'zoom':145,'x':33}
+    branding.save('super','icon',None,branding.read('super')['revision'],frame=new_frame)
+    draft={**previous['settings'],'icon_frame':{**previous['settings']['icon_frame'],'zoom':185}}
+    stale=save(previous,draft,'frame')
+    assert stale.status_code==400 and 'Исходная иконка изменилась' in stale.json['message']
+    saved=save(previous,{**previous['settings'],'font':'rubik'},'keep')
+    assert saved.status_code==200 and saved.json['settings']['icon_frame']==new_frame
+    assert 'pwa_source' not in saved.json['own_assets']
+    fresh=saved.json
+    updated=save(fresh,{**fresh['settings'],'icon_frame':draft['icon_frame']},'frame')
+    assert updated.status_code==200 and 'pwa_source' in updated.json['own_assets']
+    own=updated.json
+    branding.save('super','icon',None,branding.read('super')['revision'])
+    updated=save(own,{**own['settings'],'icon_frame':new_frame},'frame')
+    assert updated.status_code==200
 
 
 def test_default_theme_inheritance_and_reframing(appearance):
@@ -143,6 +193,27 @@ def test_default_theme_inheritance_and_reframing(appearance):
     assert tenant.get(branch_api).json['revision']==reframed['revision']
 
 
+def test_scoped_typography_and_footer_preserve_legacy_theme(appearance):
+    web,services=appearance
+    appearance_service=services.appearance
+    with services.store.connect() as db:
+        db.execute('INSERT INTO branch_appearance VALUES(?,?,?)',('default',1,json.dumps({'font_size':19})))
+    defaults=appearance_service.editor('super','default')
+    appearance_service.save('super','default',1,{**defaults['settings'],'footer_text':'Общая подпись','button_size':17},{},[])
+    branch=appearance_service.editor('tenant-a',12)
+    draft={**branch['settings'],'tools_title':'<Гостевой въезд>','footer_text':'','branch_size':31,'logo_position':'after'}
+    with pytest.raises(ValueError):
+        appearance_service.save('tenant-a',12,0,{**draft,'logo_size':999},{},[])
+    appearance_service.save('tenant-a',12,0,draft,{},[])
+    client=web.app.test_client()
+    for path in ['/opn/'+web.token_a, '/pwa/'+web.token_a+'/gate']:
+        html=client.get(path).text
+        assert 'data-logo-position="after"' in html and '--client-unit:19px;' in html
+        assert '--client-button-size:17px;' in html and '--client-branch-size:31px;' in html
+        assert '&lt;Гостевой въезд&gt;' in html and 'Общая подпись' not in html
+    assert 'Общая подпись' in client.get('/opn/'+web.token_b).text
+
+
 def test_previous_padded_icon_can_be_reframed_without_upload(appearance):
     web,services=appearance
     # This is exactly the square composed by alpha.24 for an opaque square source.
@@ -168,9 +239,14 @@ def test_default_editor_preview(appearance,browser_ui):
     form=page.locator('#appearanceForm')
     page.get_by_text('Клиентские страницы по умолчанию',exact=True).click()
     form.locator('select[name=font]').select_option('rubik')
-    form.get_by_label('Расстояние между кнопками ворот, px').fill('22')
+    form.get_by_label('Расстояние между кнопками, px').fill('22')
     form.get_by_label('Выравнивание текста кнопки',exact=True).select_option('center')
     form.get_by_text('Изображения',exact=True).click()
+    branding_icon=page.locator('[data-branding-kind=icon]')
+    branding_icon.locator('[name=icon_padding]').fill('7')
+    branding_icon.get_by_role('button',name='Сохранить иконку').click()
+    expect(form.locator('[name=icon_padding]')).to_have_value('7')
+    expect(form.locator('[name=font]')).to_have_value('rubik')
     img=io.BytesIO();Image.new('RGB',(16,32),'blue').save(img,'PNG')
     form.locator('input[name=pwa]').set_input_files({'name':'square.png','mimeType':'image/png','buffer':img.getvalue()})
     form.get_by_label('Поля с каждой стороны, %').fill('0')

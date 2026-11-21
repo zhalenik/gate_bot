@@ -551,6 +551,7 @@ class MaxBot:
                 inbox.remember(inbox.registration(False))
                 self.api.subscribe(inbox.url,inbox.secret)
                 inbox.remember(inbox.registration(True))
+            inbox.registration_confirmed = True
             _RUNNING.set()
             _READY.set()
             _audit("BOT_WEBHOOK_READY")

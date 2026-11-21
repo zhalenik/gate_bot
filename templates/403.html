@@ -20,7 +20,7 @@
             {% endif %}
             {% if preferences_url and not is_temporary | default(false) %}<div class="support-preferences"><a id="preferencesLink" href="{{ preferences_url }}" class="btn-action">Настроить уведомления <span aria-hidden="true">›</span></a></div>{% endif %}
             {% if not client_page | default(false) %}<a href="/" class="text-link">На главную</a>{% endif %}
-            <div data-client-pwa-tools></div>
+            {% include 'components/client_install_card.html' %}
             {% include 'components/client_footer.html' %}
         </div>
     </main>

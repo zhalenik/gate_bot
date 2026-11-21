@@ -58,8 +58,10 @@ def main():
         from bot_diagnostics import error_details
         from bot_webhooks import BotInbox,EXTENSION
         pause=2
+        failures=app.extensions.setdefault('gatebot_bot_startup_errors',{})
         while not stop.is_set():
             try:
+                failures.pop(name,None)
                 try:
                     inbox=BotInbox.configured(name)
                 except ValueError:
@@ -71,6 +73,7 @@ def main():
                 return
             except Exception as error:
                 diagnosis = error_details(name,error)
+                failures[name]=diagnosis
                 logger.event('BOT_STOPPED',level='ERROR',details={'platform':name,'error_type':type(error).__name__,**diagnosis})
                 print(f"{name}: {diagnosis['stage']} / {diagnosis['error_code']}. {diagnosis['action']}",flush=True)
                 # Retry startup only after a temporary provider/network failure;
@@ -119,7 +122,7 @@ def main():
         import runtime_control
         runtime_control.bind_restart(request_restart)
         print(f'GateBot: {config.BASE_URL} | gate mode: {"DRY RUN" if config.GATE_DRY_RUN else "HARDWARE"}')
-        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.25'})
+        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-beta.1'})
         while not stop.wait(0.5):
             if not web.is_alive():
                 raise RuntimeError('Web server stopped')

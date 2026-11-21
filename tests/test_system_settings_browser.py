@@ -22,6 +22,15 @@ def test_system_settings_edit_restart_status_secret_retention_and_mobile(system_
     assert page.locator('#systemSettingsGroups > details > summary').all_text_contents() == ['Уведомления','Аппаратные средства','Чат-боты','CRM','Разработка']
     assert set(page.locator('[data-group=bots] [data-block] > summary').all_text_contents()) == {'Telegram Bot','MAX Bot'}
     assert page.locator('[data-group=yclients] [data-block=block-schedule]').count()==1
+    hardware=page.locator('[data-block=block-hardware]')
+    expect(hardware.locator('summary')).to_have_text('Настройки аппаратных вызовов и СМС')
+    assert hardware.locator('[name=SIM800_PORT],[name=SIM800_BAUDRATE],[name=SIM800_COMMAND_TIMEOUT]').count()==0
+    assert hardware.locator('[name=SIM800_CALL_DURATION]').count()==1
+    assert page.locator('.settings-workspace').evaluate("""main => {
+        const color = getComputedStyle(main).color;
+        return ['h1','.page-description','.form-hint','summary','label','small','input','#systemSettingsSave']
+          .every(selector => getComputedStyle(main.querySelector(selector)).color === color);
+    }""")
     assert abs(form.bounding_box()['width']-page.locator('.settings-workspace .admin-content').evaluate("e=>e.clientWidth-parseFloat(getComputedStyle(e).paddingLeft)-parseFloat(getComputedStyle(e).paddingRight)")) < 2
     page.locator('#systemSettingsGroups').evaluate("groups=>groups.querySelectorAll('[data-group],[data-block]').forEach(el=>el.open=true)")
     page.locator('#setting-PORT').scroll_into_view_if_needed()

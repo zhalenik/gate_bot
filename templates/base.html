@@ -22,11 +22,12 @@
   <link rel="stylesheet" href="/static/css/branding.css">
   {% if not palette_defaults | default(false) %}<link rel="stylesheet" href="/ui/palette.css" id="savedPaletteStyles">{% endif %}
 {% if client_appearance %}
+  <link rel="stylesheet" href="/static/css/client-fonts.css">
   <link rel="stylesheet" href="/static/css/client-appearance.css">
   <style id="branchAppearanceValues">:root { {% for property,value in client_styles.items() %}{{ property }}:{{ value }};{% endfor %} }</style>
   {% endif %}
 </head>
-<body class="{% block body_class %}{% endblock %}{% if client_appearance %} custom-client{% endif %}" {% if appearance_preview %}inert{% endif %}{% if client_appearance %} data-client-font="{{ client_appearance.settings.font }}"{% if client_appearance.settings.font_size %} data-client-size{% endif %}{% if client_appearance.settings.radius is not none %} data-client-radius{% endif %}{% if client_appearance.settings.hide_logo %} data-hide-brand{% endif %}{% if client_appearance.assets.background %} data-client-wallpaper{% endif %}{% endif %} {% if office %}data-office{% endif %}>
+<body class="{% block body_class %}{% endblock %}{% if client_appearance %} custom-client{% endif %}" {% if appearance_preview %}inert{% endif %}{% if client_appearance %} data-client-font="{{ client_appearance.settings.font }}" data-logo-position="{{ client_appearance.settings.logo_position }}" data-button-align="{{ client_appearance.settings.button_align }}"{% if not client_appearance.settings.button_icon %} data-hide-gate-icon{% endif %}{% if client_appearance.settings.font_size %} data-client-size{% endif %}{% if client_appearance.settings.radius is not none %} data-client-radius{% endif %}{% if client_appearance.settings.hide_logo %} data-hide-brand{% endif %}{% if client_appearance.assets.background %} data-client-wallpaper{% endif %}{% endif %} {% if office %}data-office{% endif %}>
   {% if office %}{% include 'components/office_header.html' %}{% else %}{% include 'components/header.html' %}{% endif %}
   {% if admin_page | default(false) and not office and kind | default('') != 'admin_preferences' %}
   <aside class="admin-push-offer" data-admin-push-offer hidden aria-label="Уведомления браузера">

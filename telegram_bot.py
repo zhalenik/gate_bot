@@ -367,13 +367,24 @@ class TelegramBot:
                 _audit("BOT_ERROR_NOTICE_FAILED", level="WARNING")
 
 
-async def _run(stop_event: threading.Event, service: Any = None) -> None:
+async def _drain_webhooks(application, inbox, stop_event):
+    from telegram import Update
+    while not stop_event.is_set() and inbox.wake.is_set():
+        data = await asyncio.to_thread(inbox.take)
+        if data is not None:
+            try:
+                update = Update.de_json(data,application.bot)
+                await application.process_update(update)
+            except Exception as error:
+                _audit("BOT_HANDLER_ERROR",level="ERROR",error_type=type(error).__name__)
+
+
+async def _run(stop_event: threading.Event, service: Any = None, inbox=None) -> None:
     from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
     from storage import config
     from access_service import AccessService
 
-    if config.BOT_MODE != "polling":
-        raise RuntimeError("Этот запуск Telegram поддерживает polling. Production webhook будет подключён отдельным этапом.")
+    from bot_webhooks import BotInbox
     if not config.BOT_TOKEN:
         raise ValueError("BOT_TOKEN is required")
     # Vendor error strings may contain Telegram's token-bearing URL. Persist
@@ -386,6 +397,8 @@ async def _run(stop_event: threading.Event, service: Any = None) -> None:
         BotStateStore(Path(config.DATA_DIR) / "bot_state.sqlite3"),
         token=config.BOT_TOKEN, bot=application.bot, stop_event=stop_event,
     )
+    if inbox is None:
+        inbox=BotInbox.configured('telegram')
     application.add_handler(CommandHandler("start", runtime.on_start))
     application.add_handler(CommandHandler(["menu", "help"], runtime.on_menu))
     application.add_handler(CallbackQueryHandler(runtime.on_callback))
@@ -401,20 +414,42 @@ async def _run(stop_event: threading.Event, service: Any = None) -> None:
         initialized = True
         stage = 'webhook_info'
         webhook = await application.bot.get_webhook_info()
-        if webhook.url:
-            _audit("BOT_START_REFUSED", level="ERROR", reason="active_webhook")
-            from bot_diagnostics import BotCheckError
-            raise BotCheckError('active_webhook', stage=stage)
+        previous=inbox.check_ownership([webhook.url] if webhook.url else [])
         _RUNTIME, _LOOP = runtime, asyncio.get_running_loop()
         await application.start()
         _RUNNING.set()
+        if inbox.url:
+            stage='webhook_registration'
+            remote_types = getattr(webhook,'allowed_updates',None)
+            if (webhook.url!=inbox.url or previous!=inbox.registration(True)
+                    or (remote_types and set(remote_types)!={"message","callback_query"})):
+                intent=inbox.registration(False)
+                if webhook.url:
+                    intent['previous_url']=webhook.url
+                inbox.remember(intent)
+                if not await application.bot.set_webhook(url=inbox.url,secret_token=inbox.secret,
+                        allowed_updates=["message","callback_query"],max_connections=1,drop_pending_updates=False):
+                    raise RuntimeError('Telegram webhook registration failed')
+                inbox.remember(inbox.registration(True))
+            _READY.set()
+            _audit("BOT_WEBHOOK_READY")
+            while not stop_event.is_set():
+                await _drain_webhooks(application,inbox,stop_event)
+                await asyncio.sleep(0.1)
+            return
+        if webhook.url:
+            if not await application.bot.delete_webhook(drop_pending_updates=False):
+                raise RuntimeError('Telegram webhook removal failed')
+        await _drain_webhooks(application,inbox,stop_event)
         stage = 'polling'
-        # Only after confirming there is no active webhook. Pending remote
-        # commands are dropped so old gate taps are not executed on startup.
+        # Preserve provider updates while switching our own delivery mode.
+        # Gate callbacks acknowledge the live query before any hardware effect.
         await application.updater.start_polling(
-            drop_pending_updates=True, allowed_updates=["message", "callback_query"],
+            drop_pending_updates=not bool(previous), allowed_updates=["message", "callback_query"],
             timeout=25, bootstrap_retries=0,
         )
+        if previous:
+            inbox.remember({})
         _audit("BOT_POLLING_STARTED")
         while not stop_event.is_set():
             await asyncio.sleep(0.25)
@@ -440,10 +475,10 @@ async def _run(stop_event: threading.Event, service: Any = None) -> None:
                 await application.bot.shutdown()
             except Exception as error:
                 _audit('BOT_SHUTDOWN_ERROR', level='WARNING', error_type=type(error).__name__)
-        _audit("BOT_POLLING_STOPPED")
+        _audit("BOT_WEBHOOK_STOPPED" if inbox.url else "BOT_POLLING_STOPPED")
 
 
-def run_polling(stop_event: threading.Event | None = None, *, service: Any = None) -> None:
+def run_delivery(stop_event: threading.Event | None = None, *, service: Any = None, inbox=None) -> None:
     from storage import config
 
     if not config.BOT_ENABLED:
@@ -455,13 +490,20 @@ def run_polling(stop_event: threading.Event | None = None, *, service: Any = Non
             _READY.clear()
             _RUNNING.clear()
             try:
-                asyncio.run(_run(stop_event or threading.Event(), service=service))
+                asyncio.run(_run(stop_event or threading.Event(), service=service, inbox=inbox))
             except Exception as exc:
                 _audit("BOT_RUNTIME_ERROR", level="ERROR", error_type=type(exc).__name__)
                 raise
     except PollingAlreadyRunning:
         _audit("BOT_START_REFUSED", level="ERROR", reason="polling_already_running")
         raise
+
+
+def run_polling(stop_event: threading.Event | None = None, *, service: Any = None) -> None:
+    from storage import config
+    if config.BOT_MODE!='polling':
+        raise RuntimeError('Для запуска polling выберите режим polling в системных настройках')
+    run_delivery(stop_event, service=service)
 
 
 def notify_access(payload: dict[str, Any]) -> bool:
@@ -520,7 +562,8 @@ def refresh_menus():
 
 
 def status() -> dict[str, Any]:
-    return {"running": _RUNNING.is_set(), "ready": _READY.is_set(), "mode": "polling"}
+    from storage import config
+    return {"running": _RUNNING.is_set(), "ready": _READY.is_set(), "mode": config.BOT_MODE}
 
 
 def main() -> None:

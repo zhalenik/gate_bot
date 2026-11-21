@@ -15,7 +15,8 @@ from telegram.error import InvalidToken, TimedOut
 @pytest.fixture
 def settings(monkeypatch):
     value = SimpleNamespace(
-        MAX_BOT_ENABLED=True, MAX_BOT_TOKEN='synthetic-max-secret',
+        MAX_BOT_ENABLED=True, MAX_BOT_TOKEN='synthetic-max-secret', MAX_BOT_MODE='polling',BOT_MODE='polling',
+        BASE_URL='https://example.invalid',WEBHOOK_URL='',
         MAX_BOT_USERNAME='example_bot', MAX_API_BASE_URL='https://platform-api2.max.ru', MAX_CA_BUNDLE='',
         BOT_ENABLED=True, BOT_TOKEN='123456:synthetic-telegram-secret', BOT_USERNAME='example_bot', TELEGRAM_PROXY_URL='',
     )

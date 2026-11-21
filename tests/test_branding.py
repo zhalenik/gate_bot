@@ -79,3 +79,22 @@ def test_upload_http_permissions_csrf_reset_and_public_only_canonical_assets(pal
     reset=client.post('/admin/api/branding/logo/reset',headers={'X-CSRF-Token':csrf},json={'revision':saved['revision']})
     assert reset.status_code==200 and reset.json['logo_url']=='/static/images/logo.svg'
     assert not web.calls
+
+
+def test_icon_can_be_reframed_without_uploading_its_original_again(palette_web):
+    client=palette_web.app.test_client()
+    headers={'X-CSRF-Token':login(client,'super')}
+    result=client.post('/admin/api/branding/icon',headers=headers,data={
+        'revision':'0','image':(io.BytesIO(jpeg()),'wide.jpg')})
+    assert result.status_code==200
+    before=result.json
+    image=Image.open(io.BytesIO(client.get(before['icon192_url']).data))
+    assert image.getpixel((0,0))[0]>200 and image.getpixel((0,0))[1]<130
+    result=client.post('/admin/api/branding/icon',headers=headers,data={
+        'revision':str(before['revision']),'icon_fit':'contain','icon_padding':'15','icon_transparent':'on'})
+    after=result.json
+    assert result.status_code==200 and before['icon_url']==after['icon_url']
+    assert after['icon_frame']=={'fit':'contain','padding':15,'background':'transparent'}
+    image=Image.open(io.BytesIO(client.get(after['icon192_url']).data))
+    assert image.getpixel((0,0))[-1]==0 and image.getpixel((96,96))[-1]==255
+    assert client.get('/admin/api/branding').json['icon192_url']==after['icon192_url']

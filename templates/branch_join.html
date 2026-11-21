@@ -8,7 +8,7 @@
 {% if unavailable %}
   <h1>Регистрация недоступна</h1><p>{{ unavailable }}</p>
 {% else %}
-  <span class="pass-eyebrow">Регистрация в филиале</span><h1>{{ branch_name }}</h1>
+  <span class="pass-eyebrow">Регистрация в филиале</span>{% include 'components/client_branch_title.html' %}
   {% include 'components/branch_banner.html' %}
   <form id="joinPhone" class="qr-form"><label for="phone">Ваш телефон</label>
     <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="40" required>

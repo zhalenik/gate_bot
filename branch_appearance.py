@@ -1,19 +1,26 @@
 """Branch-owned appearance for public pages, licensed by the current tariff."""
 from functools import lru_cache
 import hashlib
+import io
 import json
 import re
+from PIL import Image
 
-from branding_images import canonical_brand, icon_png
+from branding_images import canonical_brand, icon_png, validate_icon_frame
 from palette_catalog import load_catalog, current_colors
 from palette_settings import PaletteSettings, color_value
 from billing_utils import epoch
 
 
 FONTS = {'system':'system-ui, sans-serif', 'humanist':'Trebuchet MS, sans-serif',
-         'serif':'Georgia, serif', 'mono':'Courier New, monospace'}
-ASSETS = {'background','barrier','favicon','pwa'}
+         'serif':'Georgia, serif', 'mono':'Courier New, monospace',
+         **{font.lower():font+', sans-serif' for font in ('Inter','Rubik','Nunito','Mulish')}}
+ASSETS = {'background','card_background','barrier','favicon','pwa'}
+GLOBAL = 'default'
+ICON_FRAME={'fit':'cover','padding':0,'background':'#FFFFFF'}
 DEFAULTS = {'font':'system', 'font_size':None, 'radius':None, 'hide_logo':False,
+            'button_gap':None, 'button_icon':True,'button_align':'left','title_align':'left',
+            'logo_position':'before','logo_align':'center', 'icon_frame':ICON_FRAME,
             'banner':'', 'banner_align':'left', 'banner_size':16, 'banner_bg':'#EFF0E8',
             'banner_color':'#0C0F14', 'colors':{}}
 CLIENT_STYLES = {'access','client-appearance','client-preferences','client-pwa','gate-qr',
@@ -71,9 +78,15 @@ def validate_settings(raw):
     if not isinstance(raw,dict) or set(raw) - DEFAULTS.keys():
         raise ValueError('Некорректные параметры оформления')
     result = {**DEFAULTS, **raw}
-    if not isinstance(result['font'],str) or result['font'] not in FONTS or result['banner_align'] not in ('left','center','right'):
+    if not isinstance(result['font'],str) or result['font'] not in FONTS or any(
+        result[key] not in ('left','center','right') for key in ('button_align','title_align','logo_align','banner_align')
+    ) or result['logo_position'] not in ('before','above'):
         raise ValueError('Выберите шрифт и выравнивание из списка')
-    for key,minimum,maximum in [('font_size',12,24),('radius',0,40),('banner_size',12,36)]:
+    frame=result['icon_frame']
+    if not isinstance(frame,dict) or frame.keys()!=ICON_FRAME.keys() or type(result['button_icon']) is not bool:
+        raise ValueError('Проверьте настройки иконки')
+    result['icon_frame']=validate_icon_frame(**frame)
+    for key,minimum,maximum in [('font_size',12,24),('radius',0,40),('button_gap',0,64),('banner_size',12,36)]:
         value = result[key]
         if value is None and key!='banner_size':
             continue
@@ -90,12 +103,12 @@ def validate_settings(raw):
     return result
 
 
-def prepare_asset(kind, data):
+def prepare_asset(kind, data, frame):
     original, extension, pixels = canonical_brand(data)
     if kind=='favicon' and extension!='svg':
         raise ValueError('Для значка браузера выберите SVG')
     if kind=='pwa':
-        return {f'pwa{size}':(icon_png(pixels,size),'png') for size in (180,192,512)}
+        return {'pwa_source':(original,extension),**{f'pwa{size}':(icon_png(pixels,size,**frame),'png') for size in (180,192,512)}}
     return {kind:(original,extension)}
 
 
@@ -122,36 +135,57 @@ class BranchAppearance:
         return bool(row and json.loads(row[0]).get('personalization') is True)
 
     def authorize(self, db, username, branch_id):
+        if branch_id == GLOBAL:
+            if self.identity._admin(db,username).get('is_super') is not True:
+                raise PermissionError('Недостаточно прав для изменения оформления сервиса')
+            return
         self.identity._scope(db, username, branch_id)
         if not self.enabled(branch_id, db):
             raise PermissionError('Для оформления клиентских страниц нужен тариф с персонализацией')
 
-    def _view(self, db, branch_id):
+    def _stored(self, db, branch_id):
         row = db.execute('SELECT settings,revision FROM branch_appearance WHERE branch_id=?',(str(branch_id),)).fetchone()
         stored = json.loads(row['settings']) if row else {}
-        # Revalidate persisted values before using them in CSS. A former palette
-        # entry may legitimately disappear when the application's styles change.
         stored['colors']={key:value for key,value in stored.get('colors',{}).items() if key in client_colors()}
-        settings = validate_settings(stored)
-        assets = {r['kind']:f"/media/client-appearance/{int(branch_id)}/{r['filename']}"
+        assets = {r['kind']:f"/media/client-appearance/{branch_id}/{r['filename']}"
                   for r in db.execute('SELECT kind,filename FROM branch_appearance_assets WHERE branch_id=?',(str(branch_id),))}
+        if 'pwa512' in assets and 'pwa_source' not in assets:
+            # alpha.24 stored only the padded output. Expose the part inside its
+            # generated border for reframing without changing the installed icons.
+            assets['pwa_source']=assets['pwa512'].replace('/media/client-appearance/','/media/client-icon-source/')
+            stored.setdefault('icon_frame',{'fit':'contain','padding':10,'background':'#FFFFFF'})
+        return stored, assets, row['revision'] if row else 0
+
+    def _view(self, db, branch_id, *, editing=False):
+        base,common_assets,base_revision=self._stored(db,GLOBAL)
+        own,own_assets,revision=self._stored(db,branch_id) if branch_id!=GLOBAL else (base,common_assets,base_revision)
+        installation={}
+        if editing:
+            from branding import BrandingSettings
+            installation=BrandingSettings(self.identity).public_view()
+            base.setdefault('icon_frame',installation.get('icon_frame',ICON_FRAME))
+        settings=validate_settings({**base,**own,'colors':{**base['colors'],**own['colors']}})
+        assets={**common_assets,**own_assets}
         chrome = {entry['locations'][0]['property']: settings['colors'][key][:7]
                   for key,entry in client_colors().items() if key in settings['colors'] and entry['locations'][0]['selector']==':root'}
-        return {'settings':settings,'assets':assets,'revision':row['revision'] if row else 0,
+        return {'settings':settings,'assets':assets,'revision':revision, 'base_revision':base_revision,
+                'own_assets':list(own_assets),'inherited_assets':common_assets if branch_id!=GLOBAL else {},
+                'base_settings':validate_settings(base) if branch_id!=GLOBAL else validate_settings({'icon_frame':installation.get('icon_frame',ICON_FRAME)}),
+                'default_icon_source':installation.get('icon_url'),
                 'background_color':chrome.get('--background','#EFF0E8'), 'theme_color':chrome.get('--surface','#FFFFFF')}
 
     def public(self, branch_id):
-        if not branch_id:
-            return None
         with self.store.connect() as db:
-            if not db.execute('SELECT 1 FROM branch_appearance WHERE branch_id=?',(str(branch_id),)).fetchone() or not self.enabled(branch_id,db):
-                return None
-            return self._view(db,branch_id)
+            if branch_id and db.execute('SELECT 1 FROM branch_appearance WHERE branch_id=?',(str(branch_id),)).fetchone() and self.enabled(branch_id,db):
+                return self._view(db,branch_id)
+            if db.execute('SELECT 1 FROM branch_appearance WHERE branch_id=?',(GLOBAL,)).fetchone():
+                return self._view(db,GLOBAL)
+            return None
 
     def editor(self, username, branch_id):
         with self.store.connect() as db:
             self.authorize(db,username,branch_id)
-            view = self._view(db,branch_id)
+            view = self._view(db,branch_id,editing=True)
             palette = PaletteSettings(self.identity)
             defaults = current_colors(load_catalog(),palette._read(db)[1])
             view['palette']=[{'id':key, 'variable':entry['css_var'], 'label':entry['label'],
@@ -160,40 +194,81 @@ class BranchAppearance:
                              for key,entry in client_colors().items()]
             return view
 
-    def save(self, username, branch_id, revision, settings, files, remove):
+    def save(self, username, branch_id, revision, settings, files, remove, base_revision=None):
         if type(revision) is not int or revision<0 or not isinstance(remove,list) or any(not isinstance(k,str) or k not in ASSETS for k in remove):
             raise ValueError('Некорректная версия или список изображений')
         if files.keys()-ASSETS or files.keys() & set(remove):
             raise ValueError('Некорректный список изображений')
-        with self.store.connect() as db:
-            self.authorize(db,username,branch_id)
         settings = validate_settings(settings)
         images = {}
-        for kind,content in files.items():
-            images.update(prepare_asset(kind,content))
         with self.store.connect() as db:
             self.authorize(db,username,branch_id)
-            row = db.execute('SELECT revision FROM branch_appearance WHERE branch_id=?',(str(branch_id),)).fetchone()
-            if revision != (row[0] if row else 0):
+            previous=self._view(db,branch_id,editing=True)
+            frame=settings['icon_frame']
+            if 'pwa' in remove:
+                if frame!=previous['base_settings']['icon_frame']:
+                    files={**files,'pwa':self._icon_source(db,GLOBAL if branch_id!=GLOBAL else None)}
+            elif 'pwa' not in files and frame!=previous['settings']['icon_frame']:
+                files={**files,'pwa':self._icon_source(db,branch_id)}
+        for kind,content in files.items():
+            images.update(prepare_asset(kind,content,settings['icon_frame']))
+        with self.store.connect() as db:
+            self.authorize(db,username,branch_id)
+            current=self._view(db,branch_id,editing=True)
+            if revision != current['revision'] or base_revision is not None and base_revision!=current['base_revision']:
                 raise ValueError('Оформление уже изменилось. Загрузите актуальные настройки.')
+            baseline=current['base_settings']
+            overrides={key:value for key,value in settings.items() if key!='colors' and value!=baseline[key]}
+            # Uploaded icons carry their own composition until their source is removed.
+            if 'pwa' in files or 'pwa_source' in current['own_assets'] and 'pwa' not in remove:
+                overrides['icon_frame']=settings['icon_frame']
+            if 'pwa' in remove and 'pwa' not in files:
+                overrides.pop('icon_frame',None)
+            overrides['colors']={k:v for k,v in settings['colors'].items() if v!=baseline['colors'].get(k)}
             for kind in remove:
-                kinds = ('pwa180','pwa192','pwa512') if kind=='pwa' else (kind,)
+                kinds = ('pwa_source','pwa180','pwa192','pwa512') if kind=='pwa' else (kind,)
                 db.executemany('DELETE FROM branch_appearance_assets WHERE branch_id=? AND kind=?',
                                [(str(branch_id),k) for k in kinds])
             for kind,(content,ext) in images.items():
                 filename=hashlib.sha256(content).hexdigest()+'.'+ext
                 db.execute('INSERT OR REPLACE INTO branch_appearance_assets VALUES(?,?,?,?)',(str(branch_id),kind,filename,content))
             db.execute('INSERT OR REPLACE INTO branch_appearance VALUES(?,?,?)',
-                       (str(branch_id),revision+1,json.dumps(settings,ensure_ascii=False)))
-            return self._view(db,branch_id)
+                       (str(branch_id),revision+1,json.dumps(overrides,ensure_ascii=False)))
+            return self._view(db,branch_id,editing=True)
 
-    def asset(self, branch_id, filename):
-        with self.store.connect() as db:
-            if self.enabled(branch_id,db):
-                row = db.execute('SELECT content FROM branch_appearance_assets WHERE branch_id=? AND filename=?',
-                                 (str(branch_id),filename)).fetchone()
+    @staticmethod
+    def _legacy_icon(content):
+        with Image.open(io.BytesIO(content)) as previous:
+            side=round(previous.width*.8)
+            offset=(previous.width-side)//2
+            inner=previous.crop((offset,offset,offset+side,offset+side))
+            output=io.BytesIO()
+            inner.save(output,format='PNG')
+            return output.getvalue()
+
+    def _icon_source(self,db,branch_id):
+        owners=[]
+        if branch_id is not None:
+            if branch_id!=GLOBAL:
+                owners.append(branch_id)
+            owners.append(GLOBAL)
+        for owner in owners:
+            for key in ('pwa_source','pwa512'):
+                row=db.execute('SELECT content FROM branch_appearance_assets WHERE branch_id=? AND kind=?',(str(owner),key)).fetchone()
                 if row:
-                    return row[0]
+                    return row[0] if key=='pwa_source' else self._legacy_icon(row[0])
+        from branding import BrandingSettings, DEFAULT_ICON, ASSET_PREFIX
+        branding=BrandingSettings(self.identity)
+        url=branding.public_view()['icon_url']
+        return (branding.directory/url.removeprefix(ASSET_PREFIX)).read_bytes() if url.startswith(ASSET_PREFIX) else DEFAULT_ICON.read_bytes()
+
+    def asset(self, branch_id, filename, legacy=False):
+        with self.store.connect() as db:
+            if branch_id==GLOBAL or self.enabled(branch_id,db):
+                row = db.execute('SELECT content FROM branch_appearance_assets WHERE branch_id=? AND filename=? AND (?=0 OR kind="pwa512")',
+                                 (str(branch_id),filename,legacy)).fetchone()
+                if row:
+                    return self._legacy_icon(row[0]) if legacy else row[0]
 
 
 def public_brand(brand, theme):

@@ -50,7 +50,7 @@ class BranchJoin:
     def page_info(self, raw):
         with self.product.connect() as db:
             branch_id, branch = self._branch(db, raw)
-            return branch_id, branch['name']
+            return branch_id, branch['name'], branch.get('logo','')
 
     def name(self, raw):
         return self.page_info(raw)[1]

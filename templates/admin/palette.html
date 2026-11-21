@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% set admin_page = true %}
 {% block title %}Цвета и логотип — GateBot{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/palette.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/palette.css"><link rel="stylesheet" href="/static/css/appearance-editor.css"><link rel="stylesheet" href="/static/css/icon-frame.css">{% endblock %}
 {% block content %}
 <main class="admin-container palette-page" id="palettePage" data-defaults="{{ 'true' if palette_defaults | default(false) else 'false' }}">
   <section class="admin-content">
@@ -10,7 +10,27 @@
       <span class="palette-total" id="paletteTotal">Загрузка…</span>
     </div>
     {% if palette_defaults | default(false) %}<div class="palette-notice">Редактор открыт в исходных цветах. Сохранённая палитра не применяется к этой странице, пока вы не включите предпросмотр.</div>{% endif %}
-    <section class="branding-panel" id="brandingPanel" aria-labelledby="brandingTitle"><h2 id="brandingTitle">Логотип и иконка приложения</h2><p>Логотип отображается в шапке сайта. Иконка используется во вкладке браузера и при добавлении GateBot на главный экран телефона. Настройки логотипов отдельных филиалов сохраняются отдельно.</p><div class="branding-grid"><form class="branding-card" data-branding-kind="logo"><h3>Логотип в шапке</h3><div class="branding-preview"><img id="brandingLogoPreview" src="{{ branding.logo_url if branding is defined else '/static/images/logo.svg' }}" alt="Текущий логотип"></div><label>Изображение логотипа<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" required></label><p>PNG, JPEG, WebP до 5 МБ или SVG до 512 КБ. Для шапки лучше подходит горизонтальный логотип.</p><div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить логотип</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартный логотип</button></div></form><form class="branding-card" data-branding-kind="icon"><h3>Иконка приложения</h3><div class="branding-preview is-icon"><img id="brandingIconPreview" src="{{ branding.icon_url if branding is defined else '/static/images/favicon.svg' }}" alt="Текущая иконка"></div><label>Изображение иконки<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" required></label><p>Выберите квадратное изображение. Версии для iPhone и Android создаются автоматически. В SVG текст нужно преобразовать в кривые.</p><div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить иконку</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартная иконка</button></div></form></div><p class="branding-notice" id="brandingNotice" role="status" aria-live="polite" hidden></p></section>
+    <section class="branding-panel" id="brandingPanel" aria-labelledby="brandingTitle">
+      <h2 id="brandingTitle">Логотип и иконка приложения</h2>
+      <div class="branding-grid">
+        <form class="branding-card" data-branding-kind="logo">
+          <h3>Логотип в шапке</h3>
+          <div class="branding-preview"><img id="brandingLogoPreview" src="{{ branding.logo_url if branding is defined else '/static/images/logo.svg' }}" alt="Текущий логотип"></div>
+          <label>Изображение логотипа<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" required></label>
+          <p>PNG, JPEG, WebP до 5 МБ или SVG до 512 КБ. Для шапки лучше подходит горизонтальный логотип.</p>
+          <div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить логотип</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартный логотип</button></div>
+        </form>
+        <form class="branding-card" data-branding-kind="icon">
+          <h3>Иконка приложения</h3>
+          <label>Изображение иконки<input name="image" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"></label>
+          <div class="browser-icon-sample"><img id="brandingIconPreview" src="{{ branding.icon_url if branding is defined else '/static/images/favicon.svg' }}" width="20" height="20" alt=""> Вкладка браузера</div>
+          {% include 'components/icon_frame.html' %}
+          <div class="branding-card-actions"><button type="submit" class="btn-primary" disabled>Сохранить иконку</button><button type="button" data-branding-reset class="btn-action" disabled>Стандартная иконка</button></div>
+        </form>
+      </div>
+      <p class="branding-notice" id="brandingNotice" role="status" aria-live="polite" hidden></p>
+    </section>
+    {% with global_appearance=true %}{% include 'components/appearance_editor.html' %}{% endwith %}
     <div id="paletteNotice" class="palette-notice" role="status" hidden></div>
     <div class="palette-toolbar">
       <div class="palette-save-state"><strong id="paletteChangeCount">Загружаем палитру</strong><span id="paletteSavedAt">Изменения появятся у всех после сохранения.</span></div>
@@ -45,4 +65,4 @@
 </main>
 <dialog id="paletteResetDialog" class="palette-reset-dialog"><h2>Вернуть стандартные цвета?</h2><p>Все настроенные цвета будут заменены исходной палитрой GateBot. Сначала вы увидите результат в предпросмотре; для публикации нажмите «Сохранить палитру».</p><div class="palette-dialog-actions"><button class="btn-action" type="button" id="paletteCancelReset">Оставить как есть</button><button class="btn-primary" type="button" id="paletteConfirmReset">Вернуть стандартные</button></div></dialog>
 {% endblock %}
-{% block scripts %}<script src="/static/js/palette.js"></script><script src="/static/js/branding.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/palette.js"></script><script src="/static/js/icon-frame.js"></script><script src="/static/js/branding.js"></script><script src="/static/js/appearance-editor.js"></script>{% endblock %}

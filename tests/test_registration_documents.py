@@ -62,10 +62,16 @@ def test_document_library_is_owner_only_and_archives_public_editions(web, tmp_pa
     owner = web.app.test_client()
     token = login(owner,'super')
     assert 'Договор оферты' in owner.get('/admin/documents').text
+    assert owner.get('/admin/documents').text.count('Скачать PDF') == 4
     service = web.module.product_services().identity
     before = agreements(service)
     old = client.get(f"/documents/terms/{before['terms']}")
     assert old.status_code == 200 and len(old.data) > 200
+    edition = f"/documents/terms/{before['terms']}"
+    pdf = owner.get(edition+'?download=pdf')
+    assert pdf.mimetype == 'application/pdf' and pdf.data.startswith(b'%PDF-')
+    assert 'attachment' in pdf.headers['Content-Disposition']
+    assert owner.get(edition+'?download=original').data == old.data
     assert upload(owner,'missing','terms.txt',b'bad').status_code == 403
     assert upload(owner,token,'new.pdf',b'not a PDF').status_code == 303
     assert agreements(service) == before
@@ -76,6 +82,8 @@ def test_document_library_is_owner_only_and_archives_public_editions(web, tmp_pa
     anonymous = web.app.test_client()
     assert anonymous.get(f"/documents/terms/{before['terms']}").data == old.data
     assert anonymous.get(f"/documents/terms/{after['terms']}").data == updated
+    assert anonymous.get(f"/documents/terms/{after['terms']}?download=original").data == updated
+    assert anonymous.get(f"/documents/terms/{after['terms']}?download=pdf").status_code == 404
     assert anonymous.get(f"/documents/admin-privacy/{after['terms']}").status_code == 404
 
 

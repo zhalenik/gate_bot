@@ -2,12 +2,30 @@
 (() => {
   const panel = document.getElementById('brandingPanel'); if (!panel) return;
   const notice = document.getElementById('brandingNotice'); let state = null, busy = false;
+  const iconForm = panel.querySelector('[data-branding-kind="icon"]');
+  let draftIcon = '';
+  function releaseDraft() {
+    if(draftIcon) URL.revokeObjectURL(draftIcon);
+    draftIcon='';
+  }
+  function previewIcon(){
+    const source=draftIcon || state?.icon_url;
+    if(source)document.getElementById('brandingIconPreview').src=source;
+    window.GateBotIconFrame.preview(iconForm,source);
+  }
+  iconForm.elements.image.addEventListener('change',()=>{
+    releaseDraft();
+    const file=iconForm.elements.image.files[0];
+    if(file)draftIcon=URL.createObjectURL(file);
+    previewIcon();
+  });
+  iconForm.addEventListener('input',previewIcon);
   const notify = (text, error = false) => {notice.textContent = text; notice.hidden = !text; notice.classList.toggle('is-error',error);};
   function render() {
     panel.querySelectorAll('button').forEach(button => button.disabled = busy || !state || button.hasAttribute('data-branding-reset') && !state[button.closest('form').dataset.brandingKind + '_custom']);
     if (!state) return;
     document.getElementById('brandingLogoPreview').src = state.logo_url;
-    document.getElementById('brandingIconPreview').src = state.icon_url;
+    previewIcon();
     document.querySelectorAll('[data-brand-logo]').forEach(image => image.src = state.logo_url);
     document.querySelector('link[rel=icon]').href = state.icon_url;
     document.querySelector('link[rel=apple-touch-icon]').href = state.apple_icon_url;
@@ -27,12 +45,21 @@
       const kind = form.dataset.brandingKind, data = reset ? {revision:state.revision} : new FormData(form);
       if (!reset) data.append('revision',state.revision);
       state = await request('/admin/api/branding/'+kind+(reset ? '/reset' : ''),data);
-      form.reset(); notify(reset ? 'Стандартное изображение восстановлено.' : 'Изображение сохранено и применяется на всех страницах. Иконка уже установленного приложения обновится при следующем обновлении данных браузером.');
+      form.reset();
+      if(kind==='icon'){
+        releaseDraft();
+        window.GateBotIconFrame.fill(iconForm,state.icon_frame);
+      }
+      notify(reset ? 'Стандартное изображение восстановлено.' : 'Оформление сохранено.');
     } catch (error) {notify(error.message,true);} finally {busy = false; render();}
   }
   panel.querySelectorAll('form').forEach(form => {
     form.addEventListener('submit',event => {event.preventDefault(); save(form,false);});
     form.querySelector('[data-branding-reset]').addEventListener('click',() => save(form,true));
   });
-  request('/admin/api/branding').then(data => {state=data; render();}).catch(error => notify(error.message,true));
+  request('/admin/api/branding').then(data => {
+    state=data;
+    window.GateBotIconFrame.fill(iconForm,state.icon_frame);
+    render();
+  }).catch(error => notify(error.message,true));
 })();

@@ -306,7 +306,7 @@ def test_same_max_token_cannot_poll_from_two_data_directories(tmp_path, monkeypa
     monkeypatch.setattr(config, "DATA_DIR", str(tmp_path / "first"))
     entered, release = threading.Event(), threading.Event()
     class Dummy:
-        def run(self, _):
+        def run(self, _, inbox):
             entered.set()
             release.wait(timeout=5)
     monkeypatch.setattr(max_bot, "create_bot", lambda **_: Dummy())

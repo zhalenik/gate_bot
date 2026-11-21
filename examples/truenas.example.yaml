@@ -11,7 +11,7 @@
 # First deploy: keep real outbound sends / modem disabled until acceptance.
 services:
   gatebot:
-    image: ghcr.io/zhalenik/gate_bot:0.2.0-alpha.24
+    image: ghcr.io/zhalenik/gate_bot:0.2.0-alpha.25
     pull_policy: always
     restart: unless-stopped
     init: true

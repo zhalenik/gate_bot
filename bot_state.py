@@ -44,6 +44,14 @@ class BotStateStore:
                     value TEXT NOT NULL,
                     PRIMARY KEY (namespace, checkpoint_key)
                 );
+                CREATE TABLE IF NOT EXISTS webhook_inbox (
+                    id INTEGER PRIMARY KEY,
+                    namespace TEXT NOT NULL, event_key TEXT NOT NULL,
+                    received REAL NOT NULL, payload BLOB,
+                    UNIQUE(namespace,event_key)
+                );
+                CREATE INDEX IF NOT EXISTS webhook_waiting ON webhook_inbox(namespace,id) WHERE payload IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS webhook_receipts ON webhook_inbox(received) WHERE payload IS NULL;
             """)
             # Keep delivery state from earlier local builds. The immediate
             # transaction serializes startup migrations between the two bots.
@@ -66,7 +74,7 @@ class BotStateStore:
         finally:
             db.close()
 
-    def claim(self, namespace: str, event_key: str) -> bool:
+    def claim(self, namespace: str, event_key: str, *, previous_key: str = '') -> bool:
         """Claim before effects; a crash never automatically repeats them.
 
         If a process stops after the claim but before dialing, that command is
@@ -76,6 +84,13 @@ class BotStateStore:
         """
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if previous_key:
+                migrated = db.execute(
+                    'INSERT OR IGNORE INTO bot_claims(namespace,event_key,created_at,outcome,error_code,completed_at) '
+                    'SELECT namespace,?,created_at,outcome,error_code,completed_at FROM bot_claims '
+                    'WHERE namespace=? AND event_key=?', (event_key,namespace,previous_key))
+                if migrated.rowcount:
+                    return False
             cursor = db.execute(
                 "INSERT OR IGNORE INTO bot_claims(namespace,event_key,created_at) VALUES (?,?,?)",
                 (namespace, event_key, time.time()),
@@ -129,3 +144,22 @@ class BotStateStore:
         with self._connect() as db:
             rows = db.execute('SELECT checkpoint_key,value FROM bot_checkpoints WHERE namespace=?', (namespace,)).fetchall()
         return [(key, json.loads(value)) for key, value in rows if key.startswith(prefix)]
+
+    def enqueue_webhook(self, namespace, key, payload):
+        now = time.time()
+        with self._connect() as db:
+            db.execute('DELETE FROM webhook_inbox WHERE payload IS NULL AND received<?', (now-7*86400,))
+            db.execute('INSERT OR IGNORE INTO webhook_inbox(namespace,event_key,received,payload) VALUES(?,?,?,?)',
+                       (namespace,key,now,payload))
+
+    def claim_webhook(self, namespace):
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT id,received,payload FROM webhook_inbox WHERE namespace=? AND payload IS NOT NULL ORDER BY id LIMIT 1',
+                             (namespace,)).fetchone()
+            if row is None:
+                return None
+            # Keep the receipt, discard private content, and never repeat an
+            # effect whose outcome became unknown after the worker claimed it.
+            db.execute('UPDATE webhook_inbox SET payload=NULL WHERE id=?', (row[0],))
+            return row[1],row[2]

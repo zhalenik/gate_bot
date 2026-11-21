@@ -10,12 +10,14 @@ import time
 from flask import Blueprint, Response, abort, jsonify, request, send_file, session
 
 import logger
-from branding_images import canonical_brand, icon_png, rasterize_svg, sanitize_svg
+from branding_images import canonical_brand, icon_png, rasterize_svg, sanitize_svg, validate_icon_frame
 from branch_logos import MAX_UPLOAD_BYTES
 
 
 ASSET_PREFIX = '/ui/branding/assets/'
 DEFAULT_ICON = Path(__file__).resolve().parent/'static'/'images'/'favicon.svg'
+DEFAULT_FRAME = {'fit':'cover', 'padding':0, 'background':'#FFFFFF'}
+LEGACY_FRAME = {'fit':'contain', 'padding':10, 'background':'#FFFFFF'}
 
 
 @lru_cache(maxsize=12)
@@ -44,11 +46,12 @@ class BrandingSettings:
     @staticmethod
     def _view(state):
         revision, logo, icon, updated = state
-        version = hashlib.sha256(DEFAULT_ICON.read_bytes()).hexdigest()[:16]
+        version = hashlib.sha256(b'icon-frame-v2:' + DEFAULT_ICON.read_bytes()).hexdigest()[:16]
         def asset(entry, key, fallback):
             filename = entry.get(key)
             return ASSET_PREFIX+filename if isinstance(filename, str) and re.fullmatch(r'[a-f0-9]{64}\.(svg|png)', filename) else fallback
         return {'revision':revision, 'updated_at':updated, 'logo_custom':bool(logo), 'icon_custom':bool(icon),
+                'icon_frame':dict(icon.get('frame', LEGACY_FRAME if icon else DEFAULT_FRAME)),
                 'logo_url':asset(logo, 'original', '/static/images/logo.svg'),
                 'icon_url':asset(icon, 'original', '/static/images/favicon.svg'),
                 'icon192_url':asset(icon, '192', '/ui/branding/default/icon-192.png?v='+version),
@@ -64,19 +67,34 @@ class BrandingSettings:
             self._super(db, username)
             return self._view(self._state(db))
 
-    def save(self, username, kind, data, revision):
+    def save(self, username, kind, data, revision, *, frame=None):
         if kind not in {'logo','icon'}:
             raise ValueError('Выберите логотип или иконку')
         if type(revision) is not int or revision < 0:
             raise ValueError('Обновите страницу перед сохранением')
         with self.store.connect() as db:
             self._super(db, username)
+            current, _, previous_icon, _ = self._state(db)
+            if current != revision:
+                raise ValueError('Оформление изменилось в другом окне. Обновите страницу.')
+        if frame is not None:
+            if kind != 'icon' or not isinstance(frame,dict) or set(frame) != set(DEFAULT_FRAME):
+                raise ValueError('Проверьте параметры иконки')
+            frame = validate_icon_frame(**frame)
+            if data is None:
+                name = previous_icon.get('original')
+                path = self.directory/name if name and re.fullmatch(r'[a-f0-9]{64}\.(png|svg)',name) else DEFAULT_ICON
+                try:
+                    data = path.read_bytes()
+                except FileNotFoundError:
+                    raise ValueError('Загрузите исходное изображение иконки ещё раз') from None
         prepared = {}
         if data is not None:
             original, extension, pixels = canonical_brand(data)
             prepared['original'] = (original, extension)
             if kind == 'icon':
-                prepared.update({str(size):(icon_png(pixels, size), 'png') for size in (180,192,512)})
+                frame = frame or DEFAULT_FRAME
+                prepared.update({str(size):(icon_png(pixels, size, **frame), 'png') for size in (180,192,512)})
         filenames = {}
         # Hash filenames are immutable. Only committed registry entries become public.
         for key, (content, extension) in prepared.items():
@@ -96,7 +114,7 @@ class BrandingSettings:
             if current != revision:
                 raise ValueError('Оформление изменилось в другом окне. Обновите страницу.')
             if kind == 'logo': logo = filenames
-            else: icon = filenames
+            else: icon = {**filenames,'frame':frame} if filenames else {}
             updated = time.time()
             db.execute('INSERT INTO ui_branding_settings VALUES(1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,logo=excluded.logo,icon=excluded.icon,updated=excluded.updated',
                        (current+1, json.dumps(logo), json.dumps(icon), updated))
@@ -137,10 +155,17 @@ def create_blueprint(provider):
         actor = authorize()
         request.max_content_length = MAX_UPLOAD_BYTES+65536
         upload = request.files.get('image')
-        if upload is None: raise ValueError('Выберите изображение')
+        frame=None
+        if kind=='icon' and 'icon_fit' in request.form:
+            try: padding=int(request.form.get('icon_padding',''))
+            except ValueError: raise ValueError('Введите поля иконки в процентах') from None
+            frame={'fit':request.form['icon_fit'],'padding':padding,
+                   'background':'transparent' if 'icon_transparent' in request.form else request.form.get('icon_background')}
+        if (upload is None or not upload.filename) and frame is None: raise ValueError('Выберите изображение')
         try: revision = int(request.form.get('revision',''))
         except (ValueError, TypeError): raise ValueError('Обновите страницу перед сохранением') from None
-        return jsonify(settings().save(actor,kind,upload.stream.read(MAX_UPLOAD_BYTES+1),revision))
+        data=upload.stream.read(MAX_UPLOAD_BYTES+1) if upload and upload.filename else None
+        return jsonify(settings().save(actor,kind,data,revision,frame=frame))
 
     @bp.post('/admin/api/branding/<kind>/reset')
     def reset(kind):

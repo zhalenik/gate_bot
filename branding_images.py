@@ -136,13 +136,26 @@ def canonical_brand(data):
     return pixels, 'png', pixels
 
 
-def icon_png(pixels, size):
-    """Opaque square includes padding, suitable for iOS and Android icons."""
+def validate_icon_frame(fit, padding, background):
+    if fit not in ('cover','contain') or type(padding) is not int or not 0 <= padding <= 30:
+        raise ValueError('Выберите кадрирование и поля иконки от 0 до 30 %')
+    if background != 'transparent' and (not isinstance(background,str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', background)):
+        raise ValueError('Выберите цвет фона иконки')
+    return {'fit':fit,'padding':padding,'background':background}
+
+
+def icon_png(pixels, size, *, fit='cover', padding=0, background='#FFFFFF'):
+    """Render the square installed icon using the same centered crop as its preview."""
+    validate_icon_frame(fit, padding, background)
     with Image.open(io.BytesIO(pixels)) as image:
         image = image.convert('RGBA')
-        fitted = ImageOps.contain(image, (round(size*.8), round(size*.8)), Image.Resampling.LANCZOS)
-        canvas = Image.new('RGBA', (size, size), '#FFFFFF')
+        edge=round(size*(1-2*padding/100))
+        resize = ImageOps.fit if fit=='cover' else ImageOps.contain
+        fitted = resize(image, (edge,edge), Image.Resampling.LANCZOS)
+        canvas = Image.new('RGBA', (size, size), (0,0,0,0) if background=='transparent' else background)
         canvas.alpha_composite(fitted, ((size-fitted.width)//2, (size-fitted.height)//2))
         output = io.BytesIO()
-        canvas.convert('RGB').save(output, format='PNG', optimize=True)
+        if background!='transparent':
+            canvas=canvas.convert('RGB')
+        canvas.save(output, format='PNG', optimize=True)
         return output.getvalue()

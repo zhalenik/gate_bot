@@ -12,7 +12,7 @@
     }
     function applyButtons(buttons){
         const gates=(buttons || []).filter(b=>b.type==='gate'),signature=JSON.stringify(gates);
-        if(signature!==buttonSignature){buttonSignature=signature;$('gateActions').replaceChildren();for(const item of gates){const control=document.createElement('button');control.type='button';control.className='gate-action button-gate';control.dataset.buttonId=item.id;const title=document.createElement('span');title.textContent=item.label;const arrow=document.createElement('span');arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');control.append(title,arrow);control.onclick=()=>openGate(item.id);$('gateActions').append(control);}}
+        if(signature!==buttonSignature){buttonSignature=signature;$('gateActions').replaceChildren();for(const item of gates){const control=document.createElement('button');control.type='button';control.className='gate-action button-gate';control.dataset.buttonId=item.id;const title=document.createElement('span');title.textContent=item.label;control.append(title,$('gateButtonIcon').content.cloneNode(true));control.onclick=()=>openGate(item.id);$('gateActions').append(control);}}
         $('adminContacts').replaceChildren();
         const contacts=(buttons||[]).filter(b=>b.type==='admin');
         for(const contact of contacts){

@@ -1,7 +1,7 @@
 """Super-only settings editor. Saving does not reconfigure a running runtime."""
 from storage import config
 from system_config_bootstrap import SystemConfigStore
-from system_settings_catalog import BLOCKS, BLOCK_GROUPS, BY_KEY, FIELDS, GROUPS, decode, default_values, encode, validate_effective
+from system_settings_catalog import BLOCKS, BLOCK_GROUPS, BY_KEY, FIELDS, GROUPS, MODEM_SEEDS, decode, default_values, encode, validate_effective
 
 
 def _inspect_value(descriptor, value):
@@ -71,6 +71,9 @@ class SystemSettings:
             if BY_KEY[key]['secret'] and value=='':continue
             values[key]=encode(BY_KEY[key],value)
         effective=default_values({**config.SYSTEM_BASE_ENVIRONMENT,**values})
+        for field in MODEM_SEEDS:
+            # A retired single-port environment value must not block edits to unrelated settings.
+            effective.pop(field['key'],None)
         validate_effective(effective)
         # Check authorization again immediately before the private mutation.
         with self.identity.product.connect():

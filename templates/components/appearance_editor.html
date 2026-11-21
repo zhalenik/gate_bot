@@ -1,18 +1,28 @@
-<section id="branch-panel-appearance" data-branch-panel="appearance" role="tabpanel" aria-labelledby="branch-tab-appearance" hidden>
+{% if global_appearance | default(false) %}<details class="panel appearance-defaults" id="appearanceDefaults"><summary>Клиентские страницы по умолчанию</summary>
+{% else %}<section id="branch-panel-appearance" data-branch-panel="appearance" role="tabpanel" aria-labelledby="branch-tab-appearance" hidden>{% endif %}
   <div class="appearance-layout">
     <form id="appearanceForm" class="panel appearance-form" enctype="multipart/form-data">
       <fieldset disabled>
         <legend>Оформление клиентских страниц</legend>
         <label class="checkbox-label"><input type="checkbox" name="hide_logo"> Скрыть логотип GateBot</label>
         <details open><summary>Текст и кнопки</summary><div class="appearance-fields">
-          <label>Шрифт<select name="font"><option value="system">Системный</option><option value="humanist">Trebuchet MS</option><option value="serif">Georgia</option><option value="mono">Courier New</option></select></label>
+          <label>Шрифт<select name="font"><option value="system">Системный</option><option value="inter">Inter</option><option value="rubik">Rubik</option><option value="nunito">Nunito</option><option value="mulish">Mulish</option><option value="humanist">Trebuchet MS</option><option value="serif">Georgia</option><option value="mono">Courier New</option></select></label>
           <label>Базовый размер текста, px<input type="number" min="12" max="24" name="font_size" placeholder="По умолчанию"></label>
           <label>Скругление кнопок, px<input type="number" min="0" max="40" name="radius" placeholder="По умолчанию"></label>
+          <label>Расстояние между кнопками ворот, px<input type="number" min="0" max="64" name="button_gap" placeholder="По умолчанию"></label>
+          <label>Выравнивание текста кнопки<select name="button_align" aria-label="Выравнивание текста кнопки">{% include 'components/appearance_align.html' %}</select></label>
+          <label class="checkbox-label"><input type="checkbox" name="button_icon"> Иконка шлагбаума на кнопках ворот</label>
+        </div></details>
+        <details><summary>Название и логотип филиала</summary><div class="appearance-fields">
+          <label>Выравнивание названия<select name="title_align">{% include 'components/appearance_align.html' %}</select></label>
+          <label>Расположение логотипа<select name="logo_position"><option value="before">Перед названием</option><option value="above">Над названием</option></select></label>
+          <label data-logo-alignment>Выравнивание логотипа<select name="logo_align">{% include 'components/appearance_align.html' %}</select></label>
         </div></details>
         <details><summary>Изображения</summary><div class="appearance-fields">
-          {% for key,label,formats in [('pwa','Иконка приложения','image/png,image/jpeg,image/webp,image/svg+xml'),('favicon','Значок браузера · SVG','image/svg+xml'),('barrier','Изображение шлагбаума','image/png,image/jpeg,image/webp,image/svg+xml'),('background','Фон страницы','image/png,image/jpeg,image/webp,image/svg+xml')] %}
+          {% for key,label,formats in [('pwa','Иконка приложения','image/png,image/jpeg,image/webp,image/svg+xml'),('favicon','Значок браузера · SVG','image/svg+xml'),('barrier','Изображение шлагбаума','image/png,image/jpeg,image/webp,image/svg+xml'),('background','Фон страницы','image/png,image/jpeg,image/webp,image/svg+xml'),('card_background','Фон карточки с кнопками ворот','image/png,image/jpeg,image/webp,image/svg+xml')] %}
           <div class="appearance-upload"><label>{{ label }}<input type="file" name="{{ key }}" accept="{{ formats }}"></label>
-            <div><img data-asset-preview="{{ key }}" alt="" hidden><button type="button" data-reset-asset="{{ key }}" class="btn-action" hidden>Убрать изображение</button></div></div>
+            {% if key=='pwa' %}{% include 'components/icon_frame.html' %}{% endif %}
+            <div>{% if key!='pwa' %}<img data-asset-preview="{{ key }}" alt="" hidden>{% endif %}<button type="button" data-reset-asset="{{ key }}" class="btn-action" hidden>{{ 'Вернуть общий вариант' if not global_appearance | default(false) else 'Сбросить изображение' }}</button></div></div>
           {% endfor %}<small>До 5 МБ на изображение. Для PWA автоматически создаются квадратные иконки Android и iOS.</small>
         </div></details>
         <details><summary>Баннер над кнопками</summary><div class="appearance-fields">
@@ -34,4 +44,4 @@
       <iframe id="appearancePreview" title="Предпросмотр страницы пропуска" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
     </section>
   </div>
-</section>
+{% if global_appearance | default(false) %}</details>{% else %}</section>{% endif %}

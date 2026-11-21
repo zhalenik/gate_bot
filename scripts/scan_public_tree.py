@@ -1,5 +1,6 @@
 """Scan the exact tracked publication set; report locations, never secret values."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,18 @@ PATTERNS = {
     'credential-url': re.compile(r'https?://[^/\s:@]+:[^/\s@]+@'),
 }
 
+# Unmodified Google Fonts WOFF2 subsets. Their OFL notices ship beside them.
+PUBLIC_FONTS = {
+    'static/fonts/inter-cyrillic.woff2': '71d5ee93cc1e9f1d520a3a8b66456de18c7879d8df09d57fcd2eaff75fef0075',
+    'static/fonts/inter-latin.woff2': '3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62',
+    'static/fonts/mulish-cyrillic.woff2': '270a9552cb39c2aa23054f70bf8c770bc1a9c2d6e0df2841bad89f6597bcd483',
+    'static/fonts/mulish-latin.woff2': '8d1d33d6beea5a722b8f336d79c61c07405949457e37b5e65454c72dc10aba1a',
+    'static/fonts/nunito-cyrillic.woff2': '63b14e3ef0966785438b8947380dfbcad178cbd3c6a5ed2172672ca0d8b839ac',
+    'static/fonts/nunito-latin.woff2': 'ba344451eab25b217a165363b1982048a5e5830a0daf36577973955a04cac793',
+    'static/fonts/rubik-cyrillic.woff2': 'bdb2b33ab916e9e7b42edb61f8aea5f5dd83ad773d6ee4e9b55665daf8954ce8',
+    'static/fonts/rubik-latin.woff2': '691cd1d9b4c0cdf31a1dcf04259c86f92c85e69f6622abab7964d81e36890691',
+}
+
 
 def scan(root, paths, known=()):
     findings = []
@@ -25,6 +38,10 @@ def scan(root, paths, known=()):
         try:
             # Read the index blob, not an unstaged working-tree replacement.
             blob = subprocess.run(['git', 'show', ':' + relative], cwd=root, capture_output=True, check=True).stdout
+            if relative in PUBLIC_FONTS:
+                if hashlib.sha256(blob).hexdigest() != PUBLIC_FONTS[relative]:
+                    findings.append((relative, 0, 'unexpected-font-content'))
+                continue
             text = blob.decode('utf-8')
         except UnicodeDecodeError:
             findings.append((relative, 0, 'unreviewed-binary'))

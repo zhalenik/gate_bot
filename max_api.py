@@ -219,6 +219,16 @@ class MaxApiClient:
             raise MaxApiError("invalid_subscriptions", stage="subscriptions")
         return subscriptions
 
+    def subscribe(self, url: str, secret: str) -> None:
+        result = self._request("POST","/subscriptions",body={"url":url,"secret":secret,"update_types":list(UPDATE_TYPES)})
+        if result.get("success") is not True:
+            raise MaxApiError("api_error",stage="subscriptions")
+
+    def unsubscribe(self, url: str) -> None:
+        result = self._request("DELETE","/subscriptions",params={"url":url})
+        if result.get("success") is not True:
+            raise MaxApiError("api_error",stage="subscriptions")
+
     def get_updates(
         self, *, marker: int | None = None, timeout: int = 20,
         limit: int = 100, types: Sequence[str] = UPDATE_TYPES,

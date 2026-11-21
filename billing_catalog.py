@@ -1,7 +1,10 @@
 """Versioned commercial catalog. Files are uploaded by authenticated web handlers."""
 from contextlib import nullcontext
 from datetime import datetime, timezone
+import hashlib
 import json
+import os
+from pathlib import Path
 import re
 import time
 import uuid
@@ -17,6 +20,11 @@ DEFAULT_PLANS = [
     {'id': 'pro', 'name': 'Про', 'kind': 'paid', 'price_kopecks': 350000,
      'duration_value': 1, 'duration_unit': 'months', 'quota': 1000, 'sms_quota': 0},
 ]
+
+# The packaged edition remains an archive fallback after the first user upload,
+# even if a server clock moves backwards. Preserve ordering of existing uploads.
+_BUNDLED_PUBLISHER = object()
+_BUNDLED_OFFER_ID = 'gatebot-initial-offer'
 
 
 def timestamp(value=None):
@@ -47,12 +55,42 @@ class BillingCatalog:
             db.execute('CREATE TABLE IF NOT EXISTS billing_catalog(kind TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(kind,id))')
             db.execute('CREATE TABLE IF NOT EXISTS billing_catalog_revisions(kind TEXT NOT NULL,item_id TEXT NOT NULL,revision INTEGER NOT NULL,payload TEXT NOT NULL,actor TEXT,created REAL NOT NULL,PRIMARY KEY(kind,item_id,revision))')
             db.execute('CREATE TABLE IF NOT EXISTS billing_offers(id TEXT PRIMARY KEY,filename TEXT NOT NULL,url TEXT NOT NULL,sha256 TEXT NOT NULL,published_at REAL NOT NULL,actor TEXT)')
+            if not db.execute('SELECT 1 FROM billing_offers LIMIT 1').fetchone():
+                from legal_pdf import bundled_pdf
+                self.save_offer_file('GateBot-offer.pdf', bundled_pdf('offer'), actor=_BUNDLED_PUBLISHER)
             for plan in DEFAULT_PLANS:
                 item = {**plan, 'logo': '', 'active': True, 'visible': plan['kind'] != 'trial', 'revision': 1}
                 db.execute('INSERT OR IGNORE INTO billing_catalog VALUES(?,?,?,1)', ('plan', item['id'], json.dumps(item, ensure_ascii=False)))
 
     def _tx(self, db):
         return nullcontext(db) if db is not None else self.store.connect()
+
+    @property
+    def asset_directory(self):
+        return Path(self.store.path).parent / 'billing-assets'
+
+    def write_asset(self, data, extension):
+        directory = self.asset_directory
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / (uuid.uuid4().hex + extension)
+        output = path.open('xb')
+        try:
+            with output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+        except OSError:
+            path.unlink(missing_ok=True)
+            raise
+        return path, '/admin/billing-assets/' + path.name
+
+    def save_offer_file(self, filename, data, *, actor):
+        path, url = self.write_asset(data, '.pdf')
+        try:
+            return self.publish_offer({'filename':filename, 'url':url, 'sha256':hashlib.sha256(data).hexdigest()}, actor=actor)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def _item(payload):
@@ -126,12 +164,14 @@ class BillingCatalog:
         filename = metadata['filename']
         if not url or not isinstance(filename, str) or not filename or len(filename)>200 or any(c in filename for c in '/\\') or any(ord(c)<32 for c in filename): raise ValueError('Некорректное имя оферты')
         if not isinstance(metadata['sha256'],str) or not re.fullmatch(r'[a-f0-9]{64}',metadata['sha256']): raise ValueError('Не удалось проверить файл оферты')
-        version = uuid.uuid4().hex
+        version = _BUNDLED_OFFER_ID if actor is _BUNDLED_PUBLISHER else uuid.uuid4().hex
+        author = 'GateBot' if actor is _BUNDLED_PUBLISHER else str(actor)
         with self.store.connect() as db:
-            db.execute('INSERT INTO billing_offers VALUES(?,?,?,?,?,?)',(version,filename,url,metadata['sha256'],timestamp(at),str(actor)))
+            db.execute('INSERT INTO billing_offers VALUES(?,?,?,?,?,?)',(version,filename,url,metadata['sha256'],timestamp(at),author))
             return self.offer(version, db=db)
 
     def offer(self, version=None, *, db=None):
         with self._tx(db) as tx:
-            row = tx.execute('SELECT * FROM billing_offers WHERE id=?',(version,)).fetchone() if version is not None else tx.execute('SELECT * FROM billing_offers ORDER BY published_at DESC,rowid DESC LIMIT 1').fetchone()
+            row = tx.execute('SELECT * FROM billing_offers WHERE id=?',(version,)).fetchone() if version is not None else tx.execute(
+                'SELECT * FROM billing_offers ORDER BY (id=?) ASC,published_at DESC,rowid DESC LIMIT 1',(_BUNDLED_OFFER_ID,)).fetchone()
             return dict(row) if row else None

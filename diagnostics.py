@@ -96,14 +96,22 @@ def doctor():
     }
     if config.BOT_ENABLED and not config.BOT_TOKEN:
         problems.append('telegram_token_missing')
-    if config.BOT_ENABLED and config.BOT_MODE != 'polling':
-        problems.append('telegram_polling_mode_required')
+    from bot_webhooks import validate_secret,webhook_url
+    for provider,enabled,mode in [('telegram',config.BOT_ENABLED,config.BOT_MODE),('max',config.MAX_BOT_ENABLED,config.MAX_BOT_MODE)]:
+        if not enabled:
+            continue
+        if mode not in {'polling','webhook'}:
+            problems.append(provider+'_invalid_bot_mode')
+        elif mode=='webhook':
+            try:
+                webhook_url(provider,config.BASE_URL,config.WEBHOOK_URL if provider=='telegram' else '')
+                validate_secret(provider,config.TELEGRAM_WEBHOOK_SECRET if provider=='telegram' else config.MAX_WEBHOOK_SECRET)
+            except ValueError:
+                problems.append(provider+'_invalid_webhook_configuration')
     if config.BOT_ENABLED and not config.BOT_USERNAME:
         warnings.append('telegram_username_missing')
     if config.MAX_BOT_ENABLED and not config.MAX_BOT_TOKEN:
         problems.append('max_token_missing')
-    if config.MAX_BOT_ENABLED and config.MAX_BOT_MODE != 'polling':
-        problems.append('max_polling_mode_required')
     if config.MAX_BOT_ENABLED and not config.MAX_BOT_USERNAME:
         warnings.append('max_username_missing')
     if config.MAX_BOT_ENABLED and config.MAX_CA_BUNDLE:

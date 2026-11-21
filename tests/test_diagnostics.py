@@ -31,6 +31,7 @@ def diagnostic(tmp_path, monkeypatch):
     config = SimpleNamespace(
         ENV_FILE=env_file, DATA_DIR=str(state), LOG_DIR=str(tmp_path / 'private-logs'),
         SECRET_KEY='synthetic-diagnostic-session-secret-only',
+        BASE_URL='http://localhost',WEBHOOK_URL='',TELEGRAM_WEBHOOK_SECRET='',MAX_WEBHOOK_SECRET='',
         BOT_ENABLED=True, BOT_TOKEN='synthetic-telegram-secret', BOT_MODE='polling',
         BOT_USERNAME='synthetic_telegram_name',
         MAX_BOT_ENABLED=True, MAX_BOT_TOKEN='synthetic-max-secret', MAX_BOT_MODE='polling',
@@ -181,14 +182,14 @@ def test_crm_requires_partner_token_but_disabled_integration_does_not(diagnostic
 
 @pytest.mark.parametrize('prefix,problem_prefix', [('BOT', 'telegram'), ('MAX_BOT', 'max')])
 @pytest.mark.parametrize('enabled', [True, False])
-def test_enabled_bots_require_token_and_polling(diagnostic, prefix, problem_prefix, enabled):
+def test_enabled_webhooks_require_token_and_https(diagnostic, prefix, problem_prefix, enabled):
     setattr(diagnostic.config, prefix + '_ENABLED', enabled)
     setattr(diagnostic.config, prefix + '_TOKEN', '')
     setattr(diagnostic.config, prefix + '_MODE', 'webhook')
     report = diagnostic.module.doctor()
     assert report['credentials'][problem_prefix + '_token_present'] is False
     assert (problem_prefix + '_token_missing' in report['problems']) is enabled
-    assert (problem_prefix + '_polling_mode_required' in report['problems']) is enabled
+    assert (problem_prefix + '_invalid_webhook_configuration' in report['problems']) is enabled
 
 
 def test_missing_bot_usernames_are_optional_warnings(diagnostic):

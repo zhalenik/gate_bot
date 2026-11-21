@@ -1,10 +1,7 @@
 """Scoped billing catalog, immutable documents and account activity surfaces."""
-import hashlib
 import json
 import os
-from pathlib import Path
 import re
-import secrets
 import time
 
 from flask import abort, jsonify, redirect, request, send_file, session
@@ -25,27 +22,13 @@ def register_routes(bp, *, service, auth_required, super_required, admin, allowe
     def catalog():
         return service('billing').catalog
 
-    def asset_directory():
-        return Path(service('billing').store.path).parent / 'billing-assets'
-
     def checked_logo(value):
         if not value:
             return ''
         match = re.fullmatch(re.escape(ASSET_PREFIX) + r'([a-f0-9]{32}\.png)', str(value))
-        if not match or not (asset_directory() / match[1]).is_file():
+        if not match or not (catalog().asset_directory / match[1]).is_file():
             raise ValueError('Загрузите логотип через форму')
         return value
-
-    def write_asset(data, extension):
-        directory = asset_directory()
-        directory.mkdir(parents=True, exist_ok=True)
-        filename = secrets.token_hex(16) + extension
-        path = directory / filename
-        with path.open('xb') as output:
-            output.write(data)
-            output.flush()
-            os.fsync(output.fileno())
-        return path, ASSET_PREFIX + filename
 
     def selected_branches():
         value = request.args.get('branch_id')
@@ -119,7 +102,7 @@ def register_routes(bp, *, service, auth_required, super_required, admin, allowe
         # Recheck the current role after decoding; no uploaded metadata survives.
         if admin().get('is_super') is not True:
             abort(403)
-        _, url = write_asset(pixels, '.png')
+        _, url = catalog().write_asset(pixels, '.png')
         return jsonify(logo=url)
 
     @bp.post('/admin/api/billing/offer')
@@ -135,16 +118,9 @@ def register_routes(bp, *, service, auth_required, super_required, admin, allowe
             raise ValueError('Выберите корректный PDF размером до 10 МБ')
         if admin().get('is_super') is not True:
             abort(403)
-        path, url = write_asset(data, '.pdf')
         filename = str(upload.filename or '').replace('\\', '/').rsplit('/', 1)[-1]
         filename = ''.join(char for char in filename if ord(char) >= 32)[:120] or 'offer.pdf'
-        try:
-            offer = catalog().publish_offer({'filename': filename, 'url': url,
-                'sha256': hashlib.sha256(data).hexdigest()}, actor=session['admin_username'])
-        except BaseException:
-            path.unlink(missing_ok=True)
-            raise
-        return jsonify(offer=offer)
+        return jsonify(offer=catalog().save_offer_file(filename, data, actor=session['admin_username']))
 
     @bp.get('/admin/api/billing/offer')
     @auth_required
@@ -156,11 +132,12 @@ def register_routes(bp, *, service, auth_required, super_required, admin, allowe
     def billing_asset(filename):
         if not re.fullmatch(r'[a-f0-9]{32}\.(png|pdf)', filename):
             abort(404)
-        path = asset_directory() / filename
+        path = catalog().asset_directory / filename
         if not path.is_file():
             abort(404)
         pdf = filename.endswith('.pdf')
         response = send_file(path, mimetype='application/pdf' if pdf else 'image/png',
+                             as_attachment=pdf and request.args.get('download') == '1',
                              download_name='GateBot-offer.pdf' if pdf else 'logo.png')
         response.headers['Cache-Control'] = 'private, max-age=3600'
         response.headers['X-Content-Type-Options'] = 'nosniff'

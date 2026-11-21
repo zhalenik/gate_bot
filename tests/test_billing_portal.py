@@ -41,11 +41,23 @@ def test_catalog_role_revision_archive_and_primary_branch_only(web):
 
 def test_offer_versions_and_logo_are_private_and_validated(web):
     client,s=web
+    from billing_catalog import BillingCatalog
+    from legal_pdf import bundled_pdf
+    store = s['billing'].store
+    first_offer = s['billing'].catalog.offer()
+    initial = client.get(first_offer['url']+'?download=1')
+    assert initial.data == bundled_pdf('offer') and 'attachment' in initial.headers['Content-Disposition']
+    initial.close()
+    assert BillingCatalog(store).offer() == first_offer
     assert publish(client).status_code==403
     s['auth'].current={'is_super':True}
     first=publish(client)
     assert first.status_code==200
     offer=first.json['offer']
+    assert BillingCatalog(store).offer() == offer
+    archived = client.get(first_offer['url'])
+    assert archived.data == bundled_pdf('offer')
+    archived.close()
     response=client.get(offer['url'])
     assert response.data==PDF and response.headers['X-Content-Type-Options']=='nosniff'
     response.close()

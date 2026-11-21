@@ -40,6 +40,11 @@
 #modemCards .action-buttons {margin-top:16px;gap:12px;display:flex;flex-wrap:wrap}
 #modemCards .modem-health {margin-block:4px;font-weight:600}
 .settings-workspace .admin-content,.settings-workspace #systemSettingsForm{width:100%;max-width:none;min-width:0;margin-inline:0}
+.settings-workspace{--muted:var(--gb-color-admin-muted-9dac972d3952, var(--ink));color:var(--ink)}
+.settings-workspace :is(h1,h2,h3,p,small,label,legend,summary,strong,span,code,a,input,select,option,textarea,button,.alert){color:var(--ink)}
+.settings-workspace :is(input,textarea)::placeholder{color:var(--ink);opacity:.7}
+.settings-workspace .btn-primary{background:var(--lavender);color:var(--ink)}
+.settings-workspace .btn-primary:hover{background:var(--lavender);box-shadow:inset 0 0 0 1px currentColor}
 .settings-workspace .action-buttons{position:static;inset:auto;transform:none}
 .settings-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:4;padding:10px 0;background:var(--surface)}
 .settings-export{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px;align-items:end;margin-top:18px}

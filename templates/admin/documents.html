@@ -6,7 +6,12 @@
 {% for kind,title in titles.items() %}
   {% set revisions=versions|selectattr('kind','equalto',kind)|list %}
   <section class="panel"><h2>{{ title }}</h2>
-    <p><a href="/documents/{{ kind }}/{{ revisions[0].id }}" target="_blank" rel="noopener">Открыть действующую редакцию № {{ revisions[0].id }}</a></p>
+    {% set active=revisions[0] %}{% set url=url_for('legal.edition',kind=kind,edition=active.id) %}
+    <div class="document-links">
+      <a href="{{ url }}" target="_blank" rel="noopener">Открыть редакцию № {{ active.id }}</a>
+      {% if active.media=='application/pdf' or active.digest in text_hashes[kind] %}<a class="btn-action" href="{{ url }}?download=pdf">Скачать PDF</a>{% endif %}
+      {% if active.media=='text/plain' %}<a class="btn-action" href="{{ url }}?download=original">Скачать текст</a>{% endif %}
+    </div>
     <form method="post" action="/admin/documents/{{ kind }}" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Новый документ · PDF или текст UTF-8, до 5 МБ<input name="document" type="file" accept=".pdf,.txt" required></label>
@@ -18,7 +23,8 @@
   </section>
 {% endfor %}
   <section class="panel"><h2>Договор оферты</h2><p>При оформлении заказа филиал принимает опубликованную редакцию.</p>
-  {% if offer %}<a id="offerCurrent" href="{{ offer.url }}" target="_blank" rel="noopener">Действующая оферта · {{ offer.filename }}</a>{% endif %}
+  {% if offer %}<div class="document-links"><a id="offerCurrent" href="{{ offer.url }}" target="_blank" rel="noopener">Действующая оферта · {{ offer.filename }}</a>
+    <a class="btn-action" href="{{ offer.url }}?download=1">Скачать PDF</a></div>{% endif %}
   <form id="offerUploadForm" action="/admin/api/billing/offer" method="post" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Новая редакция · PDF до 10 МБ<input name="document" type="file" accept=".pdf,application/pdf" required></label>

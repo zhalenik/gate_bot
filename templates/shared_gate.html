@@ -5,11 +5,11 @@
 <main class="guest-container"><section class="guest-card">
   {% if error %}<h1>Доступ невозможен</h1><p role="status">{{ error }}</p>
   {% else %}
-  <p class="page-eyebrow">Гостевой въезд</p><h1>{{ branch }}</h1><p>{{ gate }}</p>
+  <p class="page-eyebrow">Гостевой въезд</p>{% with branch_name=branch %}{% include 'components/client_branch_title.html' %}{% endwith %}<p>{{ gate }}</p>
   {% if result %}<p role="status">{% if result.delivery in ['dry_run','simulated'] %}Тестовый режим. Команда выполнена в симуляторе.{% elif result.status == 'error' %}{{ result.message or 'Запрос отклонён' }}{% elif result.delivery == 'queued' %}Команда открытия в очереди.{% else %}{{ result.message or 'Команда передана' }}{% endif %}</p>{% endif %}
   {% if not result or result.http_status in [403,429] %}
   {% include 'components/branch_banner.html' %}
-  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-primary">Открыть ворота</button></form>
+  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-primary shared-gate-button"><span>Открыть ворота</span>{% include "components/gate_button_icon.html" %}</button></form>
   {% endif %}{% endif %}
 </section></main>
 {% endblock %}

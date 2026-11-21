@@ -1,0 +1,3 @@
+{% if client_appearance and branch_logo %}
+<div class="pass-brand"><img src="{{ branch_logo }}" class="branch-logo" alt=""><div><h1>{{ branch_name }}</h1></div></div>
+{% else %}<h1 data-client-branch-name>{{ branch_name }}</h1>{% endif %}

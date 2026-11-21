@@ -18,6 +18,7 @@ def test_saved_modems_and_filtered_calls(system_web, browser_ui):
     second.add('call','incoming',phone='1234568',status='ended')
     sign_in(page,origin)
     page.goto(origin+'/admin/system-settings')
+    page.locator('[data-group=hardware] > summary').click()
     page.locator('#modemSettings summary').click()
     cards = page.locator('#modemCards fieldset')
     expect(cards).to_have_count(1)
@@ -29,8 +30,8 @@ def test_saved_modems_and_filtered_calls(system_web, browser_ui):
     page.locator('#modemSave').click()
     expect(page.locator('#modemSettingsNotice')).to_contain_text('Модемы сохранены')
     page.reload()
-    if not page.locator('#modemAdd').is_visible():
-        page.locator('#modemSettings summary').click()
+    page.locator('[data-group=hardware] > summary').click()
+    page.locator('#modemSettings summary').click()
     expect(cards).to_have_count(2)
     expect(cards.last.locator('[name=call_enabled]')).not_to_be_checked()
     page.goto(origin+'/admin/telephony')

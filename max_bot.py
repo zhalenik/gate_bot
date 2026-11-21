@@ -47,6 +47,7 @@ class IncomingUpdate:
     user_id: str
     chat_id: int | None
     event_key: str
+    previous_key: str = ""
     timestamp_ms: int | None = None
     text: str = ""
     start_payload: str = ""
@@ -71,6 +72,7 @@ def normalize_update(raw: Any) -> IncomingUpdate | None:
     forwarded = False
     has_message = True
     message_id = ''
+    old_identity = None
 
     if kind == "bot_started":
         actor = raw.get("user")
@@ -123,15 +125,18 @@ def normalize_update(raw: Any) -> IncomingUpdate | None:
             # promise a new ID for every tap. Include the event time and action
             # so pressing the same keyboard later remains a new command.
             identity = json.dumps(
-                ["callback", callback_id, stamp, body.get("mid"), callback_payload],
+                ["callback", callback_id, stamp, callback_payload],
                 ensure_ascii=False, separators=(",", ":"),
             )
+            old_identity = json.dumps(["callback",callback_id,stamp,body.get("mid"),callback_payload],
+                                      ensure_ascii=False,separators=(",",":"))
         else:
             actor = message.get("sender")
             mid = body.get("mid")
             if not isinstance(mid, str) or not mid:
                 mid = hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            identity = f"message:{mid}:{stamp}"
+            old_identity = f"message:{mid}:{stamp}"
+            identity = f"message:{mid}" if message_id else old_identity
 
     if not isinstance(actor, dict) or actor.get("is_bot") is True:
         return None
@@ -140,8 +145,10 @@ def normalize_update(raw: Any) -> IncomingUpdate | None:
         return None
     # Store a digest, never a contact, access token, or raw callback payload.
     event_key = hashlib.sha256(f"{user_id}:{identity}".encode()).hexdigest()
+    previous_key = (hashlib.sha256(f"{user_id}:{old_identity}".encode()).hexdigest()
+                    if old_identity and identity != old_identity else '')
     return IncomingUpdate(
-        kind=kind, user_id=str(user_id), chat_id=chat_id, event_key=event_key,
+        kind=kind, user_id=str(user_id), chat_id=chat_id, event_key=event_key, previous_key=previous_key,
         timestamp_ms=stamp, text=text, start_payload=start_payload,
         attachments=attachments, callback_id=callback_id,
         callback_payload=callback_payload, forwarded=forwarded,
@@ -327,7 +334,7 @@ class MaxBot:
     def _cancel_gate_update(self, raw: Any) -> None:
         update = normalize_update(raw)
         if update and update.kind == "message_callback" and update.callback_payload.startswith("g:"):
-            if self.state.claim(self.namespace, update.event_key):
+            if self.state.claim(self.namespace, update.event_key, previous_key=update.previous_key):
                 self.state.finish(self.namespace, update.event_key, "cancelled", "stopping")
 
     def process_update(self, raw: Any, *, stop_event: threading.Event | None = None) -> None:
@@ -340,7 +347,7 @@ class MaxBot:
         # Claim ALL updates before sending, acknowledging or binding. A POST
         # timeout has an ambiguous outcome and must not send a second welcome/
         # menu on replay. GET /updates failures happen before this claim.
-        if not self.state.claim(self.namespace, update.event_key):
+        if not self.state.claim(self.namespace, update.event_key, previous_key=update.previous_key):
             return
         try:
             self._dispatch(update, stop_event=stop_event)
@@ -428,7 +435,7 @@ class MaxBot:
                 self._send(update, **menu)
             return
         match = re.fullmatch(r"([ga]):([A-Za-z0-9_-]{1,24}):([A-Za-z0-9_-]{1,32})", value)
-        if match is None or not update.has_message:
+        if match is None or not update.has_message or (match.group(1) == 'g' and not update.message_id):
             self.api.answer_callback(update.callback_id, notification="Кнопка устарела. Обновите меню командой /menu.", **answer)
             return
         kind, branch_id, button_id = match.groups()
@@ -499,9 +506,21 @@ class MaxBot:
         if batch.get("marker") is not None and not (stop_event is not None and stop_event.is_set()):
             self.state.set_checkpoint(self.namespace, "marker", batch["marker"])
 
-    def run(self, stop_event: threading.Event) -> None:
+    def _drain_webhooks(self, inbox, stop_event):
+        while inbox.wake.is_set() and not stop_event.is_set():
+            data=inbox.take()
+            if data is not None:
+                try:
+                    self.process_update(data,stop_event=stop_event)
+                except Exception as error:
+                    _audit("BOT_PROCESSING_ERROR",level="ERROR",error_type=type(error).__name__)
+
+    def run(self, stop_event: threading.Event, inbox=None) -> None:
         if stop_event.is_set():
             return
+        from bot_webhooks import BotInbox
+        if inbox is None:
+            inbox=BotInbox('max',self._token,self.state)
         _RUNNING.clear()
         _READY.clear()
         try:
@@ -509,14 +528,46 @@ class MaxBot:
         except MaxApiError as exc:
             exc.stage = "subscriptions"
             raise
-        if subscriptions:
-            _audit("BOT_START_REFUSED", level="ERROR", reason="active_webhook")
-            raise MaxApiError("active_webhook", stage="subscriptions")
+        urls=[sub.get('url') if isinstance(sub,dict) else None for sub in subscriptions]
+        from bot_diagnostics import BotCheckError
+        try:
+            previous=inbox.check_ownership(urls)
+        except BotCheckError:
+            _audit("BOT_START_REFUSED",level="ERROR",reason="active_webhook")
+            raise MaxApiError("active_webhook",stage="subscriptions") from None
         try:
             self.api.get_me()
         except MaxApiError as exc:
             exc.stage = "get_me"
             raise
+        if inbox.url:
+            from max_api import UPDATE_TYPES
+            remote_types = subscriptions[0].get('update_types') if subscriptions else None
+            if urls!=[inbox.url] or previous!=inbox.registration(True) or (remote_types and set(remote_types)!=set(UPDATE_TYPES)):
+                # MAX's subscription identifies the URL. Re-create only a
+                # checked URL when its address or secret has changed.
+                for url in urls:
+                    self.api.unsubscribe(url)
+                inbox.remember(inbox.registration(False))
+                self.api.subscribe(inbox.url,inbox.secret)
+                inbox.remember(inbox.registration(True))
+            _RUNNING.set()
+            _READY.set()
+            _audit("BOT_WEBHOOK_READY")
+            try:
+                while not stop_event.is_set():
+                    if inbox.wake.wait(0.25):
+                        self._drain_webhooks(inbox,stop_event)
+            finally:
+                _READY.clear()
+                _RUNNING.clear()
+                _audit("BOT_WEBHOOK_STOPPED")
+            return
+        for url in urls:
+            self.api.unsubscribe(url)
+        if previous:
+            inbox.remember({})
+        self._drain_webhooks(inbox,stop_event)
         _RUNNING.set()
         _audit("BOT_POLLING_STARTED")
         failures = 0
@@ -563,13 +614,11 @@ def create_bot(service: Any = None) -> MaxBot:
     return MaxBot(api, service if service is not None else AccessService(), state, token=token)
 
 
-def run_polling(stop_event: threading.Event | None = None, *, service: Any = None) -> None:
+def run_delivery(stop_event: threading.Event | None = None, *, service: Any = None, inbox=None) -> None:
     from storage import config
 
     if not config.MAX_BOT_ENABLED:
         raise RuntimeError("MAX_BOT_ENABLED=false: бот отключён в локальной конфигурации.")
-    if config.MAX_BOT_MODE != "polling":
-        raise RuntimeError("Этот запуск MAX поддерживает polling. Production webhook описан в docs/MAX.md.")
     if not config.MAX_BOT_TOKEN:
         raise ValueError("MAX_BOT_TOKEN is required")
     global _RUNTIME
@@ -581,7 +630,8 @@ def run_polling(stop_event: threading.Event | None = None, *, service: Any = Non
             runtime = create_bot(service=service)
             _RUNTIME = runtime
             try:
-                runtime.run(stop_event)
+                from bot_webhooks import BotInbox
+                runtime.run(stop_event,inbox or BotInbox.configured('max'))
             except MaxApiError as exc:
                 _audit("BOT_RUNTIME_ERROR", level="ERROR", api_code=exc.code,
                        http_status=exc.status_code, stage=exc.stage)
@@ -593,6 +643,13 @@ def run_polling(stop_event: threading.Event | None = None, *, service: Any = Non
     except PollingAlreadyRunning:
         _audit("BOT_START_REFUSED", level="ERROR", reason="polling_already_running")
         raise
+
+
+def run_polling(stop_event: threading.Event | None = None, *, service: Any = None) -> None:
+    from storage import config
+    if config.MAX_BOT_MODE!='polling':
+        raise RuntimeError('Для запуска polling выберите режим polling в системных настройках')
+    run_delivery(stop_event, service=service)
 
 
 def notify_access(payload: dict[str, Any]) -> bool:
@@ -631,7 +688,8 @@ def refresh_menus():
 
 
 def status() -> dict[str, Any]:
-    return {"running": _RUNNING.is_set(), "ready": _READY.is_set(), "mode": "polling"}
+    from storage import config
+    return {"running": _RUNNING.is_set(), "ready": _READY.is_set(), "mode": config.MAX_BOT_MODE}
 
 
 def register_webhook(app: Any, bot: MaxBot, *, secret: str, enqueue: Any, path: str = "/webhook/max") -> None:
@@ -644,21 +702,8 @@ def register_webhook(app: Any, bot: MaxBot, *, secret: str, enqueue: Any, path: 
         raise ValueError("A valid MAX webhook secret is required")
     if not callable(enqueue):
         raise ValueError("A durable enqueue function is required")
-    from flask import request
-
-    def receive() -> tuple[dict[str, str], int]:
-        received = request.headers.get("X-Max-Bot-Api-Secret", "")
-        if not hmac.compare_digest(received.encode(), secret.encode()):
-            return {"error": "unauthorized"}, 401
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict):
-            return {"error": "invalid_json"}, 400
-        # An enqueue exception yields 500, so MAX retries delivery. Never ACK
-        # before the event is safely stored. The worker calls bot.process_update.
-        enqueue(payload)
-        return {"status": "accepted"}, 200
-
-    app.add_url_rule(path, endpoint="gatebot_max_webhook", view_func=receive, methods=["POST"])
+    from bot_webhooks import HEADERS,receive
+    app.add_url_rule(path, endpoint="gatebot_max_webhook", view_func=lambda:receive(secret,HEADERS['max'],enqueue), methods=["POST"])
 
 
 if __name__ == "__main__":

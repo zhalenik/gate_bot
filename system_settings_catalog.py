@@ -19,7 +19,7 @@ GROUPS = {
 BLOCKS = {
     'service': 'Сервис и веб-доступ', 'delivery': 'Отправка уведомлений',
     'telegram': 'Telegram Bot', 'max': 'MAX Bot', 'yclients': 'YCLIENTS',
-    'schedule': 'Планировщик', 'hardware': 'SIM800 и ворота',
+    'schedule': 'Планировщик', 'hardware': 'Настройки аппаратных вызовов и СМС',
     'development': 'Разработка и тестовая регистрация',
 }
 
@@ -56,15 +56,18 @@ FIELDS = [
     item('TELEGRAM_PROXY_URL','Прокси Telegram Bot','telegram','','proxy',secret=True,help='HTTP(S) или SOCKS5 прокси VPN-контейнера. Используется для polling, ответов и уведомлений Telegram.'),
     item('BOT_USERNAME','Имя Telegram Bot','telegram'),
     item('BOT_MODE','Режим Telegram Bot','telegram','polling','select',options=['polling','webhook']),
-    item('TELEGRAM_WEBHOOK_URL','Webhook URL Telegram','telegram','','url',optional=True),
-    item('TELEGRAM_WEBHOOK_SECRET','Секрет webhook Telegram','telegram','','secret',secret=True),
+    item('TELEGRAM_WEBHOOK_URL','Webhook URL Telegram','telegram','','url',optional=True,
+         help='По умолчанию используется публичный HTTPS-адрес GateBot с путём /webhook/telegram.'),
+    item('TELEGRAM_WEBHOOK_SECRET','Секрет webhook Telegram','telegram','','secret',secret=True,
+         help='Оставьте пустым для автоматического секрета. При смене режима сохраните настройки и перезапустите сервис.'),
     item('MAX_BOT_ENABLED','Запускать MAX Bot','max',False,'bool'),
     item('MAX_BOT_TOKEN','Токен MAX Bot','max','','secret',secret=True),
     item('MAX_BOT_USERNAME','Имя MAX Bot','max'),
     item('MAX_BOT_MODE','Режим MAX Bot','max','polling','select',options=['polling','webhook']),
     item('MAX_API_BASE_URL','Адрес API MAX','max','https://platform-api2.max.ru','https_url'),
     item('MAX_CA_BUNDLE','Файл корневых сертификатов MAX','max','','path',optional=True,help='Проверка TLS остаётся включённой. Путь должен существовать на сервере после перезапуска.'),
-    item('MAX_WEBHOOK_SECRET','Секрет webhook MAX','max','','secret',secret=True),
+    item('MAX_WEBHOOK_SECRET','Секрет webhook MAX','max','','secret',secret=True,
+         help='GateBot регистрирует /webhook/max на публичном HTTPS-адресе, порт 443. Пустое поле включает автоматический секрет.'),
     item('YCLIENTS_ENABLED','Разрешить интеграцию YCLIENTS','yclients',False,'bool'),
     item('YC_BASE_URL','Адрес API YCLIENTS','yclients','https://api.yclients.ru/api/v1','yclients_url'),
     item('YC_PARTNER_TOKEN','Партнёрский токен YCLIENTS','yclients','','secret',secret=True),
@@ -78,9 +81,6 @@ FIELDS = [
     item('GATE_COOLDOWN_SECONDS','Пауза между командами ворот, секунд','hardware',20,'int',minimum=1,maximum=300),
     item('GATE_DRY_RUN','Имитировать команды ворот','hardware',True,'bool'),
     item('SIM800_ENABLED','Использовать SIM800','hardware',False,'bool'),
-    item('SIM800_PORT','Исходный порт SIM800C','hardware','','path',optional=True,help='Например COM3 или /dev/ttyUSB0. Применяется до первого сохранения раздела «Модемы SIM800C».'),
-    item('SIM800_BAUDRATE','Исходная скорость порта SIM800C','hardware',115200,'int',minimum=1,maximum=921600),
-    item('SIM800_COMMAND_TIMEOUT','Исходный таймаут AT-команды, секунд','hardware',5,'float',minimum=0.1,maximum=300),
     item('SIM800_CALL_DURATION','Длительность вызова, секунд','hardware',3,'float',minimum=0.1,maximum=300),
     item('SIM800_SMS_STORAGE','Память SMS','hardware','SM','select',options=['SM','ME','MT']),
     item('SIM800_QUEUE_TIMEOUT','Таймаут очереди модема, секунд','hardware',40,'int',minimum=1,maximum=300),
@@ -90,7 +90,14 @@ FIELDS = [
     item('DEV_REGISTRATION_SMS_PREFIX','Префикс тестовых номеров','development','','phone_prefix'),
     item('DEV_REGISTRATION_SMS_PHONE','Получатель тестовых SMS','development','','phone'),
 ]
-BY_KEY = {field['key']: field for field in FIELDS}
+# Older .env and encrypted exports seed the first modem from these values.
+# The inventory form owns these settings once an administrator saves the device.
+MODEM_SEEDS = [
+    item('SIM800_PORT','Исходный порт SIM800C','hardware','','path',optional=True),
+    item('SIM800_BAUDRATE','Исходная скорость SIM800C','hardware',115200,'int',minimum=1,maximum=921600),
+    item('SIM800_COMMAND_TIMEOUT','Исходный таймаут AT-команды','hardware',5,'float',minimum=0.1,maximum=300),
+]
+BY_KEY = {field['key']: field for field in (*FIELDS,*MODEM_SEEDS)}
 SMTP_ENV_KEYS = {'SMTP_ENABLED','MAILING_SMTP_SERVER','MAILING_SMTP_PORT','MAILING_SMTP_SECURITY',
                  'MAILING_SMTP_USER','MAILING_SMTP_PASSWORD','MAILING_SMTP_FROM','MAILING_SMTP_FROM_EMAIL'}
 
@@ -180,4 +187,11 @@ def validate_effective(values):
     normalized={key:encode(field,values.get(key,field['default'])) for key,field in BY_KEY.items()}
     if normalized['GATEBOT_ENV']=='production' and len(normalized['SECRET_KEY'])<32:
         raise ValueError('Для production сначала задайте SECRET_KEY длиной не менее 32 символов')
+    from bot_webhooks import webhook_url,validate_secret
+    for platform,prefix,key in [('telegram','BOT','TELEGRAM_WEBHOOK_SECRET'),('max','MAX_BOT','MAX_WEBHOOK_SECRET')]:
+        if normalized[prefix+'_ENABLED']=='true' and normalized[prefix+'_MODE']=='webhook':
+            webhook_url(platform,normalized['BASE_URL'],normalized['TELEGRAM_WEBHOOK_URL'] if platform=='telegram' else '')
+            validate_secret(platform,normalized[key])
+            if not normalized[prefix+'_TOKEN']:
+                raise ValueError('Укажите токен для регистрации webhook '+platform)
     return normalized

@@ -14,3 +14,20 @@
 .custom-client[data-client-size] .branch-banner{font-size:var(--client-banner-size)}
 
 .custom-client .gate-illustration [fill=white]{fill:var(--surface)}.custom-client .gate-illustration [stroke=white]{stroke:var(--surface)}
+.custom-client :is(.pass-card,.guest-card:has(.shared-gate-button)){background-image:var(--client-card-image,none);background-size:cover;background-position:center}
+.custom-client .gate-actions{gap:var(--client-button-gap,10px)}
+.custom-client .pass-brand>div{flex:1;min-width:0;text-align:var(--client-title-align)}
+.custom-client [data-client-branch-name]{text-align:var(--client-title-align)}
+.custom-client[data-logo-position=above] .pass-brand{flex-direction:column;align-items:stretch}
+.custom-client[data-logo-position=above] .pass-brand .branch-logo{align-self:var(--client-logo-align)}
+.shared-gate-button{display:inline-flex;align-items:center;gap:12px}
+.custom-client .guest-card .pass-brand{display:flex;align-items:center;gap:12px}
+.custom-client .guest-card .branch-logo{width:52px;height:52px;object-fit:contain}
+.custom-client :is(.button-gate,.shared-gate-button){display:flex;width:100%}
+.custom-client :is(.button-gate,.shared-gate-button)>span:first-child{flex:1;text-align:var(--client-button-align);overflow-wrap:anywhere}
+.custom-client[data-button-align=center] :is(.button-gate,.shared-gate-button):not([hidden]){display:grid;grid-template-columns:22px minmax(0,1fr) 22px;column-gap:8px}
+.custom-client[data-button-align=center] :is(.button-gate,.shared-gate-button)>span:first-child{grid-column:2}
+.custom-client[data-button-align=center] .gate-button-icon{grid-column:3}
+.gate-button-icon{flex:none}
+.custom-client[data-hide-gate-icon] .gate-button-icon{display:none}
+.custom-client .button-gate[hidden]{display:none}

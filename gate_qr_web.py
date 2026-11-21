@@ -93,9 +93,9 @@ def create_blueprint(provider):
     @bp.get('/join/<raw>')
     def join_page(raw):
         browser()
-        branch_id, name = provider()['branch_join'].page_info(raw)
+        branch_id, name, logo = provider()['branch_join'].page_info(raw)
         g.client_appearance_branch=branch_id
-        return render_template('branch_join.html', client_page=True, branch_name=name)
+        return render_template('branch_join.html', client_page=True, branch_name=name, branch_logo=logo)
 
     @bp.post('/join/<raw>/code')
     def join_code(raw):

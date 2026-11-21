@@ -23,7 +23,8 @@ _ACTIONS = {
     'proxy_error': 'Ошибка прокси. Проверьте настройки прокси этого процесса и Windows.',
     'connection_error': 'Соединение с API прервано или недоступно. Проверьте сеть, VPN и защитное ПО.',
     'network_error': 'Сетевая ошибка. Проверьте соединение, VPN и прокси.',
-    'active_webhook': 'У бота есть webhook. Polling не запущен. Используйте отдельного тестового бота или отдельно согласуйте отключение webhook.',
+    'active_webhook': 'Действующая подписка расходится с выбранным режимом или адресом. Проверьте токен и установку, которая управляет подпиской.',
+    'webhook_missing': 'У платформы нет подписки на адрес GateBot. Проверьте настройки режима и журнал запуска бота.',
     'polling_already_running': 'Остановите другой локальный polling этого токена и повторите запуск.',
     'polling_conflict': 'У токена другой polling или webhook. Проверьте другие экземпляры бота.',
     'rate_limited': 'API ограничил частоту запросов. Подождите и повторите проверку.',
@@ -33,7 +34,7 @@ _ACTIONS = {
     'api_error': 'API отклонил запрос. Для разбора нужны error_code, http_status и stage из этого отчёта.',
     'internal_error': 'Внутренняя ошибка. Для разбора нужны тип ошибки и безопасный журнал приложения.',
 }
-_STAGES = {'initialize', 'get_me', 'webhook_info', 'subscriptions', 'polling',
+_STAGES = {'initialize', 'get_me', 'webhook_info', 'webhook_registration', 'subscriptions', 'polling',
            'configuration', 'send_message', 'answer_callback', 'unknown'}
 
 
@@ -126,6 +127,25 @@ def _username_report(configured, actual):
             'configured_username_matches': expected.casefold() == actual.casefold() if expected else None}
 
 
+def _subscription_report(platform,identity,urls,stage):
+    from bot_webhooks import webhook_url
+    mode=config.BOT_MODE if platform=='telegram' else config.MAX_BOT_MODE
+    code=None
+    if mode=='webhook':
+        try:
+            target=webhook_url(platform,config.BASE_URL,config.WEBHOOK_URL if platform=='telegram' else '')
+            if urls!=[target]:
+                code='active_webhook' if urls else 'webhook_missing'
+        except ValueError:
+            code='invalid_configuration'
+    elif urls:
+        code='active_webhook'
+    report={**identity,'status':'error' if code else 'ok','active_webhook_count':len(urls)}
+    if code:
+        report.update(error_details(platform,BotCheckError(code,stage=stage)))
+    return report
+
+
 def _check_max():
     from max_api import MaxApiClient
 
@@ -145,10 +165,7 @@ def _check_max():
         identity = _username_report(config.MAX_BOT_USERNAME, profile.get('username'))
         stage = 'subscriptions'
         subscriptions = api.get_subscriptions()
-        if subscriptions:
-            return {'status': 'error', **identity, 'active_webhook_count': len(subscriptions),
-                    **error_details('max', BotCheckError('active_webhook', stage=stage))}
-        return {'status': 'ok', **identity, 'active_webhook_count': 0}
+        return _subscription_report('max',identity,[item.get('url') for item in subscriptions],stage)
     except Exception as error:
         return {'status': 'error', **error_details('max', error, stage=stage)}
 
@@ -173,10 +190,7 @@ async def _check_telegram():
             identity = _username_report(config.BOT_USERNAME, bot.username)
             stage = 'webhook_info'
             webhook = await bot.get_webhook_info()
-            if webhook.url:
-                return {'status': 'error', **identity, 'active_webhook_count': 1,
-                        **error_details('telegram', BotCheckError('active_webhook', stage=stage))}
-            return {'status': 'ok', **identity, 'active_webhook_count': 0}
+            return _subscription_report('telegram',identity,[webhook.url] if webhook.url else [],stage)
     except Exception as error:
         return {'status': 'error', **error_details('telegram', error, stage=stage)}
 

@@ -94,12 +94,13 @@ def inject_context():
     from branch_appearance import public_brand
     from branch_appearance_web import css_values
     theme_branch = pwa.get('branch_id') if pwa else getattr(g,'client_appearance_branch',None)
-    theme = product_services().appearance.public(theme_branch) if theme_branch else None
+    client_page = request.path.split('/', 2)[1] in {'opn','gate','join','preferences','pwa','verify-email','unsubscribe','shared'}
+    theme = product_services().appearance.public(theme_branch) if client_page else None
     return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token,
             'client_appearance':theme, 'client_styles':css_values(theme) if theme else {},
             'branding':public_brand(BrandingSettings(product_services().identity).public_view(),theme),
             'client_pwa': pwa, 'public_site_url': config.PUBLIC_SITE_URL if config.PUBLIC_SITE_URL.startswith(('http://','https://')) else '',
-            'client_page': request.path.split('/', 2)[1] in {'opn','gate','join','preferences','pwa','verify-email','unsubscribe','shared'},
+            'client_page': client_page,
             'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
             'admin_sms_enabled': bool(active_branch and getattr(active_branch,'sms_notifications_enabled',False)),
             'admin_branch_choices': choices, 'active_branch_id': str((admin or {}).get('branch_id') or '')}
@@ -113,8 +114,8 @@ def protect_request():
         return jsonify(status="error", message="Требуется вход в систему"), 401
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return None
-    if request.endpoint == 'service_api.send_code':
-        # This integration endpoint requires its own scoped Authorization header.
+    if request.endpoint in {'service_api.send_code','bot_webhooks.ingress'}:
+        # Each integration authenticates its own provider header.
         return None
     # These disabled integration endpoints never trust or persist request data.
     if request.path.startswith("/webhook/yclients") or request.path == "/yclients/register":
@@ -1527,6 +1528,8 @@ app.register_blueprint(branch_desk_blueprint(product_provider))
 app.register_blueprint(feedback_blueprint(product_provider))
 from service_api import create_blueprint as service_api_blueprint
 app.register_blueprint(service_api_blueprint(product_provider))
+from bot_webhooks import bp as bot_webhooks_blueprint
+app.register_blueprint(bot_webhooks_blueprint)
 from branch_appearance_web import create_blueprint as appearance_blueprint
 app.register_blueprint(appearance_blueprint(product_provider))
 app.register_blueprint(branding_blueprint(product_provider))

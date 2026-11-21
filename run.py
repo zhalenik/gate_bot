@@ -1,4 +1,4 @@
-"""Windows/Linux entry point: one owner of scheduler, bot polling and COM port."""
+"""Windows/Linux entry point: one owner of scheduler, bot delivery and COM port."""
 from pathlib import Path
 import os
 import signal
@@ -55,33 +55,47 @@ def main():
             stop.set()
 
     def bot_worker(module, name):
-        try:
-            module.run_polling(stop_event=stop, service=service)
-        except Exception as error:
-            # Never loop-restart a bot that may own an external delivery cursor.
-            from bot_diagnostics import error_details
-            diagnosis = error_details(name, error)
-            logger.event('BOT_STOPPED', level='ERROR', details={
-                'platform': name, 'error_type': type(error).__name__,
-                **diagnosis})
-            print(f"{name}: stopped; code={diagnosis['error_code']}; "
-                  f"stage={diagnosis['stage']}; HTTP={diagnosis['http_status'] or '-'}.", flush=True)
-            print(diagnosis['action'], flush=True)
-            print(f'Check: python manage.py check-bots --platform {name}', flush=True)
+        from bot_diagnostics import error_details
+        from bot_webhooks import BotInbox,EXTENSION
+        pause=2
+        while not stop.is_set():
+            try:
+                try:
+                    inbox=BotInbox.configured(name)
+                except ValueError:
+                    from bot_diagnostics import BotCheckError
+                    raise BotCheckError('invalid_configuration',stage='configuration') from None
+                if inbox.url:
+                    app.extensions[EXTENSION][name]=inbox
+                module.run_delivery(stop_event=stop, service=service, inbox=inbox)
+                return
+            except Exception as error:
+                diagnosis = error_details(name,error)
+                logger.event('BOT_STOPPED',level='ERROR',details={'platform':name,'error_type':type(error).__name__,**diagnosis})
+                print(f"{name}: {diagnosis['stage']} / {diagnosis['error_code']}. {diagnosis['action']}",flush=True)
+                # Retry startup only after a temporary provider/network failure;
+                # the next attempt reads the live subscription before changing it.
+                if (diagnosis['http_status'] not in {429,500,502,503,504} and diagnosis['error_code'] not in
+                    {'connect_timeout','read_timeout','timeout','dns_error','proxy_error','connection_error',
+                     'network_error','rate_limited','provider_unavailable'}):
+                    return
+            finally:
+                app.extensions[EXTENSION].pop(name,None)
+            stop.wait(pause)
+            pause=min(60,pause*2)
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, on_signal)
     try:
         from telephony_store import TelephonyStore
+        from bot_webhooks import EXTENSION
+        if config.BOT_ENABLED or config.MAX_BOT_ENABLED:
+            app.extensions[EXTENSION]={}
         TelephonyStore().recover_outgoing()
         if config.BOT_ENABLED:
-            if config.BOT_MODE != 'polling' or not config.BOT_TOKEN:
-                raise ValueError('This test build requires BOT_MODE=polling and BOT_TOKEN')
             import telegram_bot
             threads.append(threading.Thread(target=bot_worker, args=(telegram_bot, 'telegram'), name='gatebot-telegram', daemon=True))
         if config.MAX_BOT_ENABLED:
-            if config.MAX_BOT_MODE != 'polling' or not config.MAX_BOT_TOKEN:
-                raise ValueError('This test build requires MAX_BOT_MODE=polling and MAX_BOT_TOKEN')
             import max_bot
             threads.append(threading.Thread(target=bot_worker, args=(max_bot, 'max'), name='gatebot-max', daemon=True))
         dispatcher = products.notifications
@@ -94,18 +108,18 @@ def main():
         threads.append(threading.Thread(target=sim800c.monitor_status, args=(stop,),
                                         name='gatebot-sim800-status', daemon=True))
         dispatcher.start()
-        for thread in threads:
-            thread.start()
-        scheduler.start()
-        products.yclients_client_jobs.start()
         # Bound locally by default. No Flask debugger or reloader, even on Windows.
         server = create_server(app, host=config.HOST, port=config.PORT, threads=4, clear_untrusted_proxy_headers=True)
         web = threading.Thread(target=server.run, name='gatebot-web', daemon=True)
         web.start()
+        for thread in threads:
+            thread.start()
+        scheduler.start()
+        products.yclients_client_jobs.start()
         import runtime_control
         runtime_control.bind_restart(request_restart)
         print(f'GateBot: {config.BASE_URL} | gate mode: {"DRY RUN" if config.GATE_DRY_RUN else "HARDWARE"}')
-        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.24'})
+        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.25'})
         while not stop.wait(0.5):
             if not web.is_alive():
                 raise RuntimeError('Web server stopped')
@@ -153,7 +167,8 @@ def main():
                 shutdown_errors.append('notifications_unconfirmed')
         set_notify_hook(None)
         for thread in threads:
-            finish(thread.name, lambda worker=thread: worker.join(timeout=35))
+            if thread.ident is not None:
+                finish(thread.name, lambda worker=thread: worker.join(timeout=35))
         alive = [worker.name for worker in threads if worker.is_alive()]
         alive.extend(worker.name for worker in (getattr(scheduler, '_thread', None),
                      getattr(scheduler, '_activation_thread', None),

@@ -36,9 +36,15 @@ def test_landing_client_header_and_branding_uploads(palette_web,browser_ui,tmp_p
     expect(page.locator('[data-brand-logo]')).to_have_attribute('src',__import__('re').compile('/ui/branding/assets/[a-f0-9]{64}.png'))
     icon=page.locator('[data-branding-kind=icon]')
     icon.locator('input[type=file]').set_input_files({'name':'icon.svg','mimeType':'image/svg+xml','buffer':SVG})
+    preview=icon.locator('[data-icon-frame] img')
+    expect(preview).to_have_attribute('src',__import__('re').compile('^blob:'))
+    icon.locator('[name=icon_fit]').select_option('contain')
+    icon.locator('[name=icon_padding]').fill('12')
+    expect(preview).to_have_css('object-fit','contain')
     icon.get_by_role('button',name='Сохранить иконку').click()
     expect(page.locator('#brandingIconPreview')).to_have_attribute('src',__import__('re').compile('/ui/branding/assets/[a-f0-9]{64}.svg'))
     view=page.request.get(origin+'/admin/api/branding').json()
+    assert view['icon_frame']['padding']==12
     assert page.request.get(origin+view['apple_icon_url']).headers['content-type']=='image/png'
     page.reload();expect(page.locator('[data-brand-logo]')).to_have_attribute('src',view['logo_url'])
     page.set_viewport_size({'width':390,'height':844})

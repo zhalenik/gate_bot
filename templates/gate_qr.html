@@ -26,7 +26,7 @@
       <button id="qrVerify" type="submit" class="gate-action">Подтвердить номер <span aria-hidden="true">→</span></button>
       <button id="qrResend" type="button" class="qr-text-button">Отправить код повторно</button>
     </form>
-    <button id="qrOpen" type="button" class="gate-action" hidden><span>{{ bootstrap.gate_label }}</span><span aria-hidden="true">↗</span></button>
+    <button id="qrOpen" type="button" class="gate-action button-gate" hidden><span>{{ bootstrap.gate_label }}</span>{% include "components/gate_button_icon.html" %}</button>
     <p id="qrCooldown" class="gate-cooldown" aria-live="polite" hidden></p>
     <p id="qrStatus" class="status-message" role="status" aria-live="polite"></p>
     <div class="pass-contacts">{% for contact in bootstrap.contacts %}<a class="contact-link" href="tel:{{ contact.phone }}">{{ contact.label }} <span aria-hidden="true">↗</span></a>{% endfor %}</div>

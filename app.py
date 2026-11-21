@@ -894,7 +894,6 @@ def _public_branch_settings(branch, *, include_modems=False):
     return {
         "branch_id": branch.branch_id, "name": branch.name, "timezone": branch.timezone,
         "enabled": branch.enabled, "logo": branch.logo,
-        "personalization":product_services().appearance.enabled(branch.branch_id),
         "yclients_enabled": branch.yclients_enabled, "id_origin": branch.id_origin,
         "sms_notifications_enabled": getattr(branch,'sms_notifications_enabled',False),
         "client_notifications_enabled": raw.get('client_notifications_enabled', True),
@@ -952,7 +951,8 @@ def api_branch_settings():
         if value is None and scope is None:
             return jsonify(settings=None)
         branch = _choose_branch(value)
-        return jsonify(settings=_public_branch_settings(branch, include_modems=scope is None))
+        return jsonify(settings=_public_branch_settings(branch, include_modems=scope is None),
+                       personalization=product_services().appearance.enabled(branch.branch_id))
     data = _json_body()
     allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons",
                "yclients_enabled", "pass_duration_hours", *_BRANCH_NOTIFICATION_SWITCHES}
@@ -1043,7 +1043,8 @@ def api_branch_settings():
     if not updated:
         abort(404, description="Филиал не найден")
     _audit("BRANCH_CREATED" if create else "BRANCH_SETTINGS_UPDATED", branch_id, changed_fields=sorted(settings))
-    return jsonify(status="success", settings=_public_branch_settings(branch_manager.get_branch(branch_id), include_modems=scope is None))
+    return jsonify(status="success", settings=_public_branch_settings(branch_manager.get_branch(branch_id), include_modems=scope is None),
+                   personalization=product_services().appearance.enabled(branch_id))
 
 
 def _users_in_scope():

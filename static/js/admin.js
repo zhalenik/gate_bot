@@ -771,7 +771,7 @@ async function initializeBranchSettings() {
         cell('Удалить', iconButton('Удалить кнопку', 'delete', () => row.remove()));
         rows.append(row);
     }
-    function fill(value) {
+    function fill(value, personalization = false) {
         branchId.value = value.branch_id || '';
         internalId=value.id_origin==='internal';
         crmMode.value=value.yclients_enabled===false?'false':'true';
@@ -801,9 +801,9 @@ async function initializeBranchSettings() {
         document.getElementById('saveSettingsButton').textContent = creating ? 'Создать филиал' : 'Сохранить настройки';
         form.dataset.ready = 'true';
         form.inert = false;
-        document.getElementById('branch-tab-appearance').hidden = !value.personalization;
+        document.getElementById('branch-tab-appearance').hidden = !personalization;
         showTab(location.hash.slice(1));
-        document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:value.branch_id,buttons:value.buttons||[],personalization:Boolean(value.personalization)}}));
+        document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:value.branch_id,buttons:value.buttons||[],personalization}}));
     }
     async function load(id) {
         const serial = ++loadSerial;
@@ -820,7 +820,7 @@ async function initializeBranchSettings() {
             creating = false;
             const result = await api('/admin/api/branch-settings?branch_id=' + encodeURIComponent(id));
             if (serial !== loadSerial) return;
-            fill(result.settings);
+            fill(result.settings, result.personalization);
             document.getElementById('saveSettingsButton').disabled = false;
         } catch (error) { if (serial === loadSerial) showAlert(error.message, 'error'); }
     }
@@ -875,7 +875,7 @@ async function initializeBranchSettings() {
             });
             if (serial !== loadSerial) return;
             creating = false;
-            fill(result.settings);
+            fill(result.settings, result.personalization);
             await refreshBranches(result.settings.branch_id);
             showAlert('Настройки филиала сохранены', 'success');
         } catch (error) { showAlert(error.message, 'error'); }

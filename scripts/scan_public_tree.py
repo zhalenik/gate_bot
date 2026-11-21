@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 PATTERNS = {
+    'gatebot-api-token': re.compile(r'\bgbt_[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])'),
     'telegram-token': re.compile(r'\b[0-9]{6,12}:[A-Za-z0-9_-]{30,}\b'),
     'github-token': re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b'),
     'private-key': re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),

@@ -205,5 +205,6 @@ def test_catalog_covers_literal_runtime_environment_and_no_global_branch_tokens(
             if isinstance(node,ast.Call) and node.args and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str):
                 function=node.func
                 if (isinstance(function,ast.Attribute) and function.attr=='getenv') or (isinstance(function,ast.Name) and function.id in {'env_bool','env_int'}):names.add(node.args[0].value)
-    assert names<=set(BY_KEY)|SMTP_ENV_KEYS
+    assert names<=set(BY_KEY)|SMTP_ENV_KEYS|{'OUTBOUND_ENABLED'}  # compatibility with pre-split installations
+    assert 'OUTBOUND_ENABLED' not in BY_KEY
     assert not {'YC_USER_TOKEN','YC_COMPANY_ID'}&set(BY_KEY)

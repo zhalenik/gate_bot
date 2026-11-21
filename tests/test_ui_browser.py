@@ -95,6 +95,8 @@ def test_branch_admin_table_remains_scoped_and_controls_survive_mobile(web,brows
     page,origin,expect,errors=browser_ui
     web.links.toggle_user_access(web.token_a,False)
     sign_in(page,origin,'tenant-a');expect(page.locator('#usersTableBody tr')).to_have_count(1)
+    expect(page.locator('.card-sort-controls')).to_be_hidden()
+    expect(page.locator('#exportCsvBtn')).to_be_visible()
     expect(page.locator('#filterBranch')).to_be_hidden()
     expect(page.locator('.app-navigation a[href="/admin/telephony"]')).to_have_count(0)
     expect(page.locator('#usersTableBody [title="Назначить администратором"]')).to_be_visible()

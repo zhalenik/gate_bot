@@ -29,6 +29,31 @@ def read_modems(store=None):
     return inventory(store)['modems']
 
 
+def branch_modems(branch_id):
+    """Existing branches inherit the installation inventory until explicitly assigned."""
+    if branch_id is None:
+        return None
+    from branch_manager import BranchManager
+    row = BranchManager().load_branches().get(str(branch_id), {})
+    return row.get('modem_ids')
+
+
+def check_assignment(selected, available):
+    if (not isinstance(selected, list) or not selected or
+            any(not isinstance(key, str) or key not in available for key in selected) or
+            len(set(selected)) != len(selected)):
+        raise ValueError('Выберите хотя бы один модем из текущего списка')
+
+
+def check_inventory_assignments(db, ids):
+    from storage.sql_documents import read_document
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'").fetchone():
+        for branch in read_document(db, 'branches.json').values():
+            assigned = branch.get('modem_ids')
+            if not ids or assigned is not None and not set(assigned) <= ids:
+                raise ValueError('Перед удалением модема измените назначения в настройках филиалов')
+
+
 def _device(value, allow_windows):
     if not isinstance(value, str) or len(value) > 256 or value.rsplit('/', 1)[-1] in {'.', '..'}:
         return False
@@ -67,6 +92,7 @@ def save_modems(store, revision, rows):
         current = db.execute('SELECT revision FROM sim800_inventory WHERE id=1').fetchone()
         if (current['revision'] if current else 0) != revision:
             raise ValueError('Список модемов изменён в другом окне. Обновите страницу')
+        check_inventory_assignments(db, ids)
         db.execute('INSERT INTO sim800_inventory VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload',
                    (revision + 1, json.dumps(rows, ensure_ascii=False)))
     return {'revision': revision + 1, 'modems': rows}

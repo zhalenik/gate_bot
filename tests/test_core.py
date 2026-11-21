@@ -172,8 +172,10 @@ def test_mailing_unsubscribe_never_changes_access(core):
     links.set_mailing_enabled(token, False)
     after = links.load_links()[token]
     assert access_is_active(after)
-    assert {k: v for k, v in before.items() if k != "mailing_enabled"} == {
-           k: v for k, v in after.items() if k != "mailing_enabled"}
+    assert after['mailing_opted_out'] and not after['mailing_enabled']
+    preference_fields = {'mailing_enabled','mailing_opted_out'}
+    assert {k: v for k, v in before.items() if k not in preference_fields} == {
+           k: v for k, v in after.items() if k not in preference_fields}
 
 
 def test_parallel_web_and_bot_requests_share_persistent_cooldown(core):

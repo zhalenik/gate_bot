@@ -117,6 +117,14 @@ SCHEDULER_ENABLED = env_bool("SCHEDULER_ENABLED")
 SCHEDULER_DUPLICATE_CHECK = True
 
 OUTBOUND_ENABLED = env_bool("OUTBOUND_ENABLED")
+CLIENT_OUTBOUND_ENABLED = env_bool("CLIENT_OUTBOUND_ENABLED") if "CLIENT_OUTBOUND_ENABLED" in os.environ else None
+ADMIN_OUTBOUND_ENABLED = env_bool("ADMIN_OUTBOUND_ENABLED") if "ADMIN_OUTBOUND_ENABLED" in os.environ else None
+
+
+def outbound_enabled(audience):
+    selected = {"admin": ADMIN_OUTBOUND_ENABLED, "client": CLIENT_OUTBOUND_ENABLED}[audience]
+    return OUTBOUND_ENABLED if selected is None else selected
+
 SMTP_ENABLED = env_bool("SMTP_ENABLED")
 MAILING_SMTP_SERVER = os.getenv("MAILING_SMTP_SERVER", "")
 MAILING_SMTP_PORT = env_int("MAILING_SMTP_PORT", 465, maximum=65535)

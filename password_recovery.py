@@ -60,7 +60,8 @@ class PasswordRecovery:
                 (challenge,'password_reset:'+identifier,phone,self.identity._code_hash(challenge,code),now+300,now,ip_hash))
         delivery={'status':'failed','code':'not_eligible'}
         if account:
-            delivery=self.identity._send('sms',phone,'GateBot: '+code+'. Код сброса пароля. Никому не сообщайте.',
+            from message_templates import verification_code
+            delivery=self.identity._send('sms',phone,verification_code(code),
                 {'purpose':'otp','event':'password_reset','idempotency_key':challenge,'branch_id':str(account['branch_id'])})
         ready=delivery.get('status') in {'sent','queued','success','network_accepted','accepted'} and delivery.get('delivery') not in {'simulated','dry_run','stub'}
         with self.store.connect() as db:

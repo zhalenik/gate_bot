@@ -47,7 +47,8 @@ def test_super_creates_standalone_without_external_id_and_trial_is_not_reissued(
     assert post(client,csrf,'/admin/api/branch-settings',settings(branch_id=identifier,yclients_enabled=True)).status_code==400
 
 
-def test_branch_admin_can_edit_own_routes_but_not_branch_type_or_foreign_routes(web):
+def test_branch_admin_can_edit_own_routes_but_not_branch_type_or_foreign_routes(web,monkeypatch):
+    monkeypatch.setattr('storage.config.CLIENT_OUTBOUND_ENABLED',True)
     with web.branches.store.transaction() as branches:
         branches['12'].update(yclients_enabled=False,hardware_routes_verified=False,buttons=[])
     client=web.app.test_client();csrf=login(client)

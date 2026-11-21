@@ -15,6 +15,12 @@ from pass_notifications import timely_grant
 from storage import config
 from storage.sql_documents import read_document
 from webpush_delivery import send_webpush, validate_endpoint
+from notification_policy import client_delivery_enabled
+
+
+def client_push_text(event):
+    return ('Администратор ответил на ваше обращение.' if event == 'desk_reply'
+            else 'Ваш пропуск активен. Откройте приложение, чтобы открыть ворота.')
 
 
 def _b64(value):
@@ -138,6 +144,8 @@ class PwaService:
         return [row['id'] for row in db.execute('SELECT id FROM pwa_subscriptions WHERE client_token=? AND branch_id=? AND person_id=? ORDER BY created,id', (token,str(branch),person))]
 
     def allowed(self, db, subscription_id, token, branch, *, revision=None, event=None):
+        if not client_delivery_enabled(db,branch):
+            return False
         row = db.execute('SELECT * FROM pwa_subscriptions WHERE id=? AND client_token=? AND branch_id=?', (subscription_id,token,str(branch))).fetchone()
         if not row:
             return False
@@ -166,7 +174,7 @@ class PwaService:
         if origin.scheme != 'https' or not origin.hostname:
             return {'status':'failed', 'code':'push_requires_https', 'confirmed':False}
         subject = origin.scheme + '://' + origin.netloc
-        payload = {'title':'GateBot', 'body':'Администратор ответил на ваше обращение.' if context.get('event')=='desk_reply' else 'Ваш пропуск активен. Откройте приложение, чтобы открыть ворота.',
+        payload = {'title':'GateBot', 'body':client_push_text(context.get('event')),
                    'url':'/pwa/'+quote(token,safe='')+'/gate', 'tag':'gatebot-pass'}
         if context.get('event')=='desk_reply':
             payload['tag']='gatebot-message'

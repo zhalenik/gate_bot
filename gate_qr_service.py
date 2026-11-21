@@ -11,6 +11,7 @@ import secrets
 import uuid
 
 from identity_service import OtpRateLimit, valid_phone
+from qr_delivery import settings as qr_settings
 from link_manager import access_is_active, normalize_phone
 from storage import config
 from branch_hours import access_hours_state, CLOSED_MESSAGE
@@ -129,7 +130,7 @@ class GateQRService:
             phone=valid_phone(phone)
             self._probe(db, ip)
             records = [(token, data) for token, data in self.links.load_links().items()
-                       if str(data.get('branch_id')) == str(branch.branch_id) and normalize_phone(data.get('phone')) == phone]
+                       if str(data.get('branch_id')) == str(branch.branch_id) and not data.get('system_phone') and normalize_phone(data.get('phone')) == phone]
             if not records:
                 return {'state': 'not_found', 'message': 'Такой номер не найден среди клиентов этого филиала. Свяжитесь с администратором.'}
             if len(records) != 1:
@@ -143,23 +144,25 @@ class GateQRService:
             ip_hash = self.identity._hash(ip)
             count = db.execute('SELECT count(*) FROM identity_otp WHERE created>? AND (phone=? OR ip_hash=?)', (now - 3600, phone, ip_hash)).fetchone()[0]
             if count >= 10:
-                raise OtpRateLimit(3600, 'Лимит SMS-кодов исчерпан. Повторите через час.')
+                raise OtpRateLimit(3600, 'Лимит кодов исчерпан. Повторите через час.')
+            channel = qr_settings(self.identity, db, branch.branch_id)['channel']
             subject = 'gate_qr:' + str(branch.branch_id) + ':' + self.identity._hash(phone)
             db.execute('UPDATE identity_otp SET state="superseded" WHERE subject=? AND state IN ("sending","ready")', (subject,))
             db.execute('INSERT INTO identity_otp(id,subject,phone,code_hash,expires,state,created,ip_hash) VALUES(?,?,?,?,?,"sending",?,?)',
                        (challenge, subject, phone, self.identity._code_hash(challenge, code), now + 300, now, ip_hash))
             db.execute('INSERT INTO gate_qr_challenges VALUES(?,?,?,?,?)',
                        (challenge, self.identity._hash(raw), self.identity._hash(browser), str(branch.branch_id), token))
-        delivery = self.identity._send('sms', phone, 'GateBot: ' + code + '. Код действует 5 минут. Никому не сообщайте.',
+        from message_templates import verification_code
+        delivery = self.identity._send(channel, phone, verification_code(code),
                                       {'event': 'verification_code', 'purpose': 'otp', 'idempotency_key': challenge, 'branch_id': str(branch.branch_id)})
         ready = delivery.get('status') in {'sent', 'queued', 'success', 'network_accepted', 'accepted'} and delivery.get('delivery') not in {'simulated', 'dry_run', 'stub'}
         with self.product.connect() as db:
             # A later challenge may already have superseded this one.
             db.execute('UPDATE identity_otp SET state=?,delivery=? WHERE id=? AND state="sending"',
-                       ('ready' if ready else 'failed', json.dumps(delivery), challenge))
+                       ('ready' if ready else 'failed', json.dumps({**delivery, 'channel':channel}), challenge))
         return {'state': 'code_required' if ready else 'delivery_failed', 'challenge_id': challenge,
-                'retry_after': 60, 'phone_hint': '••• ' + phone[-4:], 'ready': ready,
-                'message': 'Введите код из SMS.' if ready else 'Не удалось передать SMS на отправку. Повторите через минуту или обратитесь к администратору.'}
+                'retry_after': 60, 'phone_hint': '••• ' + phone[-4:], 'channel': channel, 'ready': ready,
+                'message': 'Введите код из сообщения.' if ready else 'Не удалось отправить код. Повторите через минуту или обратитесь к администратору.'}
 
     def challenge_status(self, raw, browser):
         with self.product.connect() as db:
@@ -170,7 +173,8 @@ class GateQRService:
                              (self.identity._hash(raw), self.identity._hash(browser))).fetchone()
             if not row:
                 return {'challenge_id': None, 'ready': False, 'retry_after': 0}
-            return {'challenge_id': row['id'], 'ready': row['state'] == 'ready' and row['expires'] > self.clock() and row['attempts'] < 5,
+            return {'challenge_id': row['id'], 'channel': json.loads(row['delivery'] or '{}').get('channel', 'sms'),
+                    'ready': row['state'] == 'ready' and row['expires'] > self.clock() and row['attempts'] < 5,
                     'phone_hint': '••• ' + row['phone'][-4:], 'retry_after': max(0, math.ceil(row['created'] + 60 - self.clock()))}
 
     def verify_code(self, raw, browser, challenge, code, *, remember=True):
@@ -182,7 +186,7 @@ class GateQRService:
             if type(remember) is not bool:
                 raise ValueError('Некорректная настройка запоминания устройства.')
             if not isinstance(challenge, str) or not re.fullmatch(r'[0-9a-f]{32}', challenge):
-                raise ValueError('Запросите новый SMS-код.')
+                raise ValueError('Запросите новый код.')
             row = db.execute('SELECT q.*,o.subject FROM gate_qr_challenges q JOIN identity_otp o ON o.id=q.challenge_id WHERE q.challenge_id=? AND q.qr_hash=? AND q.browser_hash=?',
                              (challenge, self.identity._hash(raw), self.identity._hash(browser))).fetchone()
             otp = self.identity._check_otp(db, row['subject'], challenge, code) if row else None

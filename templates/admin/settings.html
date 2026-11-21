@@ -45,6 +45,14 @@
                         </datalist>
                     </div>
                     <div class="form-group">
+                        <label for="settingsPassHours">Срок разового пропуска, часов</label>
+                        <input id="settingsPassHours" type="number" min="1" max="168" step="1" required value="8">
+                        <small class="form-hint">Для записи YCLIENTS срок отсчитывается от начала визита, для гостя — от выдачи.</small>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="settingsAutoApprove"> Автоматически выдавать разовый пропуск по запросу клиента</label>
+                    </div>
+                    <div class="form-group">
                         <label for="settingsLogoUpload">Логотип филиала</label>
                         <input id="settingsLogo" type="hidden">
                         <div class="branch-logo-editor">
@@ -55,13 +63,18 @@
                         </div>
                         <p id="settingsLogoStatus" class="form-hint" role="status"></p>
                     </div>
+                    {% if is_super %}
+                    <fieldset class="form-group" id="branchModems"><legend>Модемы филиала</legend>
+                        {% for modem in available_modems %}<label class="checkbox-label"><input type="checkbox" value="{{ modem.id }}" checked> {{ modem.name }}</label>{% else %}<p>Добавьте модем в системных настройках.</p>{% endfor %}
+                    </fieldset>
+                    {% endif %}
                     <div class="form-group">
                         <label><input id="settingsEnabled" type="checkbox"> Разрешить доступ по пропускам филиала</label>
                         <small class="form-hint">Выключение блокирует открытие ворот этого филиала во всех интерфейсах.</small>
                     </div>
                     <div class="form-group">
                         <label><input id="settingsSmsNotifications" type="checkbox" role="switch"> Разрешить SMS-уведомления</label>
-                        <small class="form-hint">Расходуется лимит SMS тарифа и пакетов. После включения клиенты смогут отдельно выбрать канал «СМС», а администратор — отправлять ссылки по SMS. Длинное сообщение расходует несколько SMS-частей. Коды регистрации бесплатны.</small>
+                        <small class="form-hint">Ссылки и уведомления по SMS расходуют квоту тарифа и пакетов. Для кодов QR выберите канал в интеграциях. При отправке через модем каждая часть SMS расходует квоту филиала.</small>
                     </div>
                 </div>
                 <h2 style="font-size:18px;margin:24px 0 12px">Кнопки ворот и контакты</h2>

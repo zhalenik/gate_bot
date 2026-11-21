@@ -1,5 +1,5 @@
 {
-  "catalog_version": "a54c29fc8ff5ce92a02f75beb69ad13dbae4f0bc9ca7aefcce159747b2f0d9e7",
+  "catalog_version": "46e76bbadeadfe51c192741c07cb183f86f07868c72d7e2ec37a78afe326f716",
   "entries": [
     {
       "id": "theme-sidebar-0e4ee20f4ddc",
@@ -130,14 +130,14 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 65,
+          "line": 76,
           "selector": "#usersTableBody td::before",
           "property": "color",
           "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/admin.css",
-          "line": 70,
+          "line": 81,
           "selector": "#clientDirectory .card-sort-controls",
           "property": "color",
           "context": "@media(max-width:759px)"
@@ -613,56 +613,56 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 542,
+          "line": 545,
           "selector": ".call-filters select",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 562,
+          "line": 565,
           "selector": ".call-description",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 600,
+          "line": 603,
           "selector": ".dial-card>p",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 621,
+          "line": 624,
           "selector": ".duration-field",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 714,
+          "line": 717,
           "selector": ".sheet label",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 757,
+          "line": 760,
           "selector": ".confirm-sheet p",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 781,
+          "line": 784,
           "selector": ".detail-line dt",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 795,
+          "line": 798,
           "selector": ".detail-note",
           "property": "color",
           "context": ""
@@ -1659,28 +1659,28 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 212,
+          "line": 215,
           "selector": ".connection:hover",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 505,
+          "line": 508,
           "selector": ".compose-field textarea",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 611,
+          "line": 614,
           "selector": ".dial-card input",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 693,
+          "line": 696,
           "selector": ".sheet",
           "property": "color",
           "context": ""
@@ -2171,42 +2171,42 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 300,
+          "line": 303,
           "selector": ".text-button",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 392,
+          "line": 395,
           "selector": ".phone-outgoing .message-bubble",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 412,
+          "line": 415,
           "selector": ".expand-message",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 517,
+          "line": 520,
           "selector": ".send-button",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 731,
+          "line": 734,
           "selector": ".primary-button",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 921,
+          "line": 924,
           "selector": ".mobile-back",
           "property": "color",
           "context": "@media(max-width:759px)"
@@ -2390,35 +2390,35 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 247,
+          "line": 250,
           "selector": ".connection.error .signal-bars",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 445,
+          "line": 448,
           "selector": ".status-error",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 684,
+          "line": 687,
           "selector": ".context-menu .danger",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 739,
+          "line": 742,
           "selector": ".destructive-button",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 747,
+          "line": 750,
           "selector": ".confirm-icon",
           "property": "color",
           "context": ""
@@ -2489,7 +2489,7 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 63,
+          "line": 74,
           "selector": "#usersTableBody tr",
           "property": "background",
           "context": "@media(max-width:759px)"
@@ -2890,13 +2890,20 @@
         {
           "file": "static/css/admin.css",
           "line": 63,
+          "selector": ".settings-reset",
+          "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 74,
           "selector": "#usersTableBody tr",
           "property": "border",
           "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/admin.css",
-          "line": 67,
+          "line": 78,
           "selector": "#usersTableBody td[data-label=\"Действия\"]",
           "property": "border-top",
           "context": "@media(max-width:759px)"
@@ -3330,21 +3337,21 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 323,
+          "line": 326,
           "selector": ".thread-header",
           "property": "border-bottom",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 608,
+          "line": 611,
           "selector": ".dial-card input",
           "property": "border-bottom",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 776,
+          "line": 779,
           "selector": ".detail-line",
           "property": "border-bottom",
           "context": ""
@@ -3801,42 +3808,42 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 300,
+          "line": 303,
           "selector": ".text-button",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 392,
+          "line": 395,
           "selector": ".phone-outgoing .message-bubble",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 412,
+          "line": 415,
           "selector": ".expand-message",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 517,
+          "line": 520,
           "selector": ".send-button",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 731,
+          "line": 734,
           "selector": ".primary-button",
           "property": "background",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 921,
+          "line": 924,
           "selector": ".mobile-back",
           "property": "color",
           "context": "@media(max-width:759px)"
@@ -3942,14 +3949,14 @@
         },
         {
           "file": "static/css/telephony.css",
-          "line": 220,
+          "line": 223,
           "selector": ".signal-bars",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/telephony.css",
-          "line": 584,
+          "line": 587,
           "selector": ".dial-icon",
           "property": "color",
           "context": ""
@@ -4826,7 +4833,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 477,
+          "line": 480,
           "selector": ".composer",
           "property": "border-top",
           "context": ""
@@ -4848,7 +4855,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 485,
+          "line": 488,
           "selector": ".compose-field",
           "property": "border",
           "context": ""
@@ -4870,7 +4877,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 491,
+          "line": 494,
           "selector": ".compose-field:focus-within",
           "property": "border-color",
           "context": ""
@@ -4892,7 +4899,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 657,
+          "line": 660,
           "selector": ".context-menu",
           "property": "border",
           "context": ""
@@ -4936,7 +4943,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 690,
+          "line": 693,
           "selector": ".sheet",
           "property": "border",
           "context": ""
@@ -4958,7 +4965,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 720,
+          "line": 723,
           "selector": ".sheet input",
           "property": "border",
           "context": ""
@@ -5002,7 +5009,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 640,
+          "line": 643,
           "selector": ".call-button",
           "property": "color",
           "context": ""
@@ -5046,7 +5053,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 510,
+          "line": 513,
           "selector": ".compose-field textarea::placeholder",
           "property": "color",
           "context": ""
@@ -5068,7 +5075,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 533,
+          "line": 536,
           "selector": ".composer-caption",
           "property": "color",
           "context": ""
@@ -5112,7 +5119,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 244,
+          "line": 247,
           "selector": ".connection.warning .signal-bars",
           "property": "color",
           "context": ""
@@ -5134,7 +5141,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 346,
+          "line": 349,
           "selector": ".contact-heading p",
           "property": "color",
           "context": ""
@@ -5156,7 +5163,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 360,
+          "line": 363,
           "selector": ".day-divider",
           "property": "color",
           "context": ""
@@ -5178,7 +5185,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 740,
+          "line": 743,
           "selector": ".destructive-button",
           "property": "color",
           "context": ""
@@ -5200,7 +5207,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 616,
+          "line": 619,
           "selector": ".dial-card input::placeholder",
           "property": "color",
           "context": ""
@@ -5222,7 +5229,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 633,
+          "line": 636,
           "selector": ".duration-field select",
           "property": "color",
           "context": ""
@@ -5244,7 +5251,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 282,
+          "line": 285,
           "selector": ".empty-icon",
           "property": "color",
           "context": ""
@@ -5266,7 +5273,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 296,
+          "line": 299,
           "selector": ".empty-state p",
           "property": "color",
           "context": ""
@@ -5288,7 +5295,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 801,
+          "line": 804,
           "selector": ".list-empty",
           "property": "color",
           "context": ""
@@ -5310,7 +5317,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 437,
+          "line": 440,
           "selector": ".message-meta",
           "property": "color",
           "context": ""
@@ -5332,7 +5339,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 460,
+          "line": 463,
           "selector": ".message-warning",
           "property": "color",
           "context": ""
@@ -5354,7 +5361,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 252,
+          "line": 255,
           "selector": ".mode-badge",
           "property": "color",
           "context": ""
@@ -5376,7 +5383,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 415,
+          "line": 418,
           "selector": ".phone-outgoing .expand-message",
           "property": "color",
           "context": ""
@@ -5398,7 +5405,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 393,
+          "line": 396,
           "selector": ".phone-outgoing .message-bubble",
           "property": "color",
           "context": ""
@@ -5420,7 +5427,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 464,
+          "line": 467,
           "selector": ".phone-outgoing .message-warning",
           "property": "color",
           "context": ""
@@ -5464,7 +5471,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 732,
+          "line": 735,
           "selector": ".primary-button",
           "property": "color",
           "context": ""
@@ -5530,7 +5537,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 518,
+          "line": 521,
           "selector": ".send-button",
           "property": "color",
           "context": ""
@@ -5552,7 +5559,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 448,
+          "line": 451,
           "selector": ".status-pending",
           "property": "color",
           "context": ""
@@ -5574,7 +5581,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 816,
+          "line": 819,
           "selector": ".toast",
           "property": "color",
           "context": ""
@@ -5596,7 +5603,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 488,
+          "line": 491,
           "selector": ".compose-field",
           "property": "box-shadow",
           "context": ""
@@ -5618,7 +5625,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 492,
+          "line": 495,
           "selector": ".compose-field:focus-within",
           "property": "box-shadow",
           "context": ""
@@ -5640,7 +5647,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 661,
+          "line": 664,
           "selector": ".context-menu",
           "property": "box-shadow",
           "context": ""
@@ -5706,7 +5713,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 694,
+          "line": 697,
           "selector": ".sheet",
           "property": "box-shadow",
           "context": ""
@@ -5728,7 +5735,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 817,
+          "line": 820,
           "selector": ".toast",
           "property": "box-shadow",
           "context": ""
@@ -5772,7 +5779,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 641,
+          "line": 644,
           "selector": ".call-button",
           "property": "background",
           "context": ""
@@ -5794,7 +5801,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 543,
+          "line": 546,
           "selector": ".call-filters select",
           "property": "background",
           "context": ""
@@ -5816,7 +5823,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 556,
+          "line": 559,
           "selector": ".call-row:hover",
           "property": "background",
           "context": ""
@@ -5838,7 +5845,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 487,
+          "line": 490,
           "selector": ".compose-field",
           "property": "background",
           "context": ""
@@ -5860,7 +5867,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 476,
+          "line": 479,
           "selector": ".composer",
           "property": "background",
           "context": ""
@@ -5882,7 +5889,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 748,
+          "line": 751,
           "selector": ".confirm-icon",
           "property": "background",
           "context": ""
@@ -5904,7 +5911,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 658,
+          "line": 661,
           "selector": ".context-menu",
           "property": "background",
           "context": ""
@@ -5926,7 +5933,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 676,
+          "line": 679,
           "selector": ".context-menu button:hover,.context-menu button:focus-visible",
           "property": "background",
           "context": ""
@@ -5948,7 +5955,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 583,
+          "line": 586,
           "selector": ".dial-icon",
           "property": "background",
           "context": ""
@@ -5970,7 +5977,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 630,
+          "line": 633,
           "selector": ".duration-field select",
           "property": "background",
           "context": ""
@@ -5992,7 +5999,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 281,
+          "line": 284,
           "selector": ".empty-icon",
           "property": "background",
           "context": ""
@@ -6036,7 +6043,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 384,
+          "line": 387,
           "selector": ".message-bubble",
           "property": "background",
           "context": ""
@@ -6058,7 +6065,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 253,
+          "line": 256,
           "selector": ".mode-badge",
           "property": "background",
           "context": ""
@@ -6212,7 +6219,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 736,
+          "line": 739,
           "selector": ".secondary-button",
           "property": "background",
           "context": ""
@@ -6234,7 +6241,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 719,
+          "line": 722,
           "selector": ".sheet input",
           "property": "background",
           "context": ""
@@ -6256,7 +6263,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 698,
+          "line": 701,
           "selector": ".sheet::backdrop",
           "property": "background",
           "context": ""
@@ -6278,7 +6285,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 324,
+          "line": 327,
           "selector": ".thread-header",
           "property": "background",
           "context": ""
@@ -6300,7 +6307,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 815,
+          "line": 818,
           "selector": ".toast",
           "property": "background",
           "context": ""
@@ -6322,7 +6329,7 @@
       "locations": [
         {
           "file": "static/css/telephony.css",
-          "line": 823,
+          "line": 826,
           "selector": ".toast.error",
           "property": "background",
           "context": ""
@@ -7752,7 +7759,7 @@
       "locations": [
         {
           "file": "static/css/admin.css",
-          "line": 59,
+          "line": 70,
           "selector": "#clientDirectory .users-table-container",
           "property": "background",
           "context": "@media(max-width:759px)"

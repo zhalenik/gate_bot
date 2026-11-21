@@ -28,7 +28,7 @@ ADMIN_EVENTS = ('gate_requested', 'gate_denied', 'gate_error', 'admin_contact_re
                 'invitation_accepted', 'access_changed', 'crm_error', 'crm_recovered',
                 'modem_error', 'modem_recovered', 'delivery_failed', 'subscription_expiring',
                 'subscription_expired', 'quota_warning', 'quota_exhausted', 'sms_received', 'call_received',
-                'branch_registered', 'marketplace_disconnected')
+                'branch_registered', 'marketplace_disconnected','pass_request_auto_granted')
 GLOBAL_ADMIN_EVENTS = frozenset(('sms_received', 'call_received', 'branch_registered'))
 CHANNELS = ('email', 'telegram', 'max', 'chatpush', 'sms')
 CLIENT_CHANNELS = ('email', 'telegram', 'max', 'messengers', 'sms', 'push')
@@ -311,7 +311,8 @@ class IdentityService:
                     links[token]['email']=person['email']
                 links[token].update(bindings)
                 write_document(db,'links.json',links);return token
-        token=secrets.token_urlsafe(24)
+        from link_manager import LinkManager
+        token = LinkManager.generate_token(links, db)
         links[token]={'branch_id':int(branch_id),'phone':person['phone'],'user_name':person['name'],'email':person['email'],
             'gate_access':False,'access_expires':None,'access_source':'admin_role','admin_person_id':person_id,'admin_role_active':True,'admin_blocked':False,
             'is_temporary':False,'mailing_enabled':False,'tg_id':None,'max_id':None,'generated_admin_client':True,'created':datetime.now(timezone.utc).isoformat()}
@@ -420,16 +421,19 @@ class IdentityService:
             row=self._registration(db,raw) if registration else self._invitation(db,raw)
             subject=('registration:' if registration else 'invitation:')+row['id']
             return subject,row['phone'] or phone,row['branch_id']
-        return self.request_phone_otp(resolve,ip)
+        return self.request_phone_otp(resolve,ip,flow='branch_registration' if registration else 'invitation')
 
-    def request_phone_otp(self,resolve,ip,*,allow_development_redirect=True):
+    def request_phone_otp(self,resolve,ip,*,flow):
         """Validate the hand-off and reserve its challenge together, then send outside the transaction."""
         from registration_sms import sms_recipient
+        from message_templates import verification_code
+        from qr_delivery import settings as qr_settings
         now=self.clock();challenge=uuid.uuid4().hex;code=f'{secrets.randbelow(1000000):06d}'
         with self.product.connect() as db:
             subject,phone,branch_id=resolve(db)
+            channel = qr_settings(self, db, branch_id)['channel'] if flow == 'branch_qr' else 'sms'
             phone=valid_phone(phone)
-            recipient=sms_recipient(phone) if allow_development_redirect else phone
+            recipient=sms_recipient(phone) if flow in ('branch_registration','invitation') else phone
             ip_hash=self._hash(ip)
             recent=db.execute('SELECT created FROM identity_otp WHERE phone=? ORDER BY created DESC LIMIT 1',(phone,)).fetchone()
             if recent and recent['created']>now-60:
@@ -440,16 +444,19 @@ class IdentityService:
             db.execute('INSERT INTO identity_otp(id,subject,phone,code_hash,expires,state,created,ip_hash) VALUES(?,?,?,?,?,"sending",?,?)',(challenge,subject,phone,self._code_hash(challenge,code),now+300,now,ip_hash))
         # Keep the code in ONE UCS2 segment. Waiting for a second segment can
         # hide the whole message on the phone even after the network accepted it.
-        delivery=self._send('sms',recipient,'GateBot: '+code+'. Код действует 5 минут. Никому не сообщайте.',{'event':'verification_code','purpose':'otp','billing_exempt':'registration','idempotency_key':challenge,'branch_id':branch_id})
+        context={'event':'verification_code','purpose':'otp','idempotency_key':challenge,'branch_id':branch_id}
+        if flow == 'branch_registration':
+            context['billing_exempt']='registration'
+        delivery=self._send(channel,recipient,verification_code(code),context)
         delivery={key:value for key,value in delivery.items() if key!='_development_redirect'}
         # Queued means the concrete transport durably owns the send; unknown/failed
         # never activate the challenge. A real code remains necessary in all cases.
         ready=delivery.get('status') in {'sent','queued','success','network_accepted','accepted'} and delivery.get('delivery') not in {'simulated','dry_run','stub'}
-        stored_delivery=dict(delivery)
+        stored_delivery={**delivery,'channel':channel}
         if recipient != phone:
             stored_delivery['_development_redirect']=self._code_hash('registration-sms-redirect:'+config.DEV_REGISTRATION_SMS_PREFIX+':'+phone,recipient)
         with self.product.connect() as db:db.execute('UPDATE identity_otp SET state=?,delivery=? WHERE id=? AND state="sending"',('ready' if ready else 'failed',json.dumps(stored_delivery),challenge))
-        return {'challenge_id':challenge,'expires_at':now+300,'delivery':delivery,'ready':ready,
+        return {'challenge_id':challenge,'expires_at':now+300,'delivery':delivery,'channel':channel,'ready':ready,
                 'retry_after':60,'resend_at':now+60,'server_time':self.clock(),
                 'phone_hint':'••• '+phone[-4:]}
 
@@ -466,7 +473,7 @@ class IdentityService:
         if not otp:return {'challenge_id':None,'retry_after':0,'server_time':now,'ready':False}
         delivery=json.loads(otp['delivery'] or '{}')
         if self.delivery_status:
-            delivery=self.delivery_status('sms',otp['id']) or delivery
+            delivery=self.delivery_status(delivery.get('channel','sms'),otp['id']) or delivery
         terminal=delivery.get('delivery') or delivery.get('status')
         ready=otp['state']=='ready' and otp['expires']>now and self._otp_delivery_allowed(otp) and terminal not in {'failed','error','cancelled','expired','simulated'}
         return {'challenge_id':otp['id'],'retry_after':max(0,math.ceil(otp['created']+60-now)),
@@ -789,8 +796,13 @@ class IdentityService:
             try:connected['sms']=bool(valid_phone(client.get('phone')))
             except ValueError:connected['sms']=False
         messenger=self._client_messengers_state(db,branch_id,client) if 'messengers' in allowed else None
-        if messenger is not None:connected['messengers']=bool(messenger.get('connected'))
-        result={**prefs,'channels':{channel:prefs['channels'][channel] for channel in allowed},
+        if messenger is not None:
+            connected['messengers']=bool(messenger.get('connected') and messenger.get('provider')!='sms')
+            if messenger.get('provider')=='sms':
+                messenger={**messenger,'reason':'sms_only'}
+        from notification_policy import client_delivery_enabled
+        delivery_enabled=client_delivery_enabled(db,branch_id)
+        result={**prefs,'delivery_enabled':delivery_enabled,'channels':{channel:prefs['channels'][channel] for channel in allowed},
             'person_id':person_id,'branch_id':branch_id,'name':person['name'],'phone':person['phone'],
             'email':email,'email_verified':verified,'connected':connected,
             'effective_channels':{channel:bool(prefs['enabled'] and prefs['channels'][channel] and connected[channel]) for channel in allowed},
@@ -833,6 +845,9 @@ class IdentityService:
         if type(enabled) is not bool or not isinstance(channels,dict) or any(k not in CLIENT_CHANNELS or type(v) is not bool for k,v in channels.items()):raise ValueError('Некорректные настройки каналов')
         with self.product.connect() as db:
             person_id,branch_id,legacy,client=self._preference_identity(db,token)
+            from notification_policy import client_delivery_enabled, DISABLED_MESSAGE
+            if not client_delivery_enabled(db,branch_id):
+                raise PermissionError(DISABLED_MESSAGE)
             allowed=self._client_allowed_channels(db,branch_id)
             if enabled and any(selected and channel not in allowed for channel,selected in channels.items()):
                 if channels.get('sms') and 'sms' not in allowed:
@@ -960,6 +975,7 @@ class IdentityService:
                 branch=read_document(db,'branches.json').get(str(admin['branch_id']),{})
                 if not branch.get('yclients_enabled',True):
                     prefs['events'].pop('marketplace_disconnected',None)
+            prefs['active_events']=[event for event in prefs['events'] if event in prefs.get('active_events', ADMIN_EVENTS)]
             bindings={r['platform']:True for r in db.execute('SELECT platform FROM bot_bindings WHERE person_id=? AND assurance="admin_verified"',(admin['person_id'],))}
             return {**prefs,'person_id':admin['person_id'],'requires_phone':False,'email':contact['email'],'email_verified':contact['email_verified'],
                 'channels':{'email':bool(contact['email']),**{p:bindings.get(p,False) for p in ('telegram','max')}},'is_super':bool(admin.get('is_super'))}
@@ -972,9 +988,28 @@ class IdentityService:
             if not admin['person_id']:raise ValueError('Сначала укажите телефон аккаунта через консоль')
             if not admin.get('is_super') and any(any(events.get(e,{}).values()) for e in GLOBAL_ADMIN_EVENTS):
                 raise PermissionError('Эти события доступны только администрации сервиса GateBot')
-            normalized={'events':{e:{c:bool(events.get(e,{}).get(c,False)) for c in ('email','telegram','max')} for e in ADMIN_EVENTS}}
+            current = self.admin_preferences(username)
+            normalized={'events':{e:{c:bool(events.get(e,{}).get(c,False)) for c in ADMIN_CHANNELS} if e in current['active_events']
+                                  else current['events'][e] for e in current['events']},
+                        'active_events':current['active_events']}
             db.execute('INSERT INTO notification_preferences(person_id,audience,branch_id,payload) VALUES(?,"admin","",?) ON CONFLICT(person_id,audience,branch_id) DO UPDATE SET payload=excluded.payload',(admin['person_id'],json.dumps(normalized)))
         return self.admin_preferences(username)
+
+    def select_admin_events(self, username, events):
+        with self.product.connect() as db:
+            current = self.admin_preferences(username)
+            if not current.get('person_id'):
+                raise ValueError('Сначала свяжите аккаунт с профилем администратора')
+            if not isinstance(events,list) or any(not isinstance(e,str) or e not in current['events'] for e in events):
+                raise ValueError('Выберите доступные события')
+            payload = {'events':current['events'], 'active_events':list(dict.fromkeys(events))}
+            db.execute('INSERT OR REPLACE INTO notification_preferences VALUES(?,"admin","",?)',
+                       (current['person_id'], json.dumps(payload)))
+        return self.admin_preferences(username)
+
+    def event_selected(self, db, person_id, event):
+        row = db.execute('SELECT payload FROM notification_preferences WHERE person_id=? AND audience="admin" AND branch_id=""',(person_id,)).fetchone()
+        return not row or event in json.loads(row['payload']).get('active_events', ADMIN_EVENTS)
 
     def contacts_for_admin_events(self,branch_id,event):
         if event not in ADMIN_EVENTS:return []
@@ -984,6 +1019,7 @@ class IdentityService:
                 try:admin=self._admin(db,account['username'])
                 except PermissionError:continue
                 if not admin_receives_event(admin,branch_id,event):continue
+                if not self.event_selected(db,account['person_id'],event):continue
                 pref=db.execute('SELECT payload FROM notification_preferences WHERE person_id=? AND audience="admin" AND branch_id=""',(account['person_id'],)).fetchone()
                 channels=json.loads(pref['payload']).get('events',{}).get(event,{}) if pref else default_admin_preferences()['events'][event]
                 contact=self._admin_contact(db,admin)

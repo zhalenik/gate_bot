@@ -689,10 +689,12 @@ class CallQueue:
         self.command_guard = None
         self.command_observer = None
         self._failure_code = None
+        from modem_settings import branch_modems
+        self.branch_modems = branch_modems
 
     @staticmethod
     def _public(call):
-        return {k: v for k, v in call.items() if k not in {"phone", "deadline", "text", "segments", "locations", "source_id", "_before_submit", "_tried"}} | {
+        return {k: v for k, v in call.items() if k not in {"phone", "deadline", "text", "segments", "locations", "source_id", "_before_submit", "_tried", "_modems"}} | {
             "phone_masked": "***" + call["phone"][-4:]}
 
     def _cleanup_expired(self):
@@ -737,12 +739,13 @@ class CallQueue:
             seconds = _duration(duration if duration is not None else _setting("SIM800_CALL_DURATION", 3))
         except (ValueError, TypeError):
             return {"status": "error", "code": "invalid_call", "message": "Неверные параметры команды"}
+        assigned = self.branch_modems(branch_id)
         with self.lock:
             if self._closed:
                 return {"status": "error", "code": self._failure_code or "stopping", "message": "Очередь остановлена. Проверьте состояние сервиса"}
             if not self.dry_run and not self.enabled:
                 return {"status": "error", "code": "modem_disabled", "message": "Модуль связи выключен"}
-            if not self.dry_run and not self._candidates({'kind': 'call'}):
+            if not self.dry_run and not self._candidates({'kind': 'call', '_modems': assigned}):
                 return {"status": "error", "code": "port_not_configured", "message": "Модем для звонков не настроен"}
             self._cleanup_expired()
             if self._closed:
@@ -761,7 +764,7 @@ class CallQueue:
                             "message": "Запрос уже в обработке"}
             if len(self.queue) + len(self.running) >= self.max_calls_in_queue:
                 return {"status": "error", "code": "queue_full", "message": "Очередь команд переполнена"}
-            call = {"phone": phone, "duration": seconds, "branch_id": branch_id,
+            call = {"phone": phone, "duration": seconds, "branch_id": branch_id, "_modems": assigned,
                     "command_id": command_id or uuid.uuid4().hex, 'gate_id': gate_id, 'managed': bool(command_id),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "deadline": time.monotonic() + self.call_queue_timeout,
@@ -784,12 +787,13 @@ class CallQueue:
                     "message": "Тестовая команда выполнена" if self.dry_run else "Запрос добавлен в очередь"}
 
     def add_manual(self, kind, phone, *, text='', duration=20, record_id=None, locations=None, source_id=None,
-                   sensitive=False, priority=False, command_id=None, before_submit=None, target_modem=None):
+                   sensitive=False, priority=False, command_id=None, before_submit=None, target_modem=None, branch_id=None):
         # Admission is authorized by TelephonyService; shares the gate hardware worker.
+        assigned = self.branch_modems(branch_id)
         with self.lock:
             if self._closed or (not self.dry_run and not self.enabled):
                 return {"status": "error", "code": "modem_disabled", "message": "Модем выключен или останавливается"}
-            if not self.dry_run and not self._candidates({'kind': kind, 'target_modem': target_modem}):
+            if not self.dry_run and not self._candidates({'kind': kind, 'target_modem': target_modem, '_modems': assigned}):
                 return {"status": "error", "code": "port_not_configured", "message": "Нет модема для этой операции"}
             self._cleanup_expired()
             if self._closed:
@@ -799,7 +803,7 @@ class CallQueue:
             call = {"kind": kind, "phone": phone, "text": text, "duration": duration,
                     "_before_submit": before_submit,
                     "locations": locations, "source_id": source_id, "target_modem": target_modem,
-                    "record_id": record_id, 'sensitive': sensitive, "branch_id": None,
+                    "record_id": record_id, 'sensitive': sensitive, "branch_id": branch_id, "_modems": assigned,
                     "command_id": command_id or uuid.uuid4().hex,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "deadline": time.monotonic() + self.call_queue_timeout,
@@ -824,6 +828,7 @@ class CallQueue:
         kind = 'sms' if command.get('kind') in {'sms', 'sms_delete'} else 'call'
         target = command.get('target_modem')
         return [key for key, (row, driver) in self.devices.items() if driver.port and
+                (command.get('_modems') is None or key in command['_modems']) and
                 key not in command.get('_tried', ()) and (target is None or key == target) and
                 (row[kind + '_enabled'] or command.get('kind') == 'sms_delete')]
 
@@ -854,6 +859,12 @@ class CallQueue:
         return None
 
     def _execute(self, modem, call):
+        def check_assignment():
+            assigned = self.branch_modems(call.get('branch_id'))
+            call['_modems'] = assigned
+            if assigned is not None and call['modem_id'] not in assigned:
+                raise ModemError('modem_reassigned')
+        check_assignment()
         record = call.get('record_id')
         if record and not self.journal.update(record, status='processing', modem_id=call['modem_id'], modem_name=call['modem_name']):
             raise ModemError('journal_record_missing')
@@ -867,15 +878,19 @@ class CallQueue:
                 if record:
                     self.journal.update(record, segments=segments)
             kwargs = {'progress': progress, 'not_after': call['deadline']}
-            if call.get('_before_submit') is not None:
+            if call.get('_before_submit') is not None or call.get('branch_id') is not None:
                 def before_submit():
-                    if not call['_before_submit']():
+                    check_assignment()
+                    if call.get('_before_submit') is not None and not call['_before_submit']():
                         raise ModemError('authorization_expired')
                 kwargs['before_submit'] = before_submit
             return modem.send_sms(call['phone'], call['text'], **kwargs)
         kwargs = {'not_after': call['deadline']}
-        if call.get('managed'):
+        if call.get('managed') or call.get('branch_id') is not None:
             def before_dial():
+                check_assignment()
+                if not call.get('managed'):
+                    return
                 if self.command_guard is None or not self.command_guard(call['command_id']):
                     raise ModemError('authorization_expired')
                 self.command_observer(call['command_id'], 'started', None)

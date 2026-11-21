@@ -58,7 +58,7 @@
     $('qrBadge').textContent = closed?'Вне рабочих часов':active ? 'Пропуск действует' : verified ? 'Нет пропуска' : 'Вход по телефону';
     $('qrBadge').classList.toggle('active', active);
     $('qrHeading').textContent = closed?'Сейчас доступ закрыт':verified ? (active ? (data.user_name || 'Добро пожаловать') : 'Пропуск не действует') : 'Ваш номер телефона';
-    $('qrDescription').textContent = closed?data.message:verified ? (active ? 'Вы рядом с воротами? Нажмите кнопку, чтобы открыть.' : 'Свяжитесь с администратором филиала, чтобы получить доступ.') : 'Проверим пропуск в этом филиале. При первом входе подтвердите номер кодом из SMS.';
+    $('qrDescription').textContent = closed?data.message:verified ? (active ? 'Вы рядом с воротами? Нажмите кнопку, чтобы открыть.' : 'Свяжитесь с администратором филиала, чтобы получить доступ.') : 'Проверим пропуск в этом филиале. При первом входе подтвердите номер кодом из сообщения.';
     cooldownUntil = Math.max(cooldownUntil, Date.now() + (data.retry_after || 0) * 1000);
     expiresAt = data.expires_at ? Date.now() + Date.parse(data.expires_at) - (data.server_time ? data.server_time * 1000 : Date.now()) : 0;
     const pending = data.challenge;
@@ -73,7 +73,7 @@
     $('qrPhoneForm').hidden = true;
     $('qrCodeForm').hidden = false;
     $('qrHeading').textContent = 'Подтвердите номер';
-    $('qrDescription').textContent = 'Введите код из SMS на номер ' + data.phone_hint + '.';
+    $('qrDescription').textContent = data.channel === 'chatpush' ? 'Введите код из сообщения в мессенджере.' : 'Введите код из SMS на номер ' + data.phone_hint + '.';
     $('qrBadge').textContent = 'Проверка номера';
   }
   async function sendCode() {
@@ -86,7 +86,7 @@
       status('Введите номер ещё раз для повторной отправки.');
       return;
     }
-    busy = true; tick(); status('Передаём SMS на отправку…');
+    busy = true; tick(); status('Отправляем код…');
     try {
       const data = await post('/code', {phone: $('qrPhone').value});
       if(data.state==='closed')render(data);

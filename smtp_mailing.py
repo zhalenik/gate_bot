@@ -20,8 +20,9 @@ def load_template(template_name):
     return (TEMPLATES_DIR / template_name).read_text(encoding='utf-8')
 
 
-def send_email(to_email, subject, html_content, from_email=None):
-    if not config.OUTBOUND_ENABLED:
+def send_email(to_email, subject, html_content, from_email=None, *, audience='client'):
+    from notification_policy import transport_enabled
+    if not transport_enabled(audience):
         return False
     if not email_address(to_email) or not isinstance(subject, str) or any(ch in subject for ch in '\r\n'):
         return False

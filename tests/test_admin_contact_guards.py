@@ -45,8 +45,9 @@ def test_unchanged_super_email_does_not_block_other_client_edits(admin_contacts)
     assert current['user_name'] == 'Updated name'
 
 
-def test_public_preferences_use_authenticated_actor_not_payload(admin_contacts):
+def test_public_preferences_use_authenticated_actor_not_payload(admin_contacts, monkeypatch):
     web, services = admin_contacts
+    monkeypatch.setattr('storage.config.CLIENT_OUTBOUND_ENABLED', True)
     client = web.app.test_client()
     csrf = login(client, 'tenant-a')
     payload = {'enabled': True, 'email': 'redirect@example.invalid', 'channels': {}, 'actor_username': 'super'}

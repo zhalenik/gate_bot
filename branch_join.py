@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 
 from gate_qr_service import GateQRUnavailable
 from identity_service import valid_email
-from link_manager import normalize_phone
+from link_manager import access_is_active, normalize_phone
 from storage import config
 from storage.sql_documents import read_document, write_document
-from timeutil import end_of_day
+from timeutil import pass_expiry
 
 
 class BranchJoin:
@@ -56,7 +56,7 @@ class BranchJoin:
             subject = self._subject(branch_id, raw, browser)
             db.execute('DELETE FROM branch_join_proofs WHERE subject=? OR expires<=?', (subject, self.clock()))
             return subject, phone, branch_id
-        return self.identity.request_phone_otp(resolve, ip, allow_development_redirect=False)
+        return self.identity.request_phone_otp(resolve, ip, flow='branch_qr')
 
     def verify(self, raw, browser, challenge, code):
         with self.product.connect() as db:
@@ -75,14 +75,14 @@ class BranchJoin:
         proof = db.execute('SELECT * FROM branch_join_proofs WHERE subject=? AND branch_id=? AND expires>?',
                            (self._subject(branch_id, raw, browser), branch_id, self.clock())).fetchone()
         if not proof:
-            raise ValueError('Подтвердите номер телефона кодом из SMS.')
+            raise ValueError('Подтвердите номер телефона кодом из сообщения.')
         return proof, branch
 
     @staticmethod
     def _local(db, branch_id, phone, crm_id=None):
         matches = []
         for token, card in read_document(db, 'links.json').items():
-            if str(card['branch_id']) != branch_id:
+            if str(card['branch_id']) != branch_id or card.get('system_phone'):
                 continue
             same_phone = normalize_phone(card.get('phone')) == phone
             same_crm = bool(crm_id and str(card.get('id_ycl')) == str(crm_id))
@@ -134,19 +134,23 @@ class BranchJoin:
             original = proof['client_token'] or snapshot['local_token']
             if original and token != original:
                 raise ValueError('Карточка клиента изменилась. Начните регистрацию заново.')
+            at = datetime.fromtimestamp(self.clock(), timezone.utc)
+            expiry = pass_expiry(branch, at)
             if token:
                 if crm_id and not local.get('id_ycl'):
                     cards = read_document(db, 'links.json')
                     cards[token]['id_ycl'] = crm_id
                     write_document(db, 'links.json', cards)
+                if not local.get('admin_blocked') and not access_is_active(local, at):
+                    self.links.set_expiry_at(token, expiry)
             else:
                 if not isinstance(name, str) or not name.strip() or len(name.strip()) > 200:
                     raise ValueError('Укажите имя (до 200 символов).')
                 email = valid_email(email)
-                guest = not crm_id
-                expiry = end_of_day(datetime.fromtimestamp(self.clock(), timezone.utc), branch.get('timezone')) if guest else None
-                token = self.links.create_link({'branch_id': branch_id, 'user_name': name.strip(), 'email': email,
-                        'phone': phone, 'id_ycl': crm_id, 'is_temporary': guest, 'gate_access': guest,
-                        'access_source': 'guest' if guest else 'appointment'}, expires_at=expiry)
+                if crm_id:
+                    token = self.links.create_link({'branch_id': branch_id, 'user_name': name.strip(), 'email': email,
+                            'phone': phone, 'id_ycl': crm_id, 'gate_access': True, 'access_source': 'manual'}, expires_at=expiry)
+                else:
+                    token = self.links.create_guest(branch, phone, name=name.strip(), email=email, at=at)
             db.execute('UPDATE branch_join_proofs SET client_token=? WHERE subject=?', (token, proof['subject']))
             return {'url': '/opn/' + token}

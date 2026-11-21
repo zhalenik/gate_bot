@@ -151,7 +151,7 @@ class SupportService:
         return binding['user_id'] if actor and actor.get('is_super') and actor['person_id']==row['recipient_person'] else None
 
     def process_once(self, limit=5):
-        if not config.OUTBOUND_ENABLED:return 0
+        if not config.outbound_enabled('admin'):return 0
         processed=0
         for _ in range(min(20,max(1,int(limit)))):
             with self.store.connect() as db:

@@ -103,7 +103,7 @@ def test_registration_only_is_exempt_and_restart_uses_durable_segments(product,m
     assert queue.add_manual.call_count==2
 
 
-def test_client_sms_requires_two_fresh_optins_and_survives_branch_disable(identities):
+def test_client_sms_requires_two_fresh_optins_and_branch_disable_clears_selection(identities):
     s=identities;token='example-client'
     assert 'sms' not in s.service.prefs_for_token(token)['allowed_channels']
     with pytest.raises(ValueError,match='SMS'):
@@ -122,7 +122,7 @@ def test_client_sms_requires_two_fresh_optins_and_survives_branch_disable(identi
     s.branches.update_settings('11',{'sms_notifications_enabled':False})
     assert 'sms' not in s.service.prefs_for_token(token)['channels']
     s.branches.update_settings('11',{'sms_notifications_enabled':True})
-    assert s.service.prefs_for_token(token)['effective_channels']['sms']
+    assert not s.service.prefs_for_token(token)['effective_channels']['sms']
 
 
 def test_pending_client_sms_checks_switch_and_success_uses_segment_quota(product,monkeypatch):
@@ -144,6 +144,7 @@ def test_pending_client_sms_checks_switch_and_success_uses_segment_quota(product
     out.process_once();queue.add_manual.assert_not_called()
     p.branches.update_settings('10',{'sms_notifications_enabled':True})
     p.links.toggle_user_access(p.token,False);p.links.toggle_user_access(p.token,True)
+    identity.save_prefs_for_token(p.token,{'enabled':True,'channels':{'sms':True}})
     out.enqueue({**p.links.load_links()[p.token],'token':p.token,'event':'granted'})
     out.process_once();out.process_once()
     assert queue.add_manual.call_count==1

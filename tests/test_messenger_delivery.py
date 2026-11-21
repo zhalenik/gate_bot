@@ -79,10 +79,10 @@ def test_branch_default_and_explicit_provider_selection(messaging):
     with pytest.raises(ValueError):service.save('north','11','chatpush')
     with pytest.raises(PermissionError):service.save('north','12','yclients')
     state.service.save_integration('owner','11','chatpush',{'token':'offline-chatpush'})
-    assert service.settings('north','11')['provider']=='chatpush'
+    assert service.settings('north','11')['provider']=='yclients'
     assert service.save('north','11','yclients')['provider']=='yclients'
     assert service.settings('north','11')['provider']=='yclients'
-    assert service.save('north','11','auto')['provider']=='chatpush'
+    assert service.save('north','11','auto')['provider']=='yclients'
 
 
 def test_guest_cannot_use_yclients_but_explicit_chatpush_link_can_use_phone(messaging,monkeypatch):
@@ -116,6 +116,7 @@ def test_outbox_routes_by_client_id_and_rechecks_provider_and_recipient(messagin
     state.links.update_user('example-client',{'id_ycl':102})
     notices.enqueue({**state.links.load_links()['example-client'],'token':'example-client','event':'granted'})
     state.service.save_integration('owner','11','chatpush',{'token':'offline-chatpush'})
+    service.save('north','11','chatpush')
     notices.process_once()
     assert len(calls)==1
     with state.product.connect() as db:assert db.execute('SELECT count(*) FROM message_outbox WHERE state="skipped"').fetchone()[0]==1

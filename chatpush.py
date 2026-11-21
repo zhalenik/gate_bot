@@ -62,9 +62,9 @@ class ChatPushClient:
                 'provider_status': delivery.get('status_id'), 'confirmed': False}
 
 
-def send_message(phone, text, branch_id=None, *, credentials=None, external_id=None, **kwargs):
-    from storage import config
-    if not config.OUTBOUND_ENABLED:
+def send_message(phone, text, branch_id=None, *, credentials=None, external_id=None, audience='client', **kwargs):
+    from notification_policy import transport_enabled
+    if not transport_enabled(audience):
         return {'status': 'error', 'skipped': True, 'message': 'Отправка уведомлений выключена'}
     if not credentials or not credentials.get('token'):
         return {'status': 'error', 'skipped': True, 'message': 'ChatPush не подключён для филиала'}
@@ -72,4 +72,5 @@ def send_message(phone, text, branch_id=None, *, credentials=None, external_id=N
 
 
 def send_link(phone, link, branch_id=None, **kwargs):
-    return send_message(phone, 'Ваш пропуск на парковку: ' + link, branch_id, **kwargs)
+    from message_templates import pass_link
+    return send_message(phone, pass_link(link), branch_id, **kwargs)

@@ -9,6 +9,12 @@ def timezone(name=None):
 def now(tz=None):
     return datetime.now(timezone(tz))
 
+def pass_expiry(branch, start=None):
+    """Elapsed hours, including when a branch crosses a DST transition."""
+    hours = branch.get('pass_duration_hours', 8) if isinstance(branch, dict) else getattr(branch, 'pass_duration_hours', 8)
+    start = start or now(branch.get('timezone') if isinstance(branch, dict) else getattr(branch, 'timezone', None))
+    return datetime.fromtimestamp(start.timestamp() + hours * 3600, start.tzinfo)
+
 def parse_datetime(value, tz=None):
     if isinstance(value, datetime):
         result = value

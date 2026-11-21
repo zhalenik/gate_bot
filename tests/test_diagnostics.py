@@ -37,7 +37,7 @@ def diagnostic(tmp_path, monkeypatch):
         MAX_BOT_USERNAME='synthetic_max_name', MAX_CA_BUNDLE='',
         YCLIENTS_ENABLED=True, YC_PARTNER_TOKEN='synthetic-partner-secret',
         YC_USER_TOKEN='synthetic-fallback-secret', YC_COMPANY_ID='1',
-        SCHEDULER_ENABLED=False, OUTBOUND_ENABLED=False,
+        SCHEDULER_ENABLED=False, outbound_enabled={'client': False, 'admin': True}.__getitem__,
         SIM800_ENABLED=False, SIM800_PORT='', GATE_DRY_RUN=True,
     )
     # Import only the public diagnostics source with a fake configuration module.
@@ -73,6 +73,9 @@ def diagnostic(tmp_path, monkeypatch):
 
 def test_healthy_doctor_reports_counts_and_presence_not_live_validation(diagnostic):
     report = diagnostic.module.doctor()
+    assert report['mode']['notifications_enabled'] is True
+    assert report['mode']['client_notifications_enabled'] is False
+    assert report['mode']['admin_notifications_enabled'] is True
     assert report['env_file_present'] is True
     assert (report['admin_count'], report['branch_count'], report['enabled_branch_count'],
             report['user_count']) == (1, 2, 1, 1)

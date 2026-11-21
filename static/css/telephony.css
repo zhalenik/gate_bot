@@ -208,6 +208,9 @@
     font-size:12px;
     color:var(--gb-color-telephony-color-8b52264968d1, #667080);
 }
+#modemIndicators {display:flex;flex-wrap:wrap;gap:4px 14px;min-width:0}
+#modemIndicators button {max-width:100%;text-align:left;overflow-wrap:anywhere}
+#modemIndicators .signal-bars {flex-shrink:0}
 .connection:hover {
     color:var(--ink);
 }

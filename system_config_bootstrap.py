@@ -34,6 +34,10 @@ class SystemConfigStore:
             # Older encrypted settings can contain the retired console-owner bootstrap field.
             # Ignore it on load and drop it on the next successful save.
             payload['values'].pop('BOOTSTRAP_SUPERADMIN_PHONE',None)
+            old_outbound = payload['values'].pop('OUTBOUND_ENABLED', None)
+            if old_outbound is not None:
+                for key in ('CLIENT_OUTBOUND_ENABLED', 'ADMIN_OUTBOUND_ENABLED'):
+                    payload['values'].setdefault(key, old_outbound)
             if set(payload['values'])-set(BY_KEY):
                 raise ValueError('fields')
             values={key:encode(BY_KEY[key],value) for key,value in payload['values'].items()}

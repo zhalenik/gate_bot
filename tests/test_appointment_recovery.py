@@ -39,6 +39,22 @@ def expected_reads():
             for day in (AT.date(), AT.date() + timedelta(days=1))]
 
 
+def test_overnight_appointment_expires_at_configured_hour_without_reissuing(sql_state, monkeypatch):
+    links, branches, _ = sql_state
+    branches.update_settings(1,{'pass_duration_hours':3})
+    visit = AT.replace(hour=23)
+    crm = CalendarCRM({1:[appointment(1,datetime=visit.isoformat())]})
+    scheduler = Scheduler(links,branches,crm)
+    clock(monkeypatch,visit+timedelta(hours=2))
+    assert scheduler.run_once()['1']['changed']==1 and (1,visit.date()) in crm.calls
+    token, card = links.get_user_by_id_ycl(1,1)
+    assert card['access_expires']==(visit+timedelta(hours=3)).isoformat()
+    clock(monkeypatch,visit+timedelta(hours=3))
+    scheduler.run_once()
+    assert token in links.load_links() and not links.load_links()[token]['gate_access']
+    assert scheduler.run_once()['1']['changed']==0
+
+
 @pytest.mark.parametrize('reconnect_immediately',[False,True])
 def test_uninstall_during_poll_discards_snapshot_and_cached_deadlines(sql_state,monkeypatch,reconnect_immediately):
     from yclients_marketplace import MarketplaceService
@@ -150,7 +166,7 @@ def test_every_poll_catches_up_past_and_next_two_hours_without_repeat_notificati
     for client_id in (1, 2, 3):
         token, client = links.get_user_by_id_ycl(client_id, 1)
         assert access_is_active(client, AT)
-        assert client['access_expires'] == '2026-11-05T23:59:59.999999+03:00'
+        assert client['access_expires'] == AT.replace(hour={1:16, 2:20, 3:22}[client_id]).isoformat()
         if client_id == 1 and existing:
             assert token == saved_token and client['mailing_enabled'] is False
     for client_id in (4, 5, 6):
@@ -173,7 +189,7 @@ def test_network_recovery_grants_missed_visit_even_after_visit_time(sql_state, m
     links, branches, events = sql_state
     saved = links.create_link({'branch_id': 1, 'id_ycl': 99,
         'phone': appointment(99)['client']['phone'], 'gate_access': True,
-        'access_source': 'appointment'}, expires_at='2026-11-05T23:59:59.999999+03:00')
+        'access_source': 'appointment'}, expires_at=AT.replace(hour=19))
     before = deepcopy(links.load_links()[saved])
     crm = CalendarCRM({1: YClientsError('synthetic network failure')})
     scheduler = Scheduler(links, branches, crm)
@@ -185,7 +201,7 @@ def test_network_recovery_grants_missed_visit_even_after_visit_time(sql_state, m
     assert scheduler.run_once()['1']['changed'] == 1
     client = links.get_user_by_id_ycl(1, 1)[1]
     assert access_is_active(client, later)
-    assert client['access_expires'] == '2026-11-05T23:59:59.999999+03:00'
+    assert client['access_expires'] == AT.replace(hour=21).isoformat()
     assert access_is_active(links.load_links()[saved], later)
     assert scheduler.run_once()['1']['changed'] == 0 and len(events) == 1
 
@@ -218,7 +234,7 @@ def test_local_outbox_failure_rolls_back_and_next_poll_recovers_once(sql_state, 
     assert scheduler.run_once()['1']['changed'] == 1
     token, client = links.get_user_by_id_ycl(1, 1)
     assert access_is_active(client, AT.replace(hour=14))
-    assert client['access_expires'] == '2026-11-05T23:59:59.999999+03:00'
+    assert client['access_expires'] == AT.replace(hour=21).isoformat()
     assert scheduler.run_once()['1']['changed'] == 0 and len(events) == 1
     with scheduler.store.connect() as db:
         assert [row['token'] for row in db.execute('SELECT token FROM recovery_test_outbox')] == [token]

@@ -88,6 +88,7 @@
     async function enablePush(){
         if(pushBusy)throw new Error('Настройка уведомлений уже выполняется.');
         if(!canPush())throw new Error('Откройте установленный GateBot на устройстве с поддержкой уведомлений.');
+        if(pushState.preferences?.delivery_enabled===false)throw new Error('Уведомления отключены администратором');
         if(offline||navigator.onLine===false)throw new Error('Отсутствует подключение к интернету');
         if(Notification.permission==='denied'){rememberPrompt('denied');throw new Error('Уведомления запрещены. Разрешите их для GateBot в настройках устройства.');}
         // This call deliberately precedes every await: Safari requires a direct
@@ -112,7 +113,7 @@
         node.showModal();return {node,copy,actions,control};
     }
     function consentPrompt(){
-        if(!canPush()||prompted||offline||document.querySelector('dialog[open]'))return;
+        if(!canPush()||pushState.preferences?.delivery_enabled===false||prompted||offline||document.querySelector('dialog[open]'))return;
         if(Notification.permission==='denied'){rememberPrompt('denied');return;}
         if(localSubscription&&pushState.channel_enabled){rememberPrompt('accepted');return;}
         prompted=true;

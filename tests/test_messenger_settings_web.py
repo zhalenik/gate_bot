@@ -55,10 +55,10 @@ def test_chatpush_requires_token_super_cross_scope_and_standalone_rejected(messe
     identity.save_integration('tenant-a','12','chatpush',{'token':'offline-chatpush-token'})
     assert post(client,csrf,'/admin/api/messenger-settings',{'provider':'chatpush'}).status_code==200
     csrf=login(client,'super')
-    assert post(client,csrf,'/admin/api/messenger-settings',{'branch_id':'123','provider':'yclients'}).status_code==200
+    assert post(client,csrf,'/admin/api/messenger-settings',{'branch_id':'123','provider':'yclients'}).status_code==400
     with identity.product.connect() as db:
         branches=read_document(db,'branches.json');branches['123']['yclients_enabled']=False;write_document(db,'branches.json',branches)
-    assert post(client,csrf,'/admin/api/messenger-settings',{'branch_id':'123','provider':'auto'}).status_code==403
+    assert post(client,csrf,'/admin/api/messenger-settings',{'branch_id':'123','provider':'auto'}).status_code==200
     outgoing.assert_not_called()
 
 
@@ -70,8 +70,8 @@ def test_browser_selects_provider_and_refreshes_after_chatpush_connection(messen
     panel=page.locator('#branchMessengerSettings');selector=panel.get_by_role('combobox',name='Способ отправки',exact=True)
     expect(panel).to_contain_text('Сервис подключён')
     expect(selector).to_have_value('auto')
-    expect(selector.locator('option[value=chatpush]')).to_be_disabled()
-    expect(panel).to_contain_text('Нужен ID клиента в YCLIENTS')
+    expect(selector.locator('option[value=chatpush]')).to_have_count(0)
+    expect(panel).to_contain_text('ID YCLIENTS')
     cp=page.locator('section.panel').filter(has=page.get_by_role('heading',name='ChatPush',exact=True)).filter(has=page.locator('form'))
     cp.get_by_label('Токен ChatPush',exact=True).fill('browser-offline-chatpush')
     cp.get_by_role('button',name='Сохранить токен',exact=True).click()

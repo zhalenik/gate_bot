@@ -17,7 +17,7 @@ def welcome(identities,monkeypatch):
     monkeypatch.setattr(config,'BASE_URL','https://gatebot.example.invalid')
     ready=[True];messages=[]
     monkeypatch.setattr('smtp_settings.SmtpSettings',lambda:SimpleNamespace(effective=lambda:{'enabled':ready[0]}))
-    monkeypatch.setattr('smtp_mailing.send_email',lambda *args:messages.append(args) or True)
+    monkeypatch.setattr('smtp_mailing.send_email',lambda *args,**kwargs:messages.append(args) or True)
     notifications=ProductNotifications(state.service,state.links,state.branches,state.billing)
     state.service.welcome_sink=notifications.welcome
     return SimpleNamespace(state=state,notices=notifications,ready=ready,messages=messages)

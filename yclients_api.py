@@ -4,14 +4,14 @@ Policy is enforced at the request boundary; a configuration flag cannot enable
 POST/PUT/PATCH/DELETE, SMS, registration, login or webhook provisioning.
 Official contract: https://developers.yclients.com/ru/
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 import re
 import threading
 import time
 import requests
 from storage import config
 from branch_manager import BranchManager
-from timeutil import now, end_of_day, parse_datetime, timezone
+from timeutil import now, pass_expiry, parse_datetime, timezone
 import logger
 from yclients_urls import normalize_yclients_base_url
 
@@ -237,7 +237,14 @@ def _notice_cutoff(record, visit, expiry):
     return min(visit.timestamp() + 3600, expiry.timestamp())
 
 
-def eligible_clients(records, branch_id, at=None, branch_timezone=None, *, lead_seconds=0):
+def appointment_days(at, duration_hours):
+    """Include prior visits carrying over midnight and tomorrow's activation window."""
+    first = datetime.fromtimestamp(at.timestamp()-duration_hours*3600, at.tzinfo).date()
+    last = max(at.date()+timedelta(days=1),(at+timedelta(hours=max(2,config.ACCESS_BEFORE_VISIT_HOURS))).date())
+    return (first+timedelta(days=offset) for offset in range((last-first).days+1))
+
+
+def eligible_clients(records, branch_id, at=None, branch_timezone=None, *, lead_seconds=0, pass_duration_hours=8):
     at = (at or now(branch_timezone)).astimezone(timezone(branch_timezone))
     clients = {}
     for record in records:
@@ -252,12 +259,12 @@ def eligible_clients(records, branch_id, at=None, branch_timezone=None, *, lead_
             visit = parse_datetime(record.get('datetime') or record.get('date'), branch_timezone).astimezone(timezone(branch_timezone))
         except (ValueError, TypeError):
             raise YClientsError('Invalid appointment date; no changes applied') from None
-        expiry = end_of_day(visit, branch_timezone)
+        expiry = pass_expiry({'pass_duration_hours': pass_duration_hours}, visit)
         # An early-morning appointment opens access on the preceding evening.
         # A small scheduler lead absorbs the local outbox dispatch interval.
-        if visit - timedelta(hours=max(2, config.ACCESS_BEFORE_VISIT_HOURS), seconds=lead_seconds) <= at <= expiry:
+        if visit - timedelta(hours=max(2, config.ACCESS_BEFORE_VISIT_HOURS), seconds=lead_seconds) <= at < expiry:
             key = str(client['id'])
-            if key not in clients or clients[key]['_access_expires'] < expiry.isoformat():
+            if key not in clients or parse_datetime(clients[key]['_access_expires']).timestamp() < expiry.timestamp():
                 clients.setdefault(key, {}).update({field: client[field] for field in ('id', 'name', 'phone', 'email') if field in client})
                 clients[key]['_access_expires'] = expiry.isoformat()
             # YCLIENTS record durations are seconds. An old booking may still
@@ -271,7 +278,9 @@ def get_clients_with_appointments_today(branch_id):
     if not branch:
         raise YClientsError('Unknown branch')
     client = YClientsClient()
-    return list(eligible_clients(client.records_for_day(branch_id, now(branch.timezone).date()), branch_id, branch_timezone=branch.timezone))
+    at = now(branch.timezone)
+    records = (r for day in appointment_days(at,branch.pass_duration_hours) for r in client.records_for_day(branch_id,day))
+    return list(eligible_clients(records, branch_id, at, branch.timezone, pass_duration_hours=branch.pass_duration_hours))
 
 
 def check_client_appointments(client_id, branch_id):

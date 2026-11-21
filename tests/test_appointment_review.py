@@ -18,7 +18,7 @@ def test_timer_activates_known_appointment_after_short_manual_grant_expires(stat
     assert scheduler.activate_due()['1']['changed']==1
     current=links.load_links()[token]
     assert current['access_source']=='appointment' and access_is_active(current,AT+timedelta(minutes=2,seconds=1))
-    assert current['access_expires'].startswith('2026-11-05T23:59:59') and len(events)==1
+    assert current['access_expires']==AT.replace(hour=21).isoformat() and len(events)==1
 
 
 def test_one_branch_reconcile_failure_does_not_block_other_known_deadlines(state,monkeypatch):

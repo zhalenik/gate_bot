@@ -33,7 +33,9 @@ class SystemSettings:
             normalized,value,error=_inspect_value(descriptor,target[key])
             active_normalized,active_value,active_error=_inspect_value(descriptor,running[key])
             changed=normalized!=active_normalized
-            field={**descriptor,'source':'saved' if key in saved['values'] else ('environment' if key in config.SYSTEM_BASE_ENVIRONMENT else 'default'),
+            from_environment = key in config.SYSTEM_BASE_ENVIRONMENT or (
+                key in {'CLIENT_OUTBOUND_ENABLED', 'ADMIN_OUTBOUND_ENABLED'} and 'OUTBOUND_ENABLED' in config.SYSTEM_BASE_ENVIRONMENT)
+            field={**descriptor,'source':'saved' if key in saved['values'] else ('environment' if from_environment else 'default'),
                    'overridden':key in saved['values'],'restart_required':changed,
                    'validation_error':error,'active_validation_error':active_error}
             if descriptor['secret']:

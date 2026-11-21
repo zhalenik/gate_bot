@@ -47,6 +47,9 @@ def write_document(db, name, value):
     elif name == 'admins.json':
         from storage.client_index import sync_admin_roles
         sync_admin_roles(db,value)
+    elif name == 'branches.json':
+        from notification_policy import clear_disabled_sms
+        clear_disabled_sms(db, read_document(db, name), value)
     db.execute('INSERT INTO documents(name,payload) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload',
                (name, json.dumps(value, ensure_ascii=False)))
 

@@ -4,7 +4,7 @@
  const notice=document.getElementById('identityNotice'),description=document.getElementById('identityDescription');
  const labels={email:'Email',telegram:'Telegram',max:'MAX',chatpush:'ChatPush',sms:'SMS'};
  const events={gate_requested:'Запрос открытия ворот',gate_denied:'Отказ в доступе',gate_error:'Ошибка открытия',admin_contact_requested:'Запрос контакта администратора',invitation_accepted:'Приглашение принято',access_changed:'Изменение пропуска',crm_error:'Ошибка CRM',crm_recovered:'CRM восстановлена',modem_error:'Ошибка модема',modem_recovered:'Модем восстановлен',delivery_failed:'Ошибка доставки',subscription_expiring:'Подписка заканчивается',subscription_expired:'Подписка закончилась',quota_warning:'Квота заканчивается',quota_exhausted:'Квота исчерпана',branch_registered:'Регистрация нового филиала',marketplace_disconnected:'Отключение в маркетплейсе YCLIENTS',sms_received:'Входящие SMS',call_received:'Входящие звонки'};
- Object.assign(events,{client_message:'Сообщение клиента',pass_requested:'Запрос пропуска'});
+ Object.assign(events,{client_message:'Сообщение клиента',pass_requested:'Запрос пропуска',pass_request_auto_granted:'Пропуск под запрос выдан автоматически'});
  function tell(text,error=false){notice.hidden=false;notice.textContent=text;notice.className='panel '+(error?'alert-error':'alert-success');}
  function field(form,label,name,type='text',required=true,value='') {const wrap=element('div','form-group'),caption=element('label','',label),input=element('input');input.name=name;input.type=type;input.required=required;input.value=value;if(type==='password')input.autocomplete='new-password';caption.append(input);wrap.append(caption);form.append(wrap);return input;}
  function select(form,label,name,items){const wrap=element('div','form-group'),caption=element('label','',label),node=element('select');node.name=name;for(const [key,text] of items){const option=element('option','',text);option.value=key;node.append(option);}caption.append(node);wrap.append(caption);form.append(wrap);return node;}
@@ -70,7 +70,7 @@
   const channelNames={email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)',sms:'СМС',push:'Push'},icons={email:'@',telegram:'TG',max:'M',messengers:'↗',sms:'SMS',push:'◉'},cards={};
   description.textContent=prefs.name+' · '+(prefs.phone || '');root.classList.add('client-preferences');
   const intro=element('p','page-description','Выберите, где получать ссылку на пропуск. Изменения сохраняются автоматически.'),state=element('p','preference-state'),list=element('div','preference-channels');state.id='clientMailingState';state.setAttribute('role','status');root.append(intro,state,list);
-  const reasonText={client_id_missing:'Для этого клиента отправка через сервис филиала пока недоступна. Обратитесь к администратору.',credentials_missing:'Администратор ещё не подключил рассылку филиала.',not_configured:'Администратор ещё не подключил рассылку филиала.',chatpush_not_configured:'Администратор ещё не подключил рассылку филиала.',yclients_not_configured:'Администратор ещё не подключил рассылку филиала.',provider_unavailable:'Рассылка филиала пока недоступна.',unsupported_branch:'Рассылка филиала пока недоступна.'};
+  const reasonText={sms_only:'Филиал использует СМС. Вы можете включить канал «СМС».',client_id_missing:'Для этого клиента отправка через сервис филиала пока недоступна. Обратитесь к администратору.',credentials_missing:'Администратор ещё не подключил рассылку филиала.',not_configured:'Администратор ещё не подключил рассылку филиала.',chatpush_not_configured:'Администратор ещё не подключил рассылку филиала.',yclients_not_configured:'Администратор ещё не подключил рассылку филиала.',provider_unavailable:'Рассылка филиала пока недоступна.',unsupported_branch:'Рассылка филиала пока недоступна.'};
   function allowedChannels(){return prefs.allowed_channels||Object.keys(channelNames);}
   function visibleChannels(){return allowedChannels().filter(channel=>channel!=='push'||window.GateBotPWA?.canPush);}
   function channelChange(channel,enabled){
@@ -139,19 +139,19 @@
   function paint(){
    ensureCards();
    const allowed=allowedChannels(),active=Boolean(prefs.enabled&&allowed.some(channel=>prefs.channels?.[channel]&&prefs.connected?.[channel]));
-   state.textContent=active?'Вы получаете уведомления по включённым каналам.':'Уведомления отключены. Включите нужный канал, чтобы получать ссылку на пропуск. Ваш пропуск и персональная ссылка сохраняются.';
+   state.textContent=prefs.delivery_enabled===false?'Уведомления отключены администратором':active?'Вы получаете уведомления по включённым каналам.':'Уведомления отключены. Включите нужный канал, чтобы получать ссылку на пропуск. Ваш пропуск и персональная ссылка сохраняются.';
    for(const [channel,card] of Object.entries(cards)){
     card.card.hidden=!visibleChannels().includes(channel);
     const connected=Boolean(prefs.connected?.[channel])&&(channel!=='push'||window.GateBotPWA?.deviceSubscribed),selected=Boolean(prefs.channels?.[channel]);
-    card.input.checked=Boolean(prefs.enabled&&selected&&connected&&allowed.includes(channel));card.input.disabled=busy||!allowed.includes(channel);
+    card.input.checked=Boolean(prefs.enabled&&selected&&connected&&allowed.includes(channel));card.input.disabled=busy||prefs.delivery_enabled===false||!allowed.includes(channel);
     card.status.textContent=!prefs.enabled?'Уведомления отключены':connected?(selected?'Включено':'Выключено'):(channel==='messengers'?'Сервис филиала пока недоступен':selected?'Подключение не завершено':'Включите, чтобы подключить');
     if(channel==='email'&&connected)card.status.textContent+=(prefs.email?' · '+prefs.email:'');
     if(channel==='sms'&&connected)card.status.textContent+=(prefs.phone?' · '+prefs.phone:'');
     if(channel==='push')card.status.textContent=connected?(card.input.checked?'Включено на этом устройстве':'Выключено · можно включить на этом устройстве'):'Включите уведомления на этом устройстве';
     card.card.classList.toggle('preference-channel-active',card.input.checked);
    }
-   unsubscribe.hidden=!active;unsubscribe.disabled=busy;
-   if(connecting&&!allowed.includes(connecting))closeConnection();
+   unsubscribe.hidden=!active||prefs.delivery_enabled===false;unsubscribe.disabled=busy||prefs.delivery_enabled===false;
+   if(connecting&&(prefs.delivery_enabled===false||!allowed.includes(connecting)))closeConnection();
   }
   async function save(changes){
    const current=++version;setBusy(true);
@@ -189,10 +189,19 @@
    }finally{pendingSaves--;savePreferences.disabled=false;emailInput.disabled=false;emailCancel.disabled=false;}
   });
   const emailCancel=action(emailForm,'Отмена',()=>{emailForm.hidden=true;emailEdit.hidden=false;emailEdit.focus();});cards.email.card.append(emailForm);
-  const f=form(),table=element('table','users-table'),head=element('tr');
+  const eventMenu=element('details','panel'),eventForm=element('form','admin-form'),eventControls={};
+  eventMenu.append(element('summary','','Получаемые события'),eventForm);root.append(eventMenu);
+  for(const event of data.events)eventControls[event]=check(eventForm,events[event]||event,event,prefs.active_events.includes(event));
+  submit(eventForm,'Сохранить события',async()=>{
+   const selected=data.events.filter(event=>eventControls[event].checked);
+   const result=await post('/admin/api/identity/notification-events',{events:selected});
+   Object.assign(prefs,result.preferences);paintConnections();
+   tell('Список событий сохранён');
+  });
+  const f=form(),table=element('table','users-table'),head=element('tr'),eventRows={};
   for(const title of ['Событие','Email','Telegram','MAX'])head.append(element('th','',title));table.append(head);
   for(const event of data.events){
-   const row=element('tr');row.append(element('td','',events[event]||event));controls[event]={};
+   const row=element('tr');eventRows[event]=row;row.append(element('td','',events[event]||event));controls[event]={};
    for(const channel of channels){
     const cell=element('td'),input=check(cell,'',event+'_'+channel,prefs.events[event]?.[channel]);controls[event][channel]=input;
     input.setAttribute('aria-label',(events[event]||event)+' '+labels[channel]);input.setAttribute('aria-describedby','adminChannelStatus-'+channel);row.append(cell);
@@ -201,8 +210,9 @@
   }
   const tableScroll=element('div','users-table-container');tableScroll.append(table);f.append(tableScroll);
   const unavailable=element('p','page-description');unavailable.id='adminNotificationUnavailable';unavailable.setAttribute('role','status');f.append(unavailable);
-  function refreshUnavailable(){const pending=channels.filter(channel=>!prefs.channels?.[channel]&&Object.values(controls).some(row=>row[channel].checked));unavailable.hidden=!pending.length;unavailable.textContent=pending.length?'Не будут отправляться уведомления через '+pending.map(channel=>labels[channel]).join(', ')+': завершите подключение канала. Выбранные события сохранятся.':'';return pending.length;}
+  function refreshUnavailable(){const pending=channels.filter(channel=>!prefs.channels?.[channel]&&prefs.active_events.some(event=>controls[event]?.[channel].checked));unavailable.hidden=!pending.length;unavailable.textContent=pending.length?'Не будут отправляться уведомления через '+pending.map(channel=>labels[channel]).join(', ')+': завершите подключение канала. Выбранные события сохранятся.':'';return pending.length;}
   function paintConnections(){
+   for(const [event,row] of Object.entries(eventRows))row.hidden=!prefs.active_events.includes(event);
    for(const channel of channels){
     const connected=Boolean(prefs.channels?.[channel]),card=cards[channel];
     card.status.className='badge '+(connected?'success':'warning');

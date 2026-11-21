@@ -7,6 +7,7 @@ from test_web_security import web,post
 
 @pytest.fixture
 def preferences_web(web,tmp_path,monkeypatch):
+    monkeypatch.setattr('storage.config.CLIENT_OUTBOUND_ENABLED',True)
     migrate_legacy(tmp_path,activate=True)
     monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
     identity=web.module.product_services().identity

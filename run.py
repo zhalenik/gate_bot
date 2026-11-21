@@ -105,7 +105,7 @@ def main():
         import runtime_control
         runtime_control.bind_restart(request_restart)
         print(f'GateBot: {config.BASE_URL} | gate mode: {"DRY RUN" if config.GATE_DRY_RUN else "HARDWARE"}')
-        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.20'})
+        logger.event('RUNTIME_STARTED', details={'dry_run': config.GATE_DRY_RUN, 'version': '0.2.0-alpha.21'})
         while not stop.wait(0.5):
             if not web.is_alive():
                 raise RuntimeError('Web server stopped')

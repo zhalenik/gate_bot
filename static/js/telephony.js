@@ -232,10 +232,6 @@
         }
         $('loadCalls').hidden=records.length>=results[0].total;
     }
-    function displayedModem(status) {
-        if(!modemFilter.value)return status.modem || {};
-        return status.modems?.find(m=>m.id===modemFilter.value)?.status || {};
-    }
     function modemStatus(status) {
         latestStatus=status;
         const names=new Map(Object.entries(status.archived_modems || {}));
@@ -247,15 +243,32 @@
             for(const [key,name] of names)modemFilter.add(new Option(name,key));
             modemFilter.value=names.has(selectedId)?selectedId:'';
         }
-        const modem=displayedModem(status),sms=modem.sms_poll || {};
-        const stale=modem.checked_at && Date.now()-new Date(modem.checked_at).getTime()>90000;
-        const online=modem.state==='ok'&&['home','roaming'].includes(modem.registration)&&!stale;
-        let text=!status.enabled?'Модем выключен':online?(modem.operator||'В сети')+(modem.registration==='roaming'?' · роуминг':''):stale?'Нет свежих данных':modem.state==='error'?'Модем недоступен':modem.checked_at?'Поиск сети':'Подключение…';
-        if(modemFilter.value && !status.modems?.some(m=>m.id===modemFilter.value))text='Модем в архиве';
-        else if(status.stopping)text='Остановка';else if(online&&sms.state==='partial')text='Проверить приём SMS';
-        $('connectionLabel').textContent=text;$('modemStatus').className='connection'+(modem.state==='error'?' error':(!online||sms.state==='partial'?' warning':''));
-        const bars=online&&modem.rssi!=null?Math.max(1,Math.min(4,Math.ceil(modem.rssi/8))):0;
-        $('modemStatus').querySelectorAll('i').forEach((node,i)=>node.classList.toggle('lit',i<bars));
+        const indicators = $('modemIndicators');
+        const devices = status.modems || [{id:'legacy', name:'SIM800C', status:status.modem || {}}];
+        const visibleIds = new Set(devices.map(device => device.id));
+        for (const button of [...indicators.children]) {
+            if (!visibleIds.has(button.dataset.modem)) button.remove();
+        }
+        devices.forEach((device, index) => {
+            const modem = device.status || {};
+            const stale = modem.checked_at && Date.now() - Date.parse(modem.checked_at) > 90000;
+            const online = status.enabled && !status.stopping && modem.state === 'ok' && !stale && ['home','roaming'].includes(modem.registration);
+            let button = [...indicators.children].find(item => item.dataset.modem === device.id);
+            if (!button) {
+                button = element('button'); button.type = 'button'; button.dataset.modem = device.id;
+                const bars = element('span', 'signal-bars'); bars.setAttribute('aria-hidden', 'true');
+                for (let i=0; i<4; i++) bars.append(element('i'));
+                button.append(bars, element('span')); indicators.append(button);
+            }
+            button.id = index === 0 ? 'modemStatus' : '';
+            button.lastElementChild.textContent = device.name;
+            button.title = device.name + ' · ' + (online ? modem.operator || 'В сети' : !status.enabled ? 'Выключен' : 'Нет связи');
+            button.setAttribute('aria-label', button.title);
+            button.className = 'connection' + (modem.state === 'error' ? ' error' : (!online || modem.sms_poll?.state === 'partial' ? ' warning' : ''));
+            const count = online && modem.rssi != null ? Math.max(1, Math.min(4, Math.ceil(modem.rssi/8))) : 0;
+            button.querySelectorAll('i').forEach((bar,i) => bar.classList.toggle('lit',i<count));
+            button.onclick = () => modemDetails(device);
+        });
         $('modeBadge').hidden=!status.dry_run;
     }
     async function refresh() {
@@ -305,8 +318,8 @@
     }
     $('sidebarMore').onclick=event=>menu(event.currentTarget,[{text:'Обновить',icon:'refresh',run:refresh},...(mode==='sms'?[{id:'clearAllSms',text:'Удалить все сообщения',icon:'trash',danger:true,run:()=>clearSms(true)}]:[])]);
     $('threadMore').onclick=event=>menu(event.currentTarget,[{text:'Скопировать номер',icon:'copy',run:async()=>toast(await copyToClipboard(selected.phone,false)?'Номер скопирован':'Не удалось скопировать номер')},{id:'clearChat',text:'Очистить чат',icon:'trash',danger:true,run:()=>clearSms()}]);
-    $('modemStatus').onclick=()=>{
-        const m=displayedModem(latestStatus),sms=m.sms_poll || {};
+    function modemDetails(device) {
+        const m=device.status || {},sms=m.sms_poll || {};
         details('Состояние связи',[['Модем',latestStatus.enabled?'Включён':'Выключен'],['Режим',latestStatus.dry_run?'Имитация':'Реальные вызовы и SMS'],['SIM',label(m.sim)],['Оператор',m.operator||'Не определён'],['Сеть',label(m.registration)],['Сигнал',m.signal_dbm!=null?m.signal_dbm+' dBm':'—'],['Обновлено',fullDate(m.checked_at)],['Ожидают отправки',latestStatus.queue_length || 0],['Приём SMS',sms.state==='ok'?'Работает':sms.state==='partial'?'Есть ошибки':'Ожидание проверки'],['Ошибки чтения',sms.parse_errors || 0],['Ошибки очистки',sms.cleanup_errors || 0]],m.error_code?label(m.error_code):'Входящие SMS сохраняются в журнал перед удалением с SIM.');
     };
     $('smsForm').elements.text.addEventListener('input',()=>{saveDraft();updateComposer();});

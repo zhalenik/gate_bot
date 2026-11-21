@@ -35,7 +35,7 @@ class OfficePush:
         from product_notifications import TITLES
         with self.store.connect() as db:
             admin = self.actor(db, username)
-            events = self.identity.admin_preferences(username)['events']
+            events = self.identity.admin_preferences(username)['active_events']
             row = None
             if endpoint:
                 digest = hashlib.sha256(validate_endpoint(endpoint).encode()).hexdigest()
@@ -43,7 +43,7 @@ class OfficePush:
                                  (username, digest, self.proof(admin))).fetchone()
             return {'public_key': self.pwa._keys(db)['public'], 'connected': bool(row),
                     'events': {event:TITLES[event] for event in events if event in TITLES},
-                    'selected': json.loads(row['events']) if row else ['client_message','pass_requested']}
+                    'selected': [e for e in (json.loads(row['events']) if row else ['client_message','pass_requested']) if e in events]}
 
     def subscribe(self, username, subscription, selected, consent):
         if consent is not True:
@@ -52,7 +52,7 @@ class OfficePush:
         digest = hashlib.sha256(subscription['endpoint'].encode()).hexdigest()
         with self.store.connect() as db:
             admin = self.actor(db, username)
-            available = self.identity.admin_preferences(username)['events']
+            available = self.identity.admin_preferences(username)['active_events']
             if not isinstance(selected,list) or any(not isinstance(e,str) or e not in available for e in selected):
                 raise ValueError('Выберите события из списка.')
             row = db.execute('SELECT * FROM office_push_devices WHERE endpoint_hash=?',(digest,)).fetchone()
@@ -88,7 +88,7 @@ class OfficePush:
                 admin = self.actor(db, row['username'])
             except (ValueError, PermissionError):
                 return None
-            if self.proof(admin)==row['proof'] and admin_receives_event(admin,branch,event) and event in json.loads(row['events']):
+            if self.proof(admin)==row['proof'] and self.identity.event_selected(db,admin['person_id'],event) and admin_receives_event(admin,branch,event) and event in json.loads(row['events']):
                 return row
         return None
 

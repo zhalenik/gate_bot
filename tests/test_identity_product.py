@@ -21,7 +21,10 @@ PHONE='+15550100101'
 
 
 @pytest.fixture
-def identities(tmp_path):
+def identities(tmp_path,monkeypatch):
+    from storage import config
+    # This fixture owns a synthetic store and a recording delivery transport.
+    monkeypatch.setattr(config,'OUTBOUND_ENABLED',True)
     branches={'11':{'branch_id':11,'name':'North','buttons':[]},'12':{'branch_id':12,'name':'South','buttons':[]}}
     admins={'owner':{'name':'Owner','password_hash':AdminAuth.hash_password(PASSWORD),'is_super':True,'branch_id':None,'session_version':1},
             'north':{'name':'North admin','password_hash':AdminAuth.hash_password(PASSWORD),'is_super':False,'branch_id':11,'session_version':1}}

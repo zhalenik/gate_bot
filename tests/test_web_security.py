@@ -281,16 +281,17 @@ def test_expired_pass_never_uses_another_branch_contact_if_own_branch_was_delete
     assert web.calls == []
 
 
-def test_temporary_pass_expires_at_local_day_end(web):
+def test_temporary_pass_expires_after_branch_duration(web):
     from timeutil import now, parse_datetime
     client = web.app.test_client()
     csrf_token = login(client)
+    web.branches.update_settings(12, {'pass_duration_hours': 5})
+    earliest = now() + timedelta(hours=5)
     response = post(client, csrf_token, "/admin/api/create-temp-link", {"branch_id": 12, "phone": "+70000000444", "send_link": False})
     assert response.status_code == 200
     user = web.links.load_links()[response.json["token"]]
     expiry = parse_datetime(user["access_expires"])
-    assert expiry.date() == now().date()
-    assert (expiry.hour, expiry.minute, expiry.second) == (23, 59, 59)
+    assert earliest <= expiry <= now() + timedelta(hours=5)
     assert user["is_temporary"] is True
 
 

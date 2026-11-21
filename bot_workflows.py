@@ -7,7 +7,7 @@ import uuid
 from link_manager import access_is_active, normalize_phone
 from storage import config
 import desk_bot
-from timeutil import end_of_day, parse_datetime
+from timeutil import pass_expiry, parse_datetime
 
 
 class BotWorkflows:
@@ -75,7 +75,8 @@ class BotWorkflows:
                     not access_is_active(client) or not getattr(branch,'sms_notifications_enabled',False)):
                 raise ValueError('SMS или пропуск больше недоступны для этого филиала')
             self._set(platform,user_id,{})
-            result=self.access.identity._send('sms',client['phone'],'Ваш пропуск GateBot: '+config.BASE_URL+'/opn/'+dialog['token'],
+            from message_templates import pass_link
+            result=self.access.identity._send('sms',client['phone'],pass_link(config.BASE_URL+'/opn/'+dialog['token']),
                 {'branch_id':str(branch_id),'client_token':dialog['token'],'preference_channel':'sms',
                  'event':'manual_pass','idempotency_key':'bot-pass-sms:'+platform+':'+str(user_id)+':'+match[1]})
             accepted=result.get('status') in {'success','accepted','sent','queued','network_accepted'} and result.get('delivery')!='simulated'
@@ -120,7 +121,7 @@ class BotWorkflows:
             self._admin(platform, user_id, branch_id)
             if kind == 'issue':
                 self._set(platform, user_id, {'phase': 'phone', 'branch_id': branch_id, 'expires': time.time()+300})
-                return {'text': 'Введите номер клиента с кодом страны. Пропуск будет действовать до конца дня филиала.',
+                return {'text': 'Введите номер телефона для разового пропуска.',
                         'actions': [{'label': 'Отмена', 'callback': 'x:cancel'}]}
             return {'text': self.access.branches.get_branch(branch_id).name, 'actions': [
                 {'label': 'Выдать разовый пропуск', 'callback': 'x:issue:' + branch_id},
@@ -164,7 +165,7 @@ class BotWorkflows:
             if len(matches) > 1:
                 raise ValueError('У номера несколько клиентских записей. Выберите клиента в веб-кабинете')
             branch = self.access.branches.get_branch(branch_id)
-            expiry = end_of_day(tz=branch.timezone)
+            expiry = pass_expiry(branch)
             if matches:
                 token, data = matches[0]
                 if data.get('admin_blocked'):
@@ -173,8 +174,7 @@ class BotWorkflows:
                     self.access.links.set_expiry_at(token, expiry)
                     self.access.links.toggle_user_access(token, True)
             else:
-                token = self.access.links.create_link({'branch_id': int(branch_id), 'phone': phone,
-                    'user_name': 'Гость', 'gate_access': True, 'is_temporary': True, 'mailing_enabled': False}, expires_at=expiry)
+                token = self.access.links.create_guest(branch, phone)
             self.access._emit('access_changed', branch_id, client_name='Пропуск выдан администратором', event_id=match[1])
             actions=[{'label': 'К филиалу', 'callback': 'x:branch:' + branch_id}]
             if getattr(branch,'sms_notifications_enabled',False):

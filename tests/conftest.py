@@ -22,7 +22,8 @@ os.environ['GATEBOT_ENV'] = 'development'
 os.environ['DEV_REGISTRATION_SMS_REDIRECT_ENABLED'] = 'false'
 os.environ['DEV_REGISTRATION_SMS_PREFIX'] = ''
 os.environ['DEV_REGISTRATION_SMS_PHONE'] = ''
-for name in ('BOT_ENABLED','MAX_BOT_ENABLED','YCLIENTS_ENABLED','SCHEDULER_ENABLED','OUTBOUND_ENABLED','SMTP_ENABLED','SIM800_ENABLED'):
+for name in ('BOT_ENABLED','MAX_BOT_ENABLED','YCLIENTS_ENABLED','SCHEDULER_ENABLED','OUTBOUND_ENABLED',
+             'CLIENT_OUTBOUND_ENABLED','ADMIN_OUTBOUND_ENABLED','SMTP_ENABLED','SIM800_ENABLED'):
     os.environ[name] = 'false'
 os.environ['GATE_DRY_RUN'] = 'true'
 for name in ('BOT_TOKEN','MAX_BOT_TOKEN','YC_PARTNER_TOKEN','YC_USER_TOKEN','MAILING_SMTP_PASSWORD'):
@@ -43,6 +44,11 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(autouse=True)
 def forbid_network(monkeypatch):
+    # Individual fixtures opt in with mock transports; exercise legacy fallback
+    # unless a test explicitly selects one of the two independent audiences.
+    from storage import config
+    monkeypatch.setattr(config,'CLIENT_OUTBOUND_ENABLED',None)
+    monkeypatch.setattr(config,'ADMIN_OUTBOUND_ENABLED',None)
     # Windows implements socketpair() using a loopback TCP connection. asyncio
     # needs that local pipe even when every API transport is a fake.
     original_connect = socket.socket.connect

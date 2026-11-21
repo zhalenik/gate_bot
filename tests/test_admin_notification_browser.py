@@ -11,6 +11,52 @@ pytestmark = pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS') != '1',
                                 reason='Opt-in browser acceptance')
 
 
+def test_event_filter_read_all_and_branch_pause_across_client_pages(web, browser_ui, tmp_path, monkeypatch):
+    from storage import config
+    from storage.sql_documents import DocumentStore, migrate_legacy
+    migrate_legacy(tmp_path, activate=True)
+    monkeypatch.setattr(web.auth, 'store', DocumentStore(tmp_path/'admins.json'))
+    monkeypatch.setattr(config,'CLIENT_OUTBOUND_ENABLED',True)
+    services = web.module.product_services()
+    services.identity.attach_console_account('tenant-a','+15550300101')
+    page, origin, expect, _ = browser_ui
+    sign_in(page, origin, 'tenant-a')
+    page.goto(origin+'/admin/notification-settings')
+    page.get_by_text('Получаемые события',exact=True).click()
+    check = page.locator('details input[name=quota_warning]')
+    check.uncheck()
+    page.get_by_role('button',name='Сохранить события').click()
+    expect(page.locator('[name=quota_warning_email]')).to_be_hidden()
+    check.check()
+    page.get_by_role('button',name='Сохранить события').click()
+    expect(page.locator('[name=quota_warning_email]')).to_be_visible()
+    services.notifications.event('quota_warning','12',{'event_id':'browser-quota','quota':100,'spent':81})
+    page.goto(origin+'/admin/notifications')
+    expect(page.locator('#readAllNotifications')).to_be_visible()
+    page.locator('#readAllNotifications').click()
+    expect(page.locator('#readAllNotifications')).to_be_hidden()
+    page.reload()
+    page.locator('#showUnreadNotifications').click()
+    expect(page.get_by_text('Всё прочитано',exact=True)).to_be_visible()
+    page.goto(origin+'/admin/client-notices')
+    switch = page.get_by_role('switch')
+    expect(switch).to_be_checked()
+    switch.click()
+    expect(switch).not_to_be_checked()
+    for path in ('/preferences/'+web.token_a,'/pwa/'+web.token_a+'/preferences'):
+        page.goto(origin+path)
+        expect(page.locator('#clientMailingState')).to_have_text('Уведомления отключены администратором')
+        expect(page.locator('#clientChannel-email')).to_be_disabled()
+    page.goto(origin+'/admin/users')
+    page.get_by_role('button',name='Уведомления: Client A',exact=True).click()
+    expect(page.locator('.client-notifications-modal')).to_contain_text('Уведомления отключены администратором')
+    expect(page.locator('#admin-client-channel-email')).to_be_disabled()
+    page.goto(origin+'/admin/client-notices')
+    page.get_by_role('switch').click()
+    page.goto(origin+'/preferences/'+web.token_a)
+    expect(page.locator('#clientChannel-email')).to_be_enabled()
+
+
 def test_unbound_max_preference_is_honest_and_survives_save(web, browser_ui, tmp_path, monkeypatch):
     from storage.sql_documents import DocumentStore, migrate_legacy
 

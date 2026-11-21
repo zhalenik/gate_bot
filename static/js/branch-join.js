@@ -28,7 +28,8 @@
   async function sendCode() {
     const result = await post('code', {phone: element('phone').value});
     countdown(result.retry_after);
-    if (!result.ready) throw new Error('Не удалось отправить SMS. Повторите позже.');
+    if (!result.ready) throw new Error('Не удалось отправить код. Повторите позже.');
+    codeForm.querySelector('label').textContent = result.channel === 'chatpush' ? 'Код из мессенджера' : 'Код из SMS';
     challenge = result.challenge_id; phoneForm.hidden = true; codeForm.hidden = false; element('code').focus();
   }
   async function loadProfile() {

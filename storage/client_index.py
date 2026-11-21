@@ -2,6 +2,7 @@
 from datetime import datetime
 import json
 import uuid
+import hashlib
 
 
 def sync_client_index(db, links, previous=None):
@@ -13,8 +14,28 @@ def sync_client_index(db, links, previous=None):
     rows = {r['legacy_token']:r['person_id'] for r in db.execute('SELECT legacy_token,person_id FROM branch_clients')}
     # This is an index of current clients, not a second archive. Keep persons,
     # memberships and historical analytics independent, but remove dead links.
-    for token in set(rows)-set(links):
+    removed = set(rows)-set(links)
+    tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")} if removed else set()
+    for token in removed:
         db.execute('DELETE FROM branch_clients WHERE legacy_token=?',(token,))
+        if 'guest_issues' in tables:
+            db.execute('DELETE FROM guest_issues WHERE guest=? OR owner=?',(token,token))
+        if previous.get(token, {}).get('is_temporary'):
+            db.execute('CREATE TABLE IF NOT EXISTS removed_guest_links(digest TEXT PRIMARY KEY)')
+            db.execute('INSERT OR IGNORE INTO removed_guest_links VALUES(?)',(hashlib.sha256(token.encode()).hexdigest(),))
+            if 'branch_join_proofs' in tables:
+                db.execute('DELETE FROM identity_otp WHERE subject IN (SELECT subject FROM branch_join_proofs WHERE client_token=?)',(token,))
+                db.execute('DELETE FROM branch_join_proofs WHERE client_token=?',(token,))
+            if 'gate_qr_challenges' in tables:
+                db.execute('DELETE FROM identity_otp WHERE id IN (SELECT challenge_id FROM gate_qr_challenges WHERE client_token=?)',(token,))
+                db.execute('DELETE FROM gate_qr_challenges WHERE client_token=?',(token,))
+                db.execute('DELETE FROM gate_qr_devices WHERE client_token=?',(token,))
+            person = rows[token]
+            if not any(db.execute('SELECT 1 FROM '+table+' WHERE person_id=?',(person,)).fetchone()
+                       for table in ('branch_clients','web_accounts','branch_memberships','system_roles')):
+                for table in ('notification_preferences','identity_tickets','bot_bindings'):
+                    db.execute('DELETE FROM '+table+' WHERE person_id=?',(person,))
+                db.execute('DELETE FROM persons WHERE id=?',(person,))
     changed_phones = {}
     for token, client in links.items():
         if not isinstance(client,dict) or not client.get('branch_id'):
@@ -36,6 +57,9 @@ def sync_client_index(db, links, previous=None):
                 (token,person_id,str(client['branch_id']),token,created or 0))
         client['person_id'] = person_id
         old = previous.get(token)
+        if not old or old.get('id_ycl') != client.get('id_ycl'):
+            from notification_policy import seed_client_channels
+            seed_client_channels(db, person_id, client, old)
         if old and normalize_phone(old.get('phone')) != (phone or ''):
             changed_phones[person_id] = phone
         if created is not None and db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="client_branch_events"').fetchone():

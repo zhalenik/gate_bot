@@ -52,7 +52,7 @@ def test_cancelled_or_untrusted_schedule_cannot_activate_future_grants(state, mo
     assert not events and not links.load_links()
 
 
-def test_early_morning_visit_grants_previous_evening_until_end_of_visit_day(state, monkeypatch):
+def test_early_morning_visit_grants_previous_evening_until_branch_expiry(state, monkeypatch):
     links, branches, events = state
     at = AT.replace(hour=22, minute=30)
     visit = (AT + timedelta(days=1)).replace(hour=0, minute=30)
@@ -60,7 +60,7 @@ def test_early_morning_visit_grants_previous_evening_until_end_of_visit_day(stat
     crm = CRM({1: [record(1, datetime=visit.isoformat())]})
     result = Scheduler(links, branches, crm).run_once()
     assert result['1']['changed'] == 1
-    assert events[0]['access_expires'] == '2026-11-06T23:59:59.999999+03:00'
+    assert events[0]['access_expires'] == (visit+timedelta(hours=8)).isoformat()
     assert (1, visit.date()) in crm.calls
 
 

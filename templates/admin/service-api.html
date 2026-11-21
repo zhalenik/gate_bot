@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}API GateBot{% endblock %}
+{% block content %}
+<main class="admin-container"><section class="admin-content">
+  <div class="page-heading"><h1>API GateBot</h1><a href="{{ url_for('service_api.guide') }}">Документация API</a></div>
+  <section class="panel"><h2>Новый токен</h2>
+    <form id="apiTokenForm" class="admin-form">
+      <label class="form-group">Название интеграции<input name="name" maxlength="100" required></label>
+      <label class="form-group">Лимит запросов в минуту<input name="rate" type="number" min="1" max="600" value="30" required></label>
+      <fieldset><legend>Права токена</legend>{% for key,title in scopes.items() %}
+        <label class="checkbox-label"><input type="checkbox" name="scope" value="{{ key }}">{{ title }}</label>{% endfor %}
+      </fieldset>
+      <button class="btn-primary">Создать токен</button>
+    </form>
+    <div id="apiTokenResult" hidden><label class="form-group">Скопируйте токен сейчас<input id="apiTokenValue" readonly autocomplete="off" spellcheck="false"></label>
+      <button type="button" id="apiTokenCopy" class="btn-secondary">Скопировать</button>
+      <button type="button" id="apiTokenDone" class="btn-secondary">Готово</button></div>
+    <p role="status" id="apiTokenStatus"></p>
+  </section>
+  <section class="panel"><h2>Токены интеграций</h2><div class="users-table-container"><table class="users-table">
+    <thead><tr><th>Название</th><th>Права</th><th>Лимит в минуту</th><th>Запросов</th><th>Последний запрос</th><th></th></tr></thead>
+    <tbody id="apiTokens">{% for token in tokens %}<tr><th scope="row">{{ token.name }}</th><td>{{ token.permissions|join(', ') }}</td>
+      <td>{{ token.rate_limit }}</td><td>{{ token.requests }}</td><td>{% if token.last_used %}<time datetime="{{ token.last_used }}">{{ token.last_used }}</time>{% else %}—{% endif %}</td>
+      <td><button type="button" data-revoke="{{ token.id }}" class="btn-danger">Отозвать</button></td></tr>{% endfor %}</tbody>
+  </table></div></section>
+</section></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/service-api.js"></script>{% endblock %}

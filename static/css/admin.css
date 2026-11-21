@@ -54,7 +54,18 @@
 .client-yc-id-control{display:flex;align-items:stretch;gap:8px}.client-yc-id-control>input{flex:1;min-width:0}.client-yc-id-refresh{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;min-height:44px;padding:10px}
 .client-role-details{margin-bottom:20px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--milk)}.client-role-details .btn-action{margin-top:10px}
 .client-branch-access-hint{display:block;white-space:normal;max-width:190px;margin-top:6px;font-size:10px;line-height:1.4;color:var(--muted)}
-.card-sort-controls{display:none}
+.settings-workspace .admin-content > details.panel{margin-block:16px}
+.settings-transfer{display:grid;gap:14px;margin-top:16px}
+.settings-transfer>label{display:grid;gap:6px;max-width:30em}
+.settings-file-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.settings-file-actions label{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.settings-file-actions input{max-width:100%}
+.settings-reset{border-top:1px solid var(--line);padding-top:14px}
+.settings-export .compose-output{grid-column:1/-1}
+.settings-export .compose-output[hidden]{display:none}
+.compose-output textarea{font-family:monospace;width:100%;resize:vertical;white-space:pre}
+#clientDirectory .card-sort-controls{display:none}
+@media(min-width:760px){#clientDirectory #exportCsvBtn{position:absolute;top:6px;right:10px}#clientDirectory .users-table th:last-child{padding-right:45px}}
 @media(max-width:759px){
  #clientDirectory .users-table-container{border:0;overflow:visible;background:var(--gb-color-admin-background-ae91184a94a4, transparent)}
  #clientDirectory .users-table,#clientDirectory #usersTableBody{display:block;min-width:0;width:100%}

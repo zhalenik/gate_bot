@@ -18,10 +18,11 @@
     <div class="menu-heading">Управление</div>
     {% if not is_super %}<a href="/office/">Мобильный кабинет</a>{% endif %}
     <a href="/admin/client-messages">Переписка с клиентами</a>
+    <a href="/admin/client-notices">Уведомления клиентов</a>
     <a href="/admin/add-user">Добавить клиента</a><a href="/admin/invitations">Администраторы</a>
-    <a href="/admin/notifications">Уведомления</a><a href="/admin/notification-settings">Настройки уведомлений</a>{% if admin_yclients_enabled | default(true) %}<a href="/admin/integrations">Интеграции</a>{% endif %}
+    <a href="/admin/notifications">Уведомления</a><a href="/admin/notification-settings">Настройки уведомлений</a>{% if admin_yclients_enabled | default(true) or admin_sms_enabled %}<a href="/admin/integrations">Интеграции</a>{% endif %}
     {% if is_super %}<a href="/admin/branch-plans">Тарифы филиалов</a><a href="/admin/tariffs">Тарифы</a><a href="/admin/packages">Пакеты</a><a href="/admin/system-settings">Системные настройки</a><a href="/admin/palette">Цвета и логотип</a><a href="/admin/logs">Журнал событий</a>{% endif %}
-    {% if is_super %}<a href="/admin/feedback">Пожелания и отзывы</a>{% endif %}
+    {% if is_super %}<a href="/admin/feedback">Пожелания и отзывы</a><a href="/admin/service-api">API GateBot</a>{% endif %}
     <a href="/admin/change-password">Сменить пароль</a>
     <a href="/admin/help">Помощь</a>
     <form method="POST" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Выйти</button></form>

@@ -13,13 +13,13 @@
     <div class="pass-brand"><img src="{{ bootstrap.branch_logo or '/static/images/favicon.svg' }}" alt="" class="branch-logo"><div><h1>{{ bootstrap.branch_name }}</h1><p>{{ bootstrap.gate_label }}</p></div></div>
     <div class="qr-gate-symbol" aria-hidden="true"><svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="3"><rect x="12" y="33" width="16" height="34" rx="4"/><path d="m21 32 43-14M48 66V44m-7 8 7-8 7 8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     <h2 id="qrHeading">{% if bootstrap.state == 'closed' %}Сейчас доступ закрыт{% else %}Ваш номер телефона{% endif %}</h2>
-    <p id="qrDescription" class="access-description">{% if bootstrap.state == 'closed' %}{{ bootstrap.message }}{% else %}Проверим пропуск в этом филиале. При первом входе подтвердите номер кодом из SMS.{% endif %}</p>
+    <p id="qrDescription" class="access-description">{% if bootstrap.state == 'closed' %}{{ bootstrap.message }}{% else %}Проверим пропуск в этом филиале. При первом входе подтвердите номер кодом из сообщения.{% endif %}</p>
     <form id="qrPhoneForm" class="qr-form" {% if bootstrap.state == 'closed' %}hidden{% endif %}>
       <label for="qrPhone">Номер телефона</label><input id="qrPhone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00" maxlength="40" required>
       <button id="qrSendCode" type="submit" class="gate-action">Продолжить <span aria-hidden="true">→</span></button>
     </form>
     <form id="qrCodeForm" class="qr-form" hidden>
-      <label for="qrCode">Код из SMS</label><input id="qrCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+      <label for="qrCode">Код из сообщения</label><input id="qrCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
       <label class="qr-remember" for="qrRemember"><input id="qrRemember" type="checkbox" checked> Запомнить меня</label>
       <p id="qrRememberHint" class="form-hint">На этом устройстве на 30 дней.</p>
       <button id="qrVerify" type="submit" class="gate-action">Подтвердить номер <span aria-hidden="true">→</span></button>

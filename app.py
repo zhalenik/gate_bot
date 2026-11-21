@@ -30,7 +30,7 @@ from branch_manager import BranchManager
 from link_manager import LinkManager, access_is_active, normalize_phone
 from marketplace_frame import FRAME_ANCESTORS, MarketplaceSessionInterface
 from storage import config
-from timeutil import end_of_day, now, parse_datetime, timezone
+from timeutil import now, parse_datetime, timezone
 import logger
 
 app = Flask(__name__)
@@ -96,6 +96,7 @@ def inject_context():
             'client_pwa': pwa, 'public_site_url': config.PUBLIC_SITE_URL if config.PUBLIC_SITE_URL.startswith(('http://','https://')) else '',
             'client_page': request.path.startswith(('/opn/', '/gate/', '/join/', '/preferences/', '/pwa/', '/verify-email/', '/unsubscribe')),
             'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
+            'admin_sms_enabled': bool(active_branch and getattr(active_branch,'sms_notifications_enabled',False)),
             'admin_branch_choices': choices, 'active_branch_id': str((admin or {}).get('branch_id') or '')}
 
 
@@ -106,6 +107,9 @@ def protect_request():
     if request.path.startswith("/admin/api/") and not admin_auth.is_logged_in():
         return jsonify(status="error", message="Требуется вход в систему"), 401
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if request.endpoint == 'service_api.send_code':
+        # This integration endpoint requires its own scoped Authorization header.
         return None
     # These disabled integration endpoints never trust or persist request data.
     if request.path.startswith("/webhook/yclients") or request.path == "/yclients/register":
@@ -276,7 +280,8 @@ def _pass_delivery_channel(value):
 
 
 def _send_link(phone, token, user, channel='auto'):
-    if not config.OUTBOUND_ENABLED:
+    from message_templates import pass_link
+    if not config.outbound_enabled('client'):
         return {"status": "disabled", "message": "Отправка уведомлений отключена"}
     try:
         branch = branch_manager.get_branch(user.get('branch_id'))
@@ -289,7 +294,7 @@ def _send_link(phone, token, user, channel='auto'):
             if not email:
                 return {'status':'unavailable','message':'Укажите Email в карточке клиента для отправки ссылки.'}
             result=product_services().notifications.send('email',email,
-                'Ваш пропуск GateBot: '+_full_link(token),
+                pass_link(_full_link(token)),
                 {'branch_id':str(branch.branch_id),'event':'manual_pass','client_token':token,
                  'idempotency_key':secrets.token_hex(16)})
             if result.get('status') in {'success','accepted','sent'}:
@@ -300,7 +305,7 @@ def _send_link(phone, token, user, channel='auto'):
             if not getattr(branch,'sms_notifications_enabled',False):
                 return {'status':'unavailable','message':'SMS-уведомления выключены в настройках филиала'}
             result = product_services().notifications.send('sms', phone,
-                'Ваш пропуск GateBot: ' + _full_link(token),
+                pass_link(_full_link(token)),
                 {'branch_id': str(branch.branch_id), 'event': 'manual_pass',
                  'client_token': token, 'preference_channel':'sms',
                  'idempotency_key': secrets.token_hex(16)})
@@ -316,7 +321,7 @@ def _send_link(phone, token, user, channel='auto'):
             reason = ('Клиент не связан с YCLIENTS. Для отправки по номеру телефона выберите подключённый ChatPush.'
                       if plan['reason'] == 'yclients_client_missing' else 'Подключите выбранный сервис рассылки в настройках филиала.')
             return {'status': 'unavailable', 'message': reason}
-        result = services.notifications.send(plan['provider'], plan['target'], 'Ваш пропуск GateBot: ' + _full_link(token),
+        result = services.notifications.send(plan['provider'], plan['target'], pass_link(_full_link(token)),
             {'branch_id': str(user['branch_id']), 'client_token': token, 'preference_channel': 'messengers',
              'event': 'manual_pass', 'idempotency_key': secrets.token_hex(16)})
         if isinstance(result, dict) and result.get("status") in {"success", "accepted"}:
@@ -343,6 +348,8 @@ def open_barrier(token):
         # An expired known pass still identifies its own branch for support.
         # This lookup grants no access and never falls back to another branch.
         known_user = link_manager.load_links().get(token)
+        if link_manager.guest_pass_removed(token, known_user):
+            return render_template('guest_removed.html', client_page=True), 410
         branch = branch_manager.get_branch(known_user.get("branch_id")) if isinstance(known_user, dict) else None
         if branch is not None:
             contacts = []
@@ -490,13 +497,80 @@ def notification_inbox():
         return jsonify(items=[])
     with services.store.connect() as db:
         rows = db.execute('SELECT * FROM notification_inbox WHERE person_id=? ORDER BY created DESC LIMIT 100', (admin['person_id'],)).fetchall()
+        unread = sum(r['n'] for r in db.execute('SELECT branch_id,event,count(*) AS n FROM notification_inbox WHERE person_id=? AND read_at IS NULL GROUP BY branch_id,event',
+                     (admin['person_id'],)) if admin_receives_event(admin,r['branch_id'],r['event']))
     items = []
     for row in rows:
         if not admin_receives_event(admin, row['branch_id'], row['event']):
             continue
         items.append({'id': row['id'], 'event': row['event'], 'created': row['created'], 'read': bool(row['read_at']),
                       **services.notifications._decrypt(row['payload'])})
-    return jsonify(items=items)
+    return jsonify(items=items, unread=unread)
+
+
+@app.post('/admin/api/notification-inbox/read-all')
+@admin_auth.require_auth
+def read_all_notifications():
+    from identity_service import admin_receives_event
+    services = product_services()
+    admin = services.identity.web_admin(session['admin_username'])
+    with services.store.connect() as db:
+        rows = db.execute('SELECT id,branch_id,event FROM notification_inbox WHERE person_id=? AND read_at IS NULL',
+                          (admin.get('person_id'),)).fetchall()
+        db.executemany('UPDATE notification_inbox SET read_at=? WHERE id=? AND person_id=?',
+                       [(time.time(),r['id'],admin['person_id']) for r in rows if admin_receives_event(admin,r['branch_id'],r['event'])])
+    return jsonify(status='success')
+
+
+@app.route('/admin/client-notices', methods=['GET','POST'])
+@admin_auth.require_auth
+def client_notices_page():
+    from storage.sql_documents import read_document, write_document
+    services = product_services()
+    username = session['admin_username']
+    page = request.args.get('page',1,type=int)
+    if not 1 <= page <= 1000000:
+        abort(400)
+    with services.store.connect() as db:
+        actor = services.identity._admin(db,username)
+        branches = read_document(db,'branches.json')
+        choices = {key:value.get('name',key) for key,value in branches.items()
+                   if actor.get('is_super') or key in actor['branch_ids']}
+        if request.method=='POST' and not request.form.get('branch_id'):
+            abort(400)
+        branch_id = (request.form if request.method=='POST' else request.args).get('branch_id') or next(iter(choices),None)
+        if branch_id:
+            if branch_id not in choices:
+                abort(403)
+            services.identity._scope(db,username,branch_id)
+        if request.method == 'POST':
+            if not branch_id or request.form.get('enabled') not in ('1','0'):
+                abort(400)
+            branches[branch_id]['client_notifications_enabled'] = request.form['enabled']=='1'
+            write_document(db,'branches.json',branches)
+            return redirect(url_for('client_notices_page',branch_id=branch_id))
+        rows = db.execute("""SELECT channel,payload,created,state,id FROM message_outbox
+            WHERE branch_id=? AND audience IN ('client','desk_reply')
+            UNION ALL SELECT n.channel,n.payload,n.created,e.state,n.id FROM client_direct_notices n
+            JOIN message_effects e ON e.id=n.id WHERE n.branch_id=?
+            ORDER BY created DESC,id DESC LIMIT 51 OFFSET ?""",(branch_id,branch_id,(page-1)*50)).fetchall()
+        items = []
+        from timeutil import timezone as branch_zone
+        from datetime import datetime
+        zone=branch_zone(branches.get(branch_id,{}).get('timezone','Europe/Moscow'))
+        clients=read_document(db,'links.json')
+        for row in rows[:50]:
+            detail = services.notifications._decrypt(row['payload'])
+            card=clients.get(detail.get('token')) or {}
+            recipient=(card.get('user_name') if str(card.get('branch_id'))==branch_id else '') or ''
+            if not recipient and row['channel']!='push':
+                recipient=detail.get('target','')
+            items.append({'channel':row['channel'],'text':detail['text'],'state':row['state'],
+                          'recipient':recipient,
+                          'time':datetime.fromtimestamp(row['created'],zone).strftime('%d.%m.%Y %H:%M:%S')})
+    return _admin_template('admin/client-notices.html', choices=choices, branch_id=branch_id, items=items, page=page,
+                           has_next=len(rows)>50, enabled=branches.get(branch_id,{}).get('client_notifications_enabled',True),
+                           system_enabled=config.outbound_enabled('client'))
 
 
 @app.post('/api/access/contact')
@@ -621,7 +695,11 @@ def admin_logs():
 @app.route("/admin/settings")
 @admin_auth.require_auth
 def admin_settings():
-    return _admin_template("admin/settings.html")
+    modems = []
+    if _scope() is None:
+        from modem_settings import read_modems
+        modems = [{'id': row['id'], 'name': row['name']} for row in read_modems(product_services().store)]
+    return _admin_template("admin/settings.html", available_modems=modems)
 
 
 @app.route("/admin/telephony")
@@ -780,7 +858,7 @@ def telephony_mark_read(record_id):
     return jsonify(status='success')
 
 
-def _public_branch_settings(branch):
+def _public_branch_settings(branch, *, include_modems=False):
     raw = branch_manager.load_branches().get(str(branch.branch_id), {})
     return {
         "branch_id": branch.branch_id, "name": branch.name, "timezone": branch.timezone,
@@ -788,6 +866,9 @@ def _public_branch_settings(branch):
         "yclients_enabled": branch.yclients_enabled, "id_origin": branch.id_origin,
         "sms_notifications_enabled": getattr(branch,'sms_notifications_enabled',False),
         "hardware_routes_verified": raw.get('hardware_routes_verified', True),
+        **({'modem_ids': raw.get('modem_ids')} if include_modems else {}),
+        "pass_duration_hours": branch.pass_duration_hours,
+        "auto_approve_pass_requests": branch.auto_approve_pass_requests,
         "buttons": [{"type": button.type, "label": button.label, "phone": button.phone,
                      "stable_id": button.stable_id}
                     for button in branch.buttons],
@@ -816,10 +897,13 @@ def api_branch_settings():
         if value is None and scope is None:
             return jsonify(settings=None)
         branch = _choose_branch(value)
-        return jsonify(settings=_public_branch_settings(branch))
+        return jsonify(settings=_public_branch_settings(branch, include_modems=scope is None))
     data = _json_body()
     allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons", "yclients_enabled", "sms_notifications_enabled"}
-    if set(data) - allowed:
+    allowed.update({'pass_duration_hours', 'auto_approve_pass_requests'})
+    if 'modem_ids' in data and scope is not None:
+        abort(403, description='Настройка модемов доступна только администрации сервиса')
+    if set(data) - (allowed | {'modem_ids'}):
         abort(400, description="Недопустимые поля настроек филиала")
     create = _boolean(data.get("create", False), "Создать филиал")
     internal_create = create and data.get('yclients_enabled') is False
@@ -861,11 +945,18 @@ def api_branch_settings():
             if not isinstance(stable, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{12,64}', stable):
                 abort(400, description='Некорректный идентификатор ворот')
             validated_buttons[-1]['stable_id'] = stable
+    hours = data.get('pass_duration_hours',raw_branch.get('pass_duration_hours',8))
+    if type(hours) is not int or not 1 <= hours <= 168:
+        abort(400, description='Укажите срок разового пропуска от 1 до 168 часов')
     settings = {"name": _text(data.get("name"), "Название филиала", required=True),
                 "timezone": zone, "enabled": _boolean(data.get("enabled"), "Филиал активен"),
                 "logo": _logo_url(data.get("logo")), "buttons": validated_buttons,
                 "yclients_enabled": yclients_enabled,
+                "pass_duration_hours": hours,
+                "auto_approve_pass_requests": _boolean(data.get('auto_approve_pass_requests',raw_branch.get('auto_approve_pass_requests',False)), 'Автоматически выдавать пропуск'),
                 "sms_notifications_enabled": _boolean(data.get('sms_notifications_enabled',raw_branch.get('sms_notifications_enabled',False)), 'Разрешить SMS-уведомления')}
+    if 'modem_ids' in data:
+        settings['modem_ids'] = data['modem_ids']
     try:
         if create:
             billing = product_services().billing
@@ -889,12 +980,14 @@ def api_branch_settings():
             if updated and raw_branch.get('hardware_routes_verified') is False and any(b['type'] == 'gate' for b in validated_buttons):
                 with branch_manager.store.transaction() as stored:
                     stored[str(branch_id)]['hardware_routes_verified'] = True
-    except ValueError:
+    except ValueError as error:
+        if 'модем' in str(error):
+            abort(400, description=str(error))
         abort(400, description="Проверьте настройки: номера кнопок одного типа не должны повторяться")
     if not updated:
         abort(404, description="Филиал не найден")
     _audit("BRANCH_CREATED" if create else "BRANCH_SETTINGS_UPDATED", branch_id, changed_fields=sorted(settings))
-    return jsonify(status="success", settings=_public_branch_settings(branch_manager.get_branch(branch_id)))
+    return jsonify(status="success", settings=_public_branch_settings(branch_manager.get_branch(branch_id), include_modems=scope is None))
 
 
 def _users_in_scope():
@@ -998,7 +1091,7 @@ def api_create_link():
             "user_name": _text(data.get("user_name"), "Имя", required=True),
             "phone": _phone(data.get("phone")), "branch_id": branch.branch_id,
             "email": _client_email(data.get("email", "")),
-            "mailing_enabled": False, "gate_access": True, "access_source": "manual"}
+            "gate_access": True, "access_source": "manual"}
     send = _boolean(data.get("send_link", False), "Отправить ссылку")
     channel = _pass_delivery_channel(data.get('channel','auto'))
     if send and channel=='email' and not user['email']:
@@ -1029,9 +1122,8 @@ def api_create_temp_link():
     user = {"user_name": "Гость", "phone": phone, "email":email, "branch_id": branch.branch_id,
             "mailing_enabled": False, "gate_access": True, "is_temporary": True,
             "access_source": "manual"}
-    expiry = end_of_day(tz=getattr(branch, "timezone", None) or config.TIMEZONE)
-    token = link_manager.create_link(user, expires_at=expiry)
-    _audit("CREATE_TEMP_LINK", branch.branch_id, expires_at=expiry.isoformat())
+    token = link_manager.create_guest(branch, phone, email=email)
+    _audit("CREATE_TEMP_LINK", branch.branch_id, expires_at=link_manager.load_links()[token]['access_expires'])
     delivery = _send_link(phone, token, user, channel) if send else {"status": "not_requested"}
     return jsonify(status="success" if delivery["status"] in {"sent", "not_requested"} else "partial",
                    created=True, token=token, link=url_for("open_barrier", token=token), delivery=delivery)
@@ -1104,6 +1196,10 @@ def api_set_mailing():
     data = _json_body()
     token, user = _scoped_link(data.get("token"))
     enabled = _boolean(data.get("enabled"), "Рассылка")
+    from notification_policy import DISABLED_MESSAGE
+    branch = branch_manager.load_branches().get(str(user['branch_id']),{})
+    if not config.outbound_enabled('client') or not branch.get('client_notifications_enabled',True):
+        abort(403,description=DISABLED_MESSAGE)
     if not link_manager.set_mailing_enabled(token, enabled):
         abort(404, description="Пользователь не найден")
     _audit("SET_MAILING", user["branch_id"], mailing_enabled=enabled)
@@ -1362,6 +1458,8 @@ from client_feedback import create_blueprint as feedback_blueprint
 from branch_desk_web import create_blueprint as branch_desk_blueprint
 app.register_blueprint(branch_desk_blueprint(product_provider))
 app.register_blueprint(feedback_blueprint(product_provider))
+from service_api import create_blueprint as service_api_blueprint
+app.register_blueprint(service_api_blueprint(product_provider))
 app.register_blueprint(branding_blueprint(product_provider))
 app.register_blueprint(pwa_blueprint(product_provider))
 app.register_blueprint(palette_blueprint(product_provider))

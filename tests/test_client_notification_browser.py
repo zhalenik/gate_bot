@@ -14,6 +14,7 @@ pytestmark=pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reaso
 
 @pytest.fixture
 def client_preferences(web,tmp_path,monkeypatch):
+    monkeypatch.setattr('storage.config.CLIENT_OUTBOUND_ENABLED',True)
     migrate_legacy(tmp_path,activate=True)
     monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
     identity=web.module.product_services().identity

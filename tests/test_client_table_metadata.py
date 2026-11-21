@@ -28,7 +28,7 @@ def seed_clients(store, branch_id, count=100):
             person=db.execute('SELECT person_id FROM branch_clients WHERE legacy_token=?',(token,)).fetchone()[0]
             preferences={'channels':{'email':True,'telegram':True,'max':True,'messengers':True}}
             if index%7==0:preferences['verified_email']=links[token]['email']
-            db.execute('INSERT INTO notification_preferences(person_id,audience,branch_id,payload) VALUES(?,"client",?,?)',
+            db.execute('INSERT OR REPLACE INTO notification_preferences(person_id,audience,branch_id,payload) VALUES(?,"client",?,?)',
                        (person,str(branch_id),json.dumps(preferences)))
     return tokens
 

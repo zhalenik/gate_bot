@@ -2,7 +2,7 @@
 (() => {
     const $=id=>document.getElementById(id),list=$('notificationList');
     if(!list)return;
-    let items=[],unreadOnly=false,busy=false;
+    let items=[],unreadOnly=false,busy=false,unreadTotal=0;
     const element=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls;if(text!==undefined)node.textContent=text;return node;};
     const titles={gate_requested:'Запрос открытия ворот',gate_denied:'Отказ в доступе',gate_error:'Ошибка открытия',admin_contact_requested:'Запрос контакта администратора',invitation_accepted:'Приглашение принято',access_changed:'Пропуск изменён',crm_error:'Связь с CRM',crm_recovered:'CRM снова доступна',modem_error:'Модем недоступен',modem_recovered:'Модем снова доступен',delivery_failed:'Сообщение не доставлено',subscription_expiring:'Подписка заканчивается',subscription_expired:'Подписка закончилась',quota_warning:'Квота заканчивается',quota_exhausted:'Квота исчерпана',branch_registered:'Регистрация нового филиала',marketplace_disconnected:'Отключение в маркетплейсе YCLIENTS',sms_received:'Входящее SMS',call_received:'Входящий звонок'};
     function icon(kind){
@@ -11,7 +11,8 @@
     }
     function fail(text){$('notificationError').textContent=text;$('notificationError').hidden=false;}
     function render(){
-        const count=items.filter(item=>!item.read).length;$('notificationCount').textContent=count;$('notificationCount').hidden=!count;
+        $('readAllNotifications').hidden=!unreadTotal;
+        const count=unreadTotal;$('notificationCount').textContent=count;$('notificationCount').hidden=!count;
         $('showAllNotifications').setAttribute('aria-pressed',String(!unreadOnly));$('showUnreadNotifications').setAttribute('aria-pressed',String(unreadOnly));
         list.replaceChildren();const visible=items.filter(item=>!unreadOnly||!item.read).sort((a,b)=>b.created-a.created);
         if(!visible.length){const empty=element('div','empty-state');empty.append(element('h2','',unreadOnly?'Всё прочитано':'Пока нет уведомлений'),element('p','',unreadOnly?'Новые события появятся здесь.':'Здесь будут запросы, изменения доступа и служебные события.'));list.append(empty);return;}
@@ -24,7 +25,7 @@
                 const link=element('a','btn-action','Перейти к диалогу');
                 link.href=(location.pathname.startsWith('/office/')?'/office/messages':'/admin/client-messages')+'?thread='+encodeURIComponent(item.thread_id);content.append(link);
                 if(item.event==='pass_requested'&&item.desk_message_id){
-                    const allow=element('button','btn-action','Разрешить до конца дня');allow.type='button';content.append(allow);
+                    const allow=element('button','btn-action','Выдать разовый пропуск');allow.type='button';content.append(allow);
                     allow.onclick=async()=>{
                         allow.disabled=true;
                         try{
@@ -37,11 +38,19 @@
                 }
             }
             article.append(mark,content);
-            if(!item.read){const button=element('button','icon-button notification-read');button.type='button';button.title='Отметить прочитанным';button.setAttribute('aria-label','Отметить прочитанным: '+title);button.append(icon('read'));button.onclick=async()=>{button.disabled=true;try{const response=await fetch('/admin/api/notification-inbox/'+encodeURIComponent(item.id)+'/read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:'{}'});if(!response.ok)throw new Error('Не удалось обновить уведомление');item.read=true;render();}catch(error){fail(error.message);button.disabled=false;}};article.append(button);}
+            if(!item.read){const button=element('button','icon-button notification-read');button.type='button';button.title='Отметить прочитанным';button.setAttribute('aria-label','Отметить прочитанным: '+title);button.append(icon('read'));button.onclick=async()=>{button.disabled=true;try{const response=await fetch('/admin/api/notification-inbox/'+encodeURIComponent(item.id)+'/read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:'{}'});if(!response.ok)throw new Error('Не удалось обновить уведомление');item.read=true;unreadTotal=Math.max(0,unreadTotal-1);render();}catch(error){fail(error.message);button.disabled=false;}};article.append(button);}
             list.append(article);
         }
     }
-    async function refresh(){if(busy)return;busy=true;list.setAttribute('aria-busy','true');$('refreshNotifications').disabled=true;try{const response=await fetch('/admin/api/notification-inbox',{credentials:'same-origin'});const value=await response.json();if(!response.ok)throw new Error(value.message||'Не удалось загрузить уведомления');items=value.items||[];$('notificationError').hidden=true;render();}catch(error){fail(error.message);}finally{busy=false;list.setAttribute('aria-busy','false');$('refreshNotifications').disabled=false;}}
+    async function refresh(){if(busy)return;busy=true;list.setAttribute('aria-busy','true');$('refreshNotifications').disabled=true;try{const response=await fetch('/admin/api/notification-inbox',{credentials:'same-origin'});const value=await response.json();if(!response.ok)throw new Error(value.message||'Не удалось загрузить уведомления');items=value.items||[];unreadTotal=value.unread??items.filter(item=>!item.read).length;$('notificationError').hidden=true;render();}catch(error){fail(error.message);}finally{busy=false;list.setAttribute('aria-busy','false');$('refreshNotifications').disabled=false;}}
     $('showAllNotifications').onclick=()=>{unreadOnly=false;render();};$('showUnreadNotifications').onclick=()=>{unreadOnly=true;render();};$('refreshNotifications').onclick=refresh;
+    $('readAllNotifications').onclick=async()=>{
+        const button=$('readAllNotifications');button.disabled=true;
+        try{
+            const result=await fetch('/admin/api/notification-inbox/read-all',{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content}});
+            if(!result.ok)throw Error('Не удалось обновить уведомления');
+            await refresh();
+        }catch(error){fail(error.message);}finally{button.disabled=false;}
+    };
     refresh();setInterval(()=>{if(!document.hidden)refresh();},30000);
 })();

@@ -63,6 +63,9 @@ def test_crm_access_changes_have_timestamp_but_repeated_snapshot_does_not(passes
     assert links.load_links()[token]['pass_changed_at']==granted
     assert links.reconcile_appointments(11,{},at=clock[0])['changed']==1
     assert links.load_links()[token]['pass_changed_at']==clock[0].isoformat()
+    clock[0]=datetime.fromisoformat(links.load_links()[token]['access_expires'])+timedelta(seconds=1)
+    assert links.reconcile_appointments(11,eligible,at=clock[0])['changed']==0
+    assert links.load_links()[token]['gate_access'] is False
 
 
 def test_role_grant_and_revoke_timestamp_follow_actual_identity_writers(identities,monkeypatch):

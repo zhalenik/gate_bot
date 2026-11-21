@@ -44,7 +44,7 @@ def test_missing_id_reuses_token_person_and_preferences_in_own_branch(matched_st
     assert client['tg_id'] == '501' and client['max_id'] == '502'
     assert client['email'] == 'local@example.invalid' and client['email_override']
     assert client['mailing_enabled'] is False and access_is_active(client, AT)
-    assert client['access_expires'] == '2026-11-05T23:59:59.999999+03:00'
+    assert client['access_expires'] == '2026-11-05T20:00:00+03:00'
     assert result['changed'] == 1 and len(events) == 1 and events[0]['token'] == token
     snapshot = deepcopy(after)
     assert apply(links, {'101': {'id': 101, 'phone': crm_phone}})['changed'] == 0

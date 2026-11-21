@@ -89,6 +89,8 @@ class YClientsClientSync:
     def _snapshot(self, db, branch_id, token, phone, expected_id, actor):
         state = self._availability(db, branch_id, actor)
         client = read_document(db, 'links.json').get(token)
+        if client and client.get('system_phone'):
+            return client, self._result('unavailable','Укажите телефон гостя для поиска в YCLIENTS.',client)
         if (not client or str(client.get('branch_id')) != branch_id or
                 _phone_key(client.get('phone')) != _phone_key(phone) or not _same_id(client.get('id_ycl'), expected_id)):
             return client, self._result('stale', 'Карточка клиента изменилась. Обновите её перед повторным поиском.', client)

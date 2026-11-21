@@ -41,7 +41,7 @@ def enqueue_client_changes(db, links, previous):
         db.execute('UPDATE yclients_client_sync_jobs SET state="done",outcome="stale",claim=NULL,updated=? '
                    'WHERE client_token=? AND batch_id IS NOT NULL AND state!="done"', (stamp, token))
     for token, client in links.items():
-        if not isinstance(client, dict):
+        if not isinstance(client, dict) or client.get('system_phone'):
             continue
         branch_id = str(client.get('branch_id'))
         branch = branches.get(branch_id)
@@ -95,7 +95,7 @@ class YClientsClientSyncJobs:
                 if status['state'] in {'queued', 'running'}:
                     return status
             clients = {token: client for token, client in read_document(db, 'links.json').items()
-                       if str(client.get('branch_id')) == branch_id}
+                       if str(client.get('branch_id')) == branch_id and not client.get('system_phone')}
             identifier, stamp = uuid.uuid4().hex, self.clock()
             db.execute('INSERT INTO yclients_client_sync_batches VALUES(?,?,?,?,?,?)',
                        (identifier, branch_id, username, 'queued' if clients else 'complete', stamp, stamp))

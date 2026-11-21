@@ -22,7 +22,7 @@
         <button id="loadChats" class="text-button load-more" type="button" hidden>Ещё диалоги</button>
         <button id="loadCalls" class="text-button load-more" type="button" hidden>Ещё звонки</button>
       </div>
-      <div class="sidebar-footer"><button id="modemStatus" class="connection" type="button" aria-label="Состояние модема"><span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="connectionLabel">Подключение…</span></button><span id="modeBadge" class="mode-badge" hidden>Имитация</span></div>
+      <div class="sidebar-footer"><div id="modemIndicators" aria-label="Состояние модемов"></div><span id="modeBadge" class="mode-badge" hidden>Имитация</span></div>
     </aside>
     <section id="smsPanel" class="conversation" role="tabpanel" aria-labelledby="modeSms">
       <div id="threadEmpty" class="empty-state"><span class="empty-icon" data-icon="message"></span><h2>Ваши сообщения</h2><p>Выберите чат или напишите новое сообщение.</p><button id="emptyCompose" class="text-button" type="button">Написать сообщение<span data-icon="arrow-right"></span></button></div>

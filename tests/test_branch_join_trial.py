@@ -10,7 +10,6 @@ from branch_join import BranchJoin
 from branch_lifecycle import BranchLifecycleService
 from storage.sql_documents import read_document, write_document
 from test_identity_product import identities, PASSWORD, PHONE
-from timeutil import end_of_day
 
 
 def code(state):
@@ -40,7 +39,7 @@ def join_flow(state, phone, crm=True):
 
 
 @pytest.mark.parametrize('crm',[False, True])
-def test_new_guest_end_of_branch_day_and_rotation(identities, crm):
+def test_new_guest_duration_and_rotation(identities, crm):
     state = identities
     svc, raw, lookup = join_flow(state, '+15550100222', crm=crm)
     assert svc.profile(raw,'browser') == {'name':'','email':'','existing':False}
@@ -51,7 +50,7 @@ def test_new_guest_end_of_branch_day_and_rotation(identities, crm):
     assert svc.finish(raw,'browser','Guest','')['url'] == url
     record = state.links.load_links()[url.split('/')[-1]]
     assert record['is_temporary'] and record['gate_access'] and record['branch_id']==11
-    assert record['access_expires'] == end_of_day(datetime.fromtimestamp(state.clock[0], timezone.utc),'Asia/Vladivostok').isoformat()
+    assert datetime.fromisoformat(record['access_expires']).timestamp()==state.clock[0]+8*3600
     svc.admin_view('north','11','rotate')
     with pytest.raises(ValueError):
         svc.finish(raw,'browser','Guest','')
@@ -75,7 +74,7 @@ def test_yclients_lookup_failure_retry_and_existing_block(identities):
     assert card['admin_blocked'] and card['id_ycl']==91
 
 
-def test_crm_match_gets_own_profile_and_appointment_controls_access(identities):
+def test_crm_match_gets_own_profile_and_an_immediate_pass(identities):
     state = identities
     phone = '+15550100222'
     svc, raw, lookup = join_flow(state,phone)
@@ -84,7 +83,7 @@ def test_crm_match_gets_own_profile_and_appointment_controls_access(identities):
     assert profile == {'name':'A','email':'crm@example.invalid','existing':False}
     token = svc.finish(raw,'browser',profile['name'],profile['email'])['url'].split('/')[-1]
     card = state.links.load_links()[token]
-    assert card['id_ycl']==81 and not card['is_temporary'] and not card['gate_access']
+    assert card['id_ycl']==81 and not card['is_temporary'] and card['gate_access']
     at=datetime.fromtimestamp(state.clock[0],timezone.utc)
     state.links.reconcile_appointments(11,{81:{'id':81,'phone':phone}},at=at)
     assert state.links.load_links()[token]['gate_access']

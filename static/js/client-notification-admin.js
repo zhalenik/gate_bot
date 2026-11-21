@@ -39,7 +39,7 @@ async function openClientNotifications(token) {
     function selected(channel,value){const choices=Object.fromEntries(allowed().map(key=>[key,Boolean(prefs.enabled&&prefs.channels[key])]));choices[channel]=value;return {enabled:value||prefs.enabled,channels:choices};}
     function closeConnection(){connecting=null;connection.hidden=true;connection.replaceChildren();}
     function syncTable(){const current=usersCache.find(item=>item.token===token);if(!current)return;current.mailing_enabled=prefs.enabled;current.email=prefs.email;current.notification_status={available:true,enabled:prefs.enabled,allowed_channels:prefs.allowed_channels,effective_channels:prefs.effective_channels};filterUsers();}
-    function setBusy(value){busy=value;for(const [channel,card] of Object.entries(cards))card.input.disabled=value||card.card.hidden||(channel==='push'&&!prefs?.connected.push);stop.disabled=value;for(const item of connection.querySelectorAll('input,button'))item.disabled=value;refreshButton.disabled=value;}
+    function setBusy(value){busy=value;for(const [channel,card] of Object.entries(cards))card.input.disabled=value||prefs?.delivery_enabled===false||card.card.hidden||(channel==='push'&&!prefs?.connected.push);stop.disabled=value||prefs?.delivery_enabled===false;for(const item of connection.querySelectorAll('input,button'))item.disabled=value;refreshButton.disabled=value;}
     function paint(){
         if(!prefs||!view.modal.isConnected)return;
         for(const channel of allowed()){
@@ -50,14 +50,14 @@ async function openClientNotifications(token) {
             }
         }
         const active=Boolean(prefs.enabled&&allowed().some(channel=>prefs.effective_channels[channel]));
-        state.textContent=active?'Уведомления отправляются по включённым каналам.':'Выберите каналы для уведомлений о пропуске.';stop.hidden=!active;
+        state.textContent=prefs.delivery_enabled===false?'Уведомления отключены администратором':active?'Уведомления отправляются по включённым каналам.':'Выберите каналы для уведомлений о пропуске.';stop.hidden=!active||prefs.delivery_enabled===false;
         for(const [channel,card] of Object.entries(cards)){
-            card.card.hidden=!allowed().includes(channel);card.input.checked=Boolean(prefs.effective_channels[channel]);card.input.disabled=busy||card.card.hidden||(channel==='push'&&!prefs.connected.push);
+            card.card.hidden=!allowed().includes(channel);card.input.checked=Boolean(prefs.effective_channels[channel]);card.input.disabled=busy||prefs.delivery_enabled===false||card.card.hidden||(channel==='push'&&!prefs.connected.push);
             const connected=!!prefs.connected[channel];card.description.textContent=connected?(card.input.checked?'Включено':'Выключено'):(channel==='messengers'?'Сервис рассылки пока недоступен':'Включите, чтобы подключить');
             if(channel==='email'&&prefs.email)card.description.textContent+=' · '+prefs.email;
             if(channel==='push'&&!connected)card.description.textContent='Клиент подключает Push в установленном приложении';
         }
-        if(connecting&&!allowed().includes(connecting))closeConnection();
+        if(connecting&&(prefs.delivery_enabled===false||!allowed().includes(connecting)))closeConnection();
         syncTable();
     }
     async function save(changes){

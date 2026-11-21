@@ -17,9 +17,10 @@
   for(const field of settings.fields){
    const row=node('div','','form-group system-settings-field');row.dataset.key=field.key;
    const invalidTyped=!!field.validation_error&&['bool','int','float'].includes(field.kind);
-   const label=node('label',field.label),input=document.createElement(field.kind==='select'?'select':'input');input.name=field.key;input.id='setting-'+field.key;label.htmlFor=input.id;
+   const label=node('label',field.label),input=document.createElement(field.kind==='select'?'select':field.kind==='template'?'textarea':'input');input.name=field.key;input.id='setting-'+field.key;label.htmlFor=input.id;
    if(field.kind==='select'){if(field.validation_error){const previous=node('option','Текущее значение: '+display(field.value));previous.value=field.value;input.append(previous);}for(const value of field.options){const option=node('option',value);option.value=value;input.append(option);}input.value=field.value;}
    else if(field.kind==='bool'&&!invalidTyped){input.type='checkbox';input.checked=field.value;label.className='checkbox-label';}
+   else if(field.kind==='template'){input.value=field.value;input.rows=3;input.maxLength=1024;}
    else{input.type=field.secret?'password':invalidTyped?'text':['int','float'].includes(field.kind)?'number':field.kind==='url'||field.kind==='https_url'?'url':'text';input.value=field.secret?'':field.value??'';input.autocomplete=field.secret?'new-password':'off';input.maxLength=field.secret?8192:1024;if(field.minimum!==undefined)input.min=field.minimum;if(field.maximum!==undefined)input.max=field.maximum;if(field.kind==='float')input.step='any';}
    label.append(input);row.append(label,node('small',field.key));
    if(field.help)row.append(node('p',field.help,'form-hint'));
@@ -54,5 +55,43 @@
   });
  });
  resetAll.addEventListener('click',()=>{if(!confirm('Вернуть все системные параметры к значениям окружения / .env после перезапуска? Настройки SMTP сохранятся.'))return;perform(async()=>{paint(await api({revision:snapshot.revision,reset:snapshot.fields.filter(field=>field.overridden).map(field=>field.key)}));tell('Возврат к окружению сохранён. Перезапустите сервис для применения.');});});
+ const compose=document.getElementById('composePreview'), output=document.getElementById('composeText');
+ compose.addEventListener('submit',event=>{
+  event.preventDefault();
+  perform(async()=>{
+   const response=await fetch(compose.action+'?'+new URLSearchParams(new FormData(compose)),{cache:'no-store'});
+   if(!response.ok){output.value='';output.parentElement.hidden=true;throw Error((await response.json()).message||'Не удалось сформировать YAML');}
+   output.value=await response.text();output.parentElement.hidden=false;
+  });
+ });
+ const password=document.getElementById('transferPassword'),file=document.getElementById('settingsImportFile'),restore=document.getElementById('settingsImport');
+ async function transfer(operation,data){
+  const response=await fetch('/admin/api/system-settings/'+operation,{method:'POST',cache:'no-store',
+   headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content},
+   body:JSON.stringify({...data,password:password.value})});
+  if(!response.ok)throw Error((await response.json()).message||'Не удалось обработать файл настроек');
+  return response;
+ }
+ function passwordReady(){password.required=true;return password.reportValidity();}
+ document.getElementById('settingsExport').onclick=()=>{
+  if(!passwordReady())return;
+  perform(async()=>{
+   const response=await transfer('export',{});
+   const url=URL.createObjectURL(await response.blob()),download=document.createElement('a');
+   download.href=url;download.download='gatebot-settings.json';download.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+   password.value='';tell('Файл настроек сформирован');
+  });
+ };
+ file.onchange=()=>{restore.disabled=!file.files.length;};
+ restore.onclick=()=>{
+  if(!snapshot||!file.files.length||!passwordReady()||!confirm('Заменить системные параметры, модемы и SMTP настройками из этого файла?'))return;
+  perform(async()=>{
+   if(file.files[0].size>1024*1024)throw Error('Файл должен быть меньше 1 МБ');
+   let documentData;
+   try{documentData=JSON.parse(await file.files[0].text());}catch{throw Error('Не удалось прочитать файл JSON');}
+   await transfer('import',{revision:snapshot.revision,document:documentData});
+   password.value='';location.reload();
+  });
+ };
  perform(async()=>paint(await api()));
 })();

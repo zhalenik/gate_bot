@@ -10,12 +10,14 @@ import uuid
 from identity_service import admin_receives_event
 from link_manager import access_is_active, normalize_phone
 from pass_notifications import timely_grant
+from notification_policy import client_delivery_enabled, delivery_audience, transport_enabled
 from storage import config
 from storage.sql_documents import read_document
 
 
 TITLES = {
     'client_message': 'Сообщение клиента', 'pass_requested': 'Клиент запрашивает пропуск',
+    'pass_request_auto_granted': 'Пропуск под запрос выдан автоматически',
     'gate_requested': 'Запрос открытия ворот', 'gate_denied': 'Доступ к воротам отклонён',
     'gate_error': 'Ошибка команды ворот', 'admin_contact_requested': 'Запрошен контакт администратора',
     'invitation_accepted': 'Приглашение администратора принято', 'access_changed': 'Пропуск изменён',
@@ -50,6 +52,9 @@ class ProductNotifications:
             db.execute('CREATE TABLE IF NOT EXISTS message_outbox(id TEXT PRIMARY KEY,audience TEXT NOT NULL,event TEXT NOT NULL,branch_id TEXT,channel TEXT NOT NULL,recipient TEXT NOT NULL,payload TEXT NOT NULL,state TEXT NOT NULL,created REAL NOT NULL,updated REAL NOT NULL,result TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS notification_inbox(id TEXT PRIMARY KEY,person_id TEXT NOT NULL,branch_id TEXT,event TEXT NOT NULL,payload TEXT NOT NULL,created REAL NOT NULL,read_at REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS message_effects(id TEXT PRIMARY KEY,state TEXT NOT NULL,result TEXT,created REAL NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS client_direct_notices(id TEXT PRIMARY KEY,branch_id TEXT NOT NULL,channel TEXT NOT NULL,payload TEXT NOT NULL,created REAL NOT NULL)')
+            db.execute('CREATE INDEX IF NOT EXISTS client_notice_branch_time ON client_direct_notices(branch_id,created)')
+            db.execute('CREATE INDEX IF NOT EXISTS outbox_branch_time ON message_outbox(branch_id,created)')
             db.execute('CREATE TABLE IF NOT EXISTS notification_bridge(id TEXT PRIMARY KEY,created REAL NOT NULL)')
 
     def _encrypt(self, payload):
@@ -60,6 +65,9 @@ class ProductNotifications:
 
     def _enqueue(self, key, audience, event, branch, channel, target, payload, db):
         key = hashlib.sha256(key.encode()).hexdigest()
+        if channel == 'push':
+            from pwa_service import client_push_text
+            payload = {**payload,'text':client_push_text(event)}
         db.execute('INSERT OR IGNORE INTO message_outbox VALUES(?,?,?,?,?,?,?,"pending",?,?,NULL)',
                    (key, audience, event, str(branch) if branch is not None else None, channel,
                     hashlib.sha256(str(target).encode()).hexdigest(),
@@ -102,8 +110,8 @@ class ProductNotifications:
         if not prefs['enabled']:
             return
         event = 'access_granted'
-        text = 'Ваш пропуск на парковку активен.\n'
-        text += config.BASE_URL + '/opn/' + token
+        from message_templates import pass_link
+        text = pass_link(config.BASE_URL + '/opn/' + token)
         targets = {'telegram': payload.get('tg_id'), 'max': payload.get('max_id'),
                    'sms': payload.get('phone'),
                    'email': prefs.get('email') if prefs.get('email_verified') else None}
@@ -125,6 +133,10 @@ class ProductNotifications:
                     from messenger_service import MessengerService
                     plan = MessengerService(self.identity).plan(db, payload.get('branch_id'), token)
                     if not plan['connected']:
+                        continue
+                    # An SMS from the modem uses the customer's separate SMS
+                    # choice. The SMS iteration also prevents a duplicate send.
+                    if plan['provider'] == 'sms':
                         continue
                     physical_channel, target = plan['provider'], plan['target']
                 if not enabled or not target:
@@ -172,7 +184,7 @@ class ProductNotifications:
                     admin = self.identity.web_admin(row['username'])
                 except PermissionError:
                     continue
-                if not admin_receives_event(admin, branch_id, event):
+                if not admin_receives_event(admin, branch_id, event) or not self.identity.event_selected(db,row['person_id'],event):
                     continue
                 if self.pwa and branch_id is not None:
                     for device in self.pwa.office.targets(db, admin, event):
@@ -184,6 +196,10 @@ class ProductNotifications:
                             event, self._encrypt({'text': text, **desk_context}), time.time()))
 
     def _allowed(self, row, payload):
+        if row['audience'] in {'client','desk_reply'}:
+            with self.store.connect() as db:
+                if not client_delivery_enabled(db,row['branch_id']):
+                    return False
         if row['audience'] == 'office':
             with self.store.connect() as db:
                 return bool(self.pwa and self.pwa.office.recipient(db,payload['target'],row['branch_id'],row['event']))
@@ -222,7 +238,7 @@ class ProductNotifications:
             prefs = self.identity.prefs_for_token(payload['token'])
         except (ValueError, PermissionError):
             return False
-        logical_channel = 'messengers' if row['channel'] in {'chatpush', 'yclients'} else row['channel']
+        logical_channel = payload.get('preference_channel') or ('messengers' if row['channel'] in {'chatpush', 'yclients'} else row['channel'])
         if not prefs['enabled'] or not prefs['channels'].get(logical_channel):
             return False
         if row['channel']=='push':
@@ -237,6 +253,8 @@ class ProductNotifications:
                 plan = MessengerService(self.identity).plan(db, row['branch_id'], payload['token'])
             if not plan['connected'] or plan['provider'] != row['channel']:
                 return False
+            if plan['provider']=='sms' and not prefs['channels'].get('sms'):
+                return False
             target = plan['target']
         if str(target) != payload['target']:
             return False
@@ -246,7 +264,8 @@ class ProductNotifications:
         """Explicit service delivery, never retries an ambiguous external effect."""
         if self.stop_event.is_set():
             return {'status': 'failed', 'code': 'runtime_stopping'}
-        if not config.OUTBOUND_ENABLED:
+        audience = delivery_audience(context)
+        if not transport_enabled(audience):
             return {'status': 'failed', 'code': 'outbound_disabled'}
         if channel == 'yclients' and not config.YCLIENTS_ENABLED:
             return {'status': 'pending', 'code': 'yclients_disabled'}
@@ -257,6 +276,10 @@ class ProductNotifications:
         effect_id = hashlib.sha256(json.dumps([channel, context.get('idempotency_key') or uuid.uuid4().hex]).encode()).hexdigest()
         with self.store.connect() as db:
             branch_id=context.get('branch_id')
+            if channel in {'sms','chatpush'} and context.get('client_token'):
+                card = read_document(db,'links.json').get(context['client_token']) or {}
+                if card.get('system_phone'):
+                    return {'status':'skipped','code':'guest_phone_missing','confirmed':False}
             if branch_id is not None:
                 if str(branch_id) not in read_document(db,'branches.json'):
                     # Registration can send its proof before creating a branch.
@@ -267,6 +290,8 @@ class ProductNotifications:
                         (context.get('idempotency_key'),)).fetchone())
                     if not pending_otp:
                         return {'status':'skipped','code':'branch_deleted','confirmed':False}
+            if audience == 'client' and not client_delivery_enabled(db,branch_id):
+                return {'status':'failed','code':'outbound_disabled','confirmed':False}
             previous = db.execute('SELECT * FROM message_effects WHERE id=?', (effect_id,)).fetchone()
             if previous:
                 if previous['state'] == 'unknown':
@@ -278,6 +303,9 @@ class ProductNotifications:
                     return {'status':'failed','code':'sms_notifications_disabled',
                             'message':'SMS-уведомления выключены в настройках филиала','confirmed':False}
             db.execute('INSERT INTO message_effects VALUES(?,"sending",NULL,?)', (effect_id, time.time()))
+            if audience == 'client' and branch_id is not None and not context.get('audience'):
+                content = self._encrypt({'text':text,'target':str(target),'token':context.get('client_token')})
+                db.execute('INSERT INTO client_direct_notices VALUES(?,?,?,?,?)',(effect_id,str(branch_id),channel,content,time.time()))
         result = {'status': 'failed', 'code': 'channel_unavailable'}
         sms_record = None
         sms_journal = None
@@ -291,7 +319,7 @@ class ProductNotifications:
                     if thread_id and context.get('event') in ('client_message','pass_requested'):
                         actions.append({'label':'Ответить','callback':f'x:respond:{thread_id}'})
                         if context['event']=='pass_requested' and message_id:
-                            actions.insert(0,{'label':'Разрешить до конца дня','callback':f'x:approve:{thread_id}:{message_id}'})
+                            actions.insert(0,{'label':'Выдать разовый пропуск','callback':f'x:approve:{thread_id}:{message_id}'})
                     sent = module.notify_text(str(target), text, actions=actions) if actions else module.notify_text(str(target), text)
                     result = {'status': 'accepted' if sent else 'unknown', 'confirmed': False}
             elif channel == 'push':
@@ -306,8 +334,11 @@ class ProductNotifications:
                     html = render_welcome(context.get('welcome') or {}, config.BASE_URL)
                 else:
                     subject, html = 'GateBot — уведомление', '<p>' + escape(text).replace('\n', '<br>') + '</p>'
-                sent = send_email(target, subject, html)
+                sent = send_email(target, subject, html, audience=audience)
                 result = {'status': 'accepted' if sent else 'failed', 'confirmed': False}
+            elif channel == 'yclients' and context.get('event') == 'api_verification_code':
+                from service_api import send_yclients_code
+                result = send_yclients_code(self.identity, self.branches, context['branch_id'], target, text)
             elif channel in {'chatpush', 'yclients'} and context.get('purpose') == 'integration_test':
                 from integration_test_delivery import IntegrationTestDelivery
                 result = IntegrationTestDelivery(self.identity).deliver(channel, target, text, context)
@@ -317,7 +348,7 @@ class ProductNotifications:
             elif channel == 'chatpush':
                 from chatpush import send_message
                 result = send_message(target, text, context.get('branch_id'),
-                    credentials=self.identity.integration_credentials(context.get('branch_id'), 'chatpush'), external_id=effect_id)
+                    credentials=self.identity.integration_credentials(context.get('branch_id'), 'chatpush'), external_id=effect_id, audience=audience)
             elif channel == 'sms':
                 import sim800c
                 from sms_submit import encode_submit
@@ -348,7 +379,7 @@ class ProductNotifications:
                     else:
                         sensitive = context.get('purpose') == 'otp'
                         result = queue.add_manual('sms', target, text=text, record_id=sms_record,
-                                                 sensitive=sensitive, priority=sensitive, command_id=effect_id,
+                                                 sensitive=sensitive, priority=sensitive, command_id=effect_id, branch_id=context.get('branch_id'),
                                                  before_submit=lambda key=effect_id,ctx=dict(context):self._authorize_queued_sms(key,ctx))
         except Exception as exc:
             result = {'status': 'unknown', 'code': 'transport_result_unknown'}
@@ -376,13 +407,20 @@ class ProductNotifications:
         return result
 
     def _authorize_queued_sms(self, effect_id, context):
-        if not config.OUTBOUND_ENABLED:
+        audience = delivery_audience(context)
+        if not transport_enabled(audience):
             return False
         branch_id=context.get('branch_id')
+        if audience == 'client':
+            with self.store.connect() as db:
+                if not client_delivery_enabled(db,branch_id):
+                    return False
+                if context.get('client_token') and read_document(db,'links.json').get(context['client_token'],{}).get('system_phone'):
+                    return False
         if branch_id is not None and context.get('billing_exempt')!='registration':
             if not self.billing.sms.authorize_sms(effect_id):
                 return False
-        if context.get('preference_channel')=='sms' or context.get('event')=='manual_pass':
+        if context.get('preference_channel') in {'sms','messengers'} or context.get('event')=='manual_pass':
             branch=self.branches.get_branch(branch_id)
             if not branch or not getattr(branch,'sms_notifications_enabled',False):
                 return False
@@ -393,19 +431,29 @@ class ProductNotifications:
                     access_is_active(current)!=(context['event']=='access_granted')):
                 return False
             try:
-                return bool(self.identity.prefs_for_token(context.get('client_token'))['effective_channels'].get('sms'))
+                prefs = self.identity.prefs_for_token(context.get('client_token'))
+                if context.get('preference_channel') == 'messengers':
+                    from messenger_service import MessengerService
+                    with self.store.connect() as db:
+                        plan = MessengerService(self.identity).plan(db,branch_id,context.get('client_token'))
+                    return bool(plan['connected'] and plan['provider']=='sms' and prefs['effective_channels'].get('sms'))
+                return bool(prefs['effective_channels'].get('sms'))
             except (ValueError,PermissionError):
                 return False
         return True
 
     def process_once(self):
-        if config.OUTBOUND_ENABLED:
+        if config.outbound_enabled('client') or config.outbound_enabled('admin'):
             for _ in range(10):
                 if self.stop_event.is_set():
                     break
                 with self.store.connect() as db:
                     waiting = [channel for channel in ('telegram', 'max', 'email', 'yclients') if not self._channel_ready(channel)]
                     condition = ' AND channel NOT IN (' + ','.join('?' for _ in waiting) + ')' if waiting else ''
+                    if not config.outbound_enabled('admin'):
+                        condition += " AND audience IN ('client','desk_reply')"
+                    if not config.outbound_enabled('client'):
+                        condition += " AND audience NOT IN ('client','desk_reply')"
                     row = db.execute('SELECT * FROM message_outbox WHERE state="pending"' + condition + ' ORDER BY created LIMIT 1', waiting).fetchone()
                     if not row:
                         break
@@ -421,7 +469,7 @@ class ProductNotifications:
                         db.execute('UPDATE message_outbox SET state="pending",updated=? WHERE id=?', (time.time(), row['id']))
                     break
                 result = self.sender(row['channel'], payload['target'], payload['text'], {
-                    'event': row['event'], 'branch_id': row['branch_id'], 'idempotency_key': row['id'],
+                    'event': row['event'], 'audience':row['audience'], 'branch_id': row['branch_id'], 'idempotency_key': row['id'],
                     'welcome': payload.get('welcome'), 'client_token': payload.get('token'),
                     'access_revision':payload.get('revision'),
                     'thread_id':payload.get('thread_id'), 'desk_message_id':payload.get('desk_message_id'),
@@ -619,4 +667,6 @@ class ProductNotifications:
     def status(self):
         return {'worker_alive': bool(self.thread and self.thread.is_alive()),
                 'menu_worker_alive': bool(self.menu_thread and self.menu_thread.is_alive()),
-                'outbound_enabled': config.OUTBOUND_ENABLED, 'last_error_type': self._last_error}
+                'outbound_enabled': config.outbound_enabled('client') or config.outbound_enabled('admin'),
+                'client_outbound_enabled':config.outbound_enabled('client'), 'admin_outbound_enabled':config.outbound_enabled('admin'),
+                'last_error_type': self._last_error}

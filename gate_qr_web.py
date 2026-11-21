@@ -98,7 +98,8 @@ def create_blueprint(provider):
     @bp.post('/join/<raw>/code')
     def join_code(raw):
         result = provider()['branch_join'].code(raw, browser(), body().get('phone'), request.remote_addr or '')
-        return jsonify(challenge_id=result['challenge_id'],ready=result['ready'],retry_after=result['retry_after'])
+        return jsonify(challenge_id=result['challenge_id'],ready=result['ready'],
+                       channel=result['channel'],retry_after=result['retry_after'])
 
     @bp.post('/join/<raw>/verify')
     def join_verify(raw):

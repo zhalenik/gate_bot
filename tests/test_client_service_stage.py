@@ -23,7 +23,7 @@ def test_service_duration_and_fallback_with_multiple_visits():
     for records in ([morning,later], [later,morning]):
         eligible = eligible_clients(records, 1, AT)['1']
         assert eligible['_notice_until'] == (AT+timedelta(hours=1,minutes=30)).timestamp()
-        assert eligible['_access_expires'].startswith('2026-11-05T23:59:')
+        assert eligible['_access_expires'] == AT.replace(hour=19).isoformat()
     for ignored in ('', 0, -1, None):
         client = eligible_clients([record(1, 11, seance_length=ignored)], 1, AT)['1']
         assert client['_notice_until'] == AT.timestamp()

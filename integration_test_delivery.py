@@ -51,7 +51,8 @@ class IntegrationTestDelivery:
         credentials = self.identity.integration_credentials(branch_id, provider)
         available = (bool(credentials.get('token')) if provider == 'chatpush' else
                      bool(credentials.get('user_token') and (credentials.get('partner_token') or config.YC_PARTNER_TOKEN)))
-        if not config.OUTBOUND_ENABLED:
+        from notification_policy import client_delivery_enabled
+        if not client_delivery_enabled(db,branch_id):
             reason = 'outbound_disabled'
         elif provider == 'yclients' and not config.YCLIENTS_ENABLED:
             reason = 'yclients_disabled'

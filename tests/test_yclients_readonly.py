@@ -176,7 +176,7 @@ def test_eligible_clients_does_not_fabricate_missing_contact_fields():
     at = datetime(2026, 11, 5, 12, tzinfo=ZoneInfo("Europe/Moscow"))
     records = [{"id": 1, "company_id": 1, "datetime": "2026-11-05T13:00:00+03:00", "client": {"id": 9}}]
     assert eligible_clients(records, 1, at, "Europe/Moscow") == {
-        "9": {"id": 9, "_access_expires": "2026-11-05T23:59:59.999999+03:00",
+        "9": {"id": 9, "_access_expires": "2026-11-05T21:00:00+03:00",
               "_notice_until": at.replace(hour=14).timestamp()}}
 
 

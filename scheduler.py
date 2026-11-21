@@ -1,6 +1,5 @@
 """Single-owner scheduled read-only reconciliation with per-branch isolation."""
 from pathlib import Path
-from datetime import timedelta
 import hashlib
 import json
 import threading
@@ -11,7 +10,7 @@ from branch_manager import BranchManager
 from link_manager import LinkManager, access_is_active
 from timeutil import now
 import logger
-from yclients_api import YClientsClient, eligible_clients
+from yclients_api import YClientsClient, appointment_days, eligible_clients
 
 
 class _SchedulerStopping(Exception):
@@ -84,7 +83,8 @@ class Scheduler:
         return list(result.values())
 
     def _apply(self, branch, records, at, db, *, force=False):
-        eligible = eligible_clients(records, branch.branch_id, at=at, branch_timezone=branch.timezone, lead_seconds=30)
+        eligible = eligible_clients(records, branch.branch_id, at=at, branch_timezone=branch.timezone, lead_seconds=30,
+                                    pass_duration_hours=branch.pass_duration_hours)
         def fingerprint_now():
             # Time can expire a shorter manual grant even when the CRM snapshot
             # and stored fields are unchanged. Also notice local block/edits.
@@ -179,13 +179,14 @@ class Scheduler:
                 correlation = logger.set_correlation_id()
                 try:
                     at = now(branch.timezone)
-                    records = self._minimal_records(crm.records_for_day(branch.branch_id, at.date()) +
-                                                   crm.records_for_day(branch.branch_id, at.date() + timedelta(days=1)))
+                    records = self._minimal_records(record
+                        for day in appointment_days(at,branch.pass_duration_hours)
+                        for record in crm.records_for_day(branch.branch_id, day))
                     if self._stop.is_set():
                         break
                     # Validate the entire snapshot, including future records,
                     # before replacing a previously usable schedule.
-                    eligible_clients(records, branch.branch_id, at=at, branch_timezone=branch.timezone)
+                    eligible_clients(records, branch.branch_id, at=at, branch_timezone=branch.timezone, pass_duration_hours=branch.pass_duration_hours)
                     with self.link_manager.store.lock, self.store.connect() as db:
                         if self._stop.is_set():
                             break
@@ -193,7 +194,8 @@ class Scheduler:
                         # flight. Never recreate its schedule or clients from
                         # the stale object captured before that request.
                         current=self.branch_manager.get_branch(branch.branch_id)
-                        if not _can_sync(current, expected_revision=branch.yclients_sync_revision):
+                        if (not _can_sync(current, expected_revision=branch.yclients_sync_revision)
+                                or current.timezone!=branch.timezone or current.pass_duration_hours!=branch.pass_duration_hours):
                             continue
                         branch=current
                         completed = now(branch.timezone)

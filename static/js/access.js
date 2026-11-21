@@ -14,11 +14,12 @@
         const gates=(buttons || []).filter(b=>b.type==='gate'),signature=JSON.stringify(gates);
         if(signature!==buttonSignature){buttonSignature=signature;$('gateActions').replaceChildren();for(const item of gates){const control=document.createElement('button');control.type='button';control.className='gate-action button-gate';control.dataset.buttonId=item.id;const title=document.createElement('span');title.textContent=item.label;const arrow=document.createElement('span');arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');control.append(title,arrow);control.onclick=()=>openGate(item.id);$('gateActions').append(control);}}
         $('adminContacts').replaceChildren();
-        for(const contact of (buttons||[]).filter(b=>b.type==='admin')){
+        const contacts=(buttons||[]).filter(b=>b.type==='admin');
+        for(const contact of contacts){
             if(!/^\+?[0-9 ()-]+$/.test(contact.phone||''))continue;
             const link=document.createElement('a');
-            link.className='contact-link button-admin';link.href='tel:'+contact.phone;
-            link.textContent='Позвонить · '+contact.label;link.dataset.deskPhone=contact.id;
+            link.className='btn-primary button-admin';link.href='tel:'+contact.phone;
+            link.textContent='Позвонить администратору'+(contacts.length>1?' · '+contact.label:'');link.dataset.deskPhone=contact.id;
             $('adminContacts').append(link);
         }
     }

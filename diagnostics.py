@@ -130,13 +130,15 @@ def doctor():
         notifications = {}
         problems.append('invalid_or_unreadable_notification_state')
     return {
-        'version': '0.2.0-alpha.14', 'python': platform.python_version(),
+        'version': Path(__file__).with_name('VERSION').read_text(encoding='utf-8').strip(), 'python': platform.python_version(),
         'os': platform.system(), 'packages': packages,
         'env_file_present': env_file_present,
         'admin_count': len(admins), 'branch_count': len(branches),
         'enabled_branch_count': enabled_branch_count, 'user_count': len(users),
         'credentials': credentials,
-        'mode': {'telegram_enabled': config.BOT_ENABLED, 'max_enabled': config.MAX_BOT_ENABLED, 'yclients_enabled': config.YCLIENTS_ENABLED, 'yclients_read_only': True, 'scheduler_enabled': config.SCHEDULER_ENABLED, 'gate_dry_run': config.GATE_DRY_RUN, 'sim800_enabled': config.SIM800_ENABLED, 'notifications_enabled': config.OUTBOUND_ENABLED},
+        'mode': {'telegram_enabled': config.BOT_ENABLED, 'max_enabled': config.MAX_BOT_ENABLED, 'yclients_enabled': config.YCLIENTS_ENABLED, 'yclients_read_only': True, 'scheduler_enabled': config.SCHEDULER_ENABLED, 'gate_dry_run': config.GATE_DRY_RUN, 'sim800_enabled': config.SIM800_ENABLED,
+                 'notifications_enabled':config.outbound_enabled('client') or config.outbound_enabled('admin'),
+                 'client_notifications_enabled':config.outbound_enabled('client'), 'admin_notifications_enabled':config.outbound_enabled('admin')},
         'checks': {'network': 'not_run', 'physical_modem': 'not_run', 'credentials': 'presence_only', 'local_config': 'error' if problems else ('warning' if warnings else 'ok')},
         'problems': problems,
         'warnings': warnings,

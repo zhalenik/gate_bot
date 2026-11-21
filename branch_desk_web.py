@@ -37,7 +37,9 @@ def create_blueprint(provider):
 
     @bp.post('/api/pass/<token>/share')
     def share(token):
-        return jsonify(path=desk().share(token,body().get('gate_id')))
+        data = body()
+        return jsonify(desk().share(token, phone=data.get('phone'), no_phone=data.get('no_phone',False),
+                                    send=data.get('send',False), key=data.get('key')))
 
     @bp.route('/shared/<raw>', methods=['GET','POST'])
     def shared(raw):

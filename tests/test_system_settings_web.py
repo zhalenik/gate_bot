@@ -38,6 +38,29 @@ def test_only_super_can_read_save_and_csrf_is_required(system_web):
     assert store.read()['values']['PORT']=='5001' and web.calls==[]
 
 
+def test_portable_settings_include_credentials_without_printing_them(system_web):
+    web, store = system_web
+    client = web.app.test_client()
+    route = '/admin/api/system-settings/'
+    key = 'synthetic-backup-passphrase'
+    csrf = login(client, 'tenant-a')
+    assert post(client, csrf, route+'export', {'password':key}).status_code == 403
+    csrf = login(client, 'super')
+    archive = post(client, csrf, route+'export', {'password':key})
+    assert archive.status_code == 200 and 'old-synthetic-token' not in archive.text
+    document = archive.json
+    document['values']['PASS_LINK_TEMPLATE'] = 'Въезд\n{link}'
+    restore = {'document':document, 'revision':'0', 'password':'incorrect-password'}
+    assert post(client, csrf, route+'import', restore).status_code == 400
+    assert not store.path.exists()
+    restore['password'] = key
+    assert post(client, csrf, route+'import', restore).status_code == 200
+    values = store.read()['values']
+    assert values['BOT_TOKEN'] == 'old-synthetic-token'
+    assert values['PASS_LINK_TEMPLATE'] == 'Въезд\n{link}'
+    assert post(client, csrf, route+'import', restore).status_code == 400
+
+
 def test_revoked_role_and_stale_revision_cannot_write(system_web):
     web,store=system_web;client=web.app.test_client();csrf=login(client,'super')
     assert post(client,csrf,'/admin/api/system-settings',{'revision':'0','values':{'PORT':5001}}).status_code==200

@@ -8,7 +8,12 @@ from timeutil import timezone
 def prepare(db):
     db.execute('''CREATE TABLE IF NOT EXISTS client_feedback (
         id INTEGER PRIMARY KEY, person_id TEXT NOT NULL, branch_id TEXT NOT NULL,
-        stars INTEGER CHECK(stars BETWEEN 1 AND 5), message TEXT NOT NULL, created REAL NOT NULL)''')
+        stars INTEGER CHECK(stars BETWEEN 1 AND 5), message TEXT NOT NULL, created REAL NOT NULL,
+        author_name TEXT NOT NULL DEFAULT '')''')
+    if 'author_name' not in {row['name'] for row in db.execute('PRAGMA table_info(client_feedback)')}:
+        db.execute("ALTER TABLE client_feedback ADD COLUMN author_name TEXT NOT NULL DEFAULT ''")
+        db.execute("""UPDATE client_feedback SET author_name=COALESCE(
+            (SELECT name FROM persons WHERE id=client_feedback.person_id),'')""")
     db.execute('CREATE INDEX IF NOT EXISTS feedback_by_person ON client_feedback(person_id,created)')
     db.execute('''CREATE TABLE IF NOT EXISTS client_review_prompts (
         request_id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, person_id TEXT NOT NULL)''')
@@ -38,6 +43,16 @@ def due(db, person, branch, token, request_id):
         return False
     return bool(db.execute('INSERT OR IGNORE INTO client_review_prompts VALUES(?,?,?)',
                            (request_id, branch, person)).rowcount)
+
+
+def list_reviews(db, limit=None, offset=0):
+    prepare(db)
+    branches = read_document(db, 'branches.json')
+    sql = """SELECT f.id,f.branch_id,f.stars,f.message,f.created,
+        COALESCE(NULLIF(f.author_name,''),NULLIF(p.name,''),'Клиент') AS author
+        FROM client_feedback f LEFT JOIN persons p ON p.id=f.person_id ORDER BY f.id DESC"""
+    rows = db.execute(sql if limit is None else sql + ' LIMIT ? OFFSET ?', () if limit is None else (limit, offset))
+    return [{**dict(row), 'branch': branches.get(row['branch_id'], {}).get('name') or row['branch_id']} for row in rows]
 
 
 def create_blueprint(provider):
@@ -72,8 +87,8 @@ def create_blueprint(provider):
             at = identity.clock()
             if db.execute('SELECT 1 FROM client_feedback WHERE person_id=? AND created>?', (person, at-30)).fetchone():
                 return jsonify(message='Отзыв уже получен'), 429
-            db.execute('INSERT INTO client_feedback(person_id,branch_id,stars,message,created) VALUES(?,?,?,?,?)',
-                       (person, branch, stars, message.strip(), at))
+            db.execute('INSERT INTO client_feedback(person_id,branch_id,stars,message,created,author_name) VALUES(?,?,?,?,?,?)',
+                       (person, branch, stars, message.strip(), at, str(user.get('user_name') or '')[:200]))
         return jsonify(message='Спасибо за отзыв!')
 
     @bp.get('/admin/feedback')
@@ -84,11 +99,8 @@ def create_blueprint(provider):
             abort(403)
         page = max(1, min(request.args.get('page', 1, type=int), 100000))
         with services['service'].product.connect() as db:
-            prepare(db)
-            branches = read_document(db, 'branches.json')
-            reviews = [dict(row) for row in db.execute('SELECT * FROM client_feedback ORDER BY id DESC LIMIT 51 OFFSET ?', ((page-1)*50,))]
+            reviews = list_reviews(db, 51, (page-1)*50)
         for entry in reviews:
-            entry['branch'] = branches.get(entry['branch_id'], {}).get('name') or entry['branch_id']
             entry['date'] = datetime.fromtimestamp(entry['created'], timezone()).strftime('%d.%m.%Y %H:%M')
         return render_template('admin/feedback.html', admin_page=True, is_super=True, reviews=reviews[:50],
                                page=page, has_next=len(reviews)>50)

@@ -68,6 +68,42 @@ def finish(queue):
     assert not queue.processing
 
 
+def test_only_assigned_modems_handle_branch_calls_and_sms(tmp_path):
+    shared, private = Driver(), Driver()
+    assigned = row('private')
+    queue = fleet(tmp_path, [(row('shared', call_priority=10, sms_priority=10), shared), (assigned, private)])
+    queue.branch_modems = lambda branch: [assigned['id']] if branch == 'east' else None
+    assert queue.add_call('1234567',branch_id='east')['status'] == 'success'
+    finish(queue)
+    assert queue.add_manual('sms','1234567',text='test',branch_id='east')['status'] == 'success'
+    finish(queue)
+    assert (private.calls, private.sms, shared.calls, shared.sms) == (1,1,0,0)
+    assert queue.add_manual('sms','1234567',text='test')['status'] == 'success'
+    finish(queue)
+    assert shared.sms == 1
+    assert queue.shutdown()
+
+
+def test_only_owner_assigns_modems_and_assigned_device_cannot_be_removed(web):
+    from storage.sql_documents import migrate_legacy
+    migrate_legacy(web.branches.store.path.parent, activate=True)
+    db = web.branches.store.product()
+    shared, assigned = row('shared'), row('private')
+    save_modems(db, 0, [shared, assigned])
+    browser = web.app.test_client()
+    url = '/admin/api/branch-settings'
+    csrf = login(browser, 'tenant-a')
+    assert 'modem_ids' not in browser.get(url).json['settings']
+    assert post(browser, csrf, url, {'branch_id':12, 'modem_ids':[assigned['id']]}).status_code == 403
+    csrf = login(browser, 'super')
+    settings = browser.get(url+'?branch_id=12').json['settings']
+    body = {key:settings[key] for key in ('branch_id','name','timezone','enabled','logo','buttons')}
+    assert post(browser, csrf, url, {**body, 'modem_ids':[]}).status_code == 400
+    assert post(browser, csrf, url, {**body, 'modem_ids':[assigned['id']]}).json['settings']['modem_ids'] == [assigned['id']]
+    with pytest.raises(ValueError, match='назначения'):
+        save_modems(db, 1, [shared])
+
+
 def test_priority_rotation_capability_and_busy_failover(tmp_path):
     primary, peer, sms = Driver(block=True), Driver(), Driver()
     queue = fleet(tmp_path, [(row('first',call_priority=9),primary), (row('peer',call_priority=9),peer),

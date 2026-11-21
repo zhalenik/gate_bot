@@ -677,8 +677,13 @@ async function initializeBranchSettings() {
         logoUpload.value = '';
         logoUpload.disabled = creating;
         logoStatus.textContent = creating ? 'Сначала сохраните новый филиал, затем загрузите логотип.' : '';
+        for (const input of form.querySelectorAll('#branchModems input')) {
+            input.checked = !Array.isArray(value.modem_ids) || value.modem_ids.includes(input.value);
+        }
         document.getElementById('settingsEnabled').checked = value.enabled === true;
         document.getElementById('settingsSmsNotifications').checked = value.sms_notifications_enabled === true;
+        document.getElementById('settingsPassHours').value = value.pass_duration_hours ?? 8;
+        document.getElementById('settingsAutoApprove').checked = value.auto_approve_pass_requests === true;
         rows.replaceChildren();
         (value.buttons || []).forEach(addRow);
         rows.querySelectorAll('input,select,button').forEach(control=>control.disabled=false);
@@ -735,12 +740,15 @@ async function initializeBranchSettings() {
                 ...(row.dataset.stableId?{stable_id:row.dataset.stableId}:{})
             }));
             const result = await post('/admin/api/branch-settings', {
+                ...(window.IS_SUPER ? {modem_ids: Array.from(form.querySelectorAll('#branchModems input:checked'), input => input.value)} : {}),
                 ...(!(creating&&crmMode.value==='false')?{branch_id:Number(branchId.value)}:{}), create: creating,
                 yclients_enabled:crmMode.value==='true',
                 name: document.getElementById('settingsName').value,
                 timezone: document.getElementById('settingsTimezone').value,
                 enabled: document.getElementById('settingsEnabled').checked,
                 sms_notifications_enabled:document.getElementById('settingsSmsNotifications').checked,
+                pass_duration_hours:Number(document.getElementById('settingsPassHours').value),
+                auto_approve_pass_requests:document.getElementById('settingsAutoApprove').checked,
                 logo: document.getElementById('settingsLogo').value, buttons
             });
             creating = false;

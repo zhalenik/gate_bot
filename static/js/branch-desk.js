@@ -37,7 +37,7 @@
             row.append(time,text);
             if(item.kind==='request'){
                 if(item.approved){const label=document.createElement('small');label.textContent='Пропуск разрешён';row.append(label);}
-                else if(approve)row.append(button('Разрешить до конца дня',()=>approve(item.id)));
+                else if(approve)row.append(button('Выдать разовый пропуск',()=>approve(item.id)));
             }
             history.append(row);
         }
@@ -55,49 +55,56 @@
     }
     if(client){
         const base='/api/pass/'+encodeURIComponent(client.dataset.clientDesk);
-        const dialog=get('dialog'), shareForm=get('share-form'), linkBox=get('link'), select=shareForm.querySelector('select'), input=linkBox.querySelector('input');
+        const dialog=get('dialog'), shareForm=get('share-form'), linkBox=get('link'), input=linkBox.querySelector('input');
+        const noPhone=get('no-phone'), phone=get('guest-phone'), deliver=get('deliver');
+        let canDeliver=false, shareKey=null;
+        function shareOptions(){
+            phone.disabled=noPhone.checked;phone.required=!noPhone.checked;
+            get('send-option').hidden=noPhone.checked||!canDeliver||phone.value.replace(/\D/g,'').length<7;
+            if(get('send-option').hidden)deliver.checked=false;
+        }
         const showClient=view=>{
             showMessages(view.messages);get('request').hidden=view.active||view.messages.some(m=>m.kind==='request'&&!m.approved);
-            if(!get('share')&&view.active&&!root.querySelector('[data-entry-link]')){const back=button('Перейти к воротам',()=>location.reload());get('history').after(back);back.dataset.entryLink='';}
+            if(!get('share')&&view.active&&!root.querySelector('[data-entry-link]')){const back=button('Перейти к воротам',()=>location.reload());get('actions').prepend(back);back.dataset.entryLink='';}
         };
         const refresh=async()=>{
             const view=await api(base+'/desk');
             if(root.querySelector('[data-entry-link]'))root.querySelector('[data-entry-link]').remove();
             if(!shareForm.hidden){
-                const previous=select.value;
-                select.replaceChildren(...view.gates.map(g=>new Option(g.label,g.id)));
-                if(view.gates.some(g=>g.id===previous))select.value=previous;
-                shareForm.querySelector('button').disabled=!view.gates.length;
-                if(!view.gates.length)status('Для передачи ссылки нужен действующий пропуск.');
+                canDeliver=view.share_delivery;shareOptions();
+                shareForm.querySelector('button[type=submit]').disabled=!view.active;
+                if(!view.active)status('Для передачи ссылки нужен действующий пропуск.');
             }else showClient(view);
         };
-        function open(sharing){
-            get('chat').hidden=sharing;shareForm.hidden=!sharing;get('link').hidden=true;input.value='';
-            root.querySelector('#desk-title').textContent=sharing?'Поделиться ссылкой':'Обратиться к администратору';
-            status('');dialog.showModal();refresh().catch(err=>status(err.message));
+        function open(screen){
+            get('actions').hidden=screen!=='actions';get('chat').hidden=screen!=='chat';shareForm.hidden=screen!=='share';
+            if(screen==='share'){shareForm.reset();linkBox.hidden=true;shareKey=newKey();shareOptions();}
+            root.querySelector('#desk-title').textContent=screen==='share'?'Поделиться ссылкой':screen==='chat'?'Чат с администратором':'Обратиться к администратору';
+            status('');if(!dialog.open)dialog.showModal();refresh().catch(err=>status(err.message));
         }
-        get('open').onclick=()=>open(false);
-        if(location.hash==='#messages')open(false);
-        if(get('share'))get('share').onclick=()=>open(true);
+        get('open').onclick=()=>open('actions');
+        get('open-chat').onclick=()=>open('chat');
+        if(location.hash==='#messages')open('chat');
+        if(get('share'))get('share').onclick=()=>open('share');
         get('close').onclick=()=>dialog.close();
         compose(async(body,key)=>showClient(await api(base+'/desk',{body,key,kind:'message'})));
-        get('request').onclick=()=>perform(get('request'),async()=>{showClient(await api(base+'/desk',{kind:'request',key:newKey()}));status('Запрос отправлен.');});
-        get('chat').addEventListener('click',event=>{
+        get('request').onclick=()=>perform(get('request'),async()=>{const view=await api(base+'/desk',{kind:'request',key:newKey()});showClient(view);status(view.active?'Разовый пропуск выдан.':'Запрос отправлен.');});
+        get('actions').addEventListener('click',event=>{
             const contact=event.target.closest('a[data-desk-phone]');
             if(contact)fetch('/api/access/contact',{method:'POST',keepalive:true,credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify({token:client.dataset.clientDesk,button_id:contact.dataset.deskPhone})}).catch(()=>{});
         });
-        select.onchange=()=>{input.value='';linkBox.hidden=true;};
+        shareForm.addEventListener('input',event=>{if(event.target!==input){shareKey=newKey();linkBox.hidden=true;shareOptions();}});
         shareForm.onsubmit=event=>{
             event.preventDefault();
             perform(shareForm.querySelector('button'),async()=>{
-                const result=await api(base+'/share',{gate_id:select.value});
+                const result=await api(base+'/share',{phone:noPhone.checked?null:phone.value,no_phone:noPhone.checked,send:deliver.checked,key:shareKey});
                 input.value=new URL(result.path,location.origin).href;
                 linkBox.hidden=false;
+                status(result.delivery==='not_requested'?'':(['accepted','sent','success'].includes(result.delivery)?'Ссылка отправлена гостю.':'Сервис не подтвердил отправку. Скопируйте ссылку для гостя.'));
             });
         };
         get('send-link').onclick=()=>perform(get('send-link'),async()=>{
-            if(navigator.share){try{await navigator.share({title:'Гостевой въезд',url:input.value});}catch(err){if(err.name!=='AbortError')throw err;}}
-            else if(navigator.clipboard){await navigator.clipboard.writeText(input.value);status('Ссылка скопирована.');}
+            if(navigator.clipboard){await navigator.clipboard.writeText(input.value);status('Ссылка скопирована.');}
             else{input.focus();input.select();status('Скопируйте ссылку.');}
         });
         setInterval(()=>{if(dialog.open&&!document.hidden&&shareForm.hidden)refresh().catch(err=>status(err.message));},10000);

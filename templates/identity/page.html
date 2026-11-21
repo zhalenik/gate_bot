@@ -7,6 +7,7 @@
 <main class="admin-container" id="identityPage" data-kind="{{ kind }}"><section class="admin-content">
 <div class="page-heading"><div><p class="page-eyebrow">GATEBOT</p><h1>{{ title }}</h1><p class="page-description" id="identityDescription"></p></div></div>
 <div id="identityNotice" role="status" class="panel" hidden></div>
+{% if kind == 'messenger_only' and branches %}<input type="hidden" id="integrationBranch" value="{{ branches[0].id }}">{% endif %}
 {% if office %}{% include 'components/office_push.html' %}{% endif %}
 <div id="identityContent" class="{% if kind == 'integrations' %}integration-workspace{% else %}panel{% endif %}"></div>
 {% if kind == 'preferences' %}<div data-client-pwa-tools></div>{% include 'components/client_footer.html' %}{% endif %}
@@ -17,7 +18,7 @@
   <p><strong>Приложение YCLIENTS Marketplace.</strong> Откройте карточку GateBot в маркетплейсе, нажмите «Подключить» и выберите филиал. При первой регистрации проверьте данные, подтвердите телефон по SMS и задайте пароль GateBot. Если у вас уже есть кабинет этого филиала, войдите с действующим паролем.</p>
   <p>Для автоматических пропусков нужен доступ к записям всех сотрудников и телефонам клиентов в журнале записи. Для поиска ID и email нужен доступ к клиентской базе, а для отправки через YCLIENTS нужны права на рассылку. «Проверить доступ» покажет текущие права подключения.</p>
 </details>
-<details class="panel integration-guide"><summary>Сообщения через ChatPush или YCLIENTS</summary><p>В блоке «Сообщения клиентам» выберите способ доставки. ChatPush напрямую использует токен аккаунта и номер телефона. Рассылка YCLIENTS использует подключение филиала и ID его клиента; тип доставки определяется сервисом рассылки, настроенным в YCLIENTS.</p><p>Автоматический выбор использует подключённый ChatPush, иначе YCLIENTS. Клиент разрешает общий канал «Мессенджеры (сообщение от администратора)». Для гостя без ID YCLIENTS доступна прямая отправка через подключённый ChatPush. Сохранение настройки не отправляет пробных сообщений.</p></details>
+<details class="panel integration-guide"><summary>Каналы сообщений клиентам</summary><p>В блоке «Сообщения клиентам» можно выбрать подключённый сервис или автоматическую отправку. При автоматическом выборе клиент с ID YCLIENTS получает сообщение через рассылку YCLIENTS. Для остальных клиентов используется ChatPush по номеру телефона, затем разрешённые СМС из квоты филиала.</p></details>
 {% endif %}
 {% if not admin_page and not client_page %}<p><a href="/admin/login">Вход в кабинет</a></p>{% endif %}
 </section></main>
@@ -26,5 +27,6 @@
 {% if kind == 'preferences' %}{% include 'components/client_pwa_scripts.html' %}{% endif %}
 <script id="identityBootstrap" type="application/json">{{ {'kind':kind,'data':bootstrap,'branches':branches,'is_super':is_super | default(false)}|tojson }}</script>
 <script src="/static/js/admin.js"></script>{% if kind == 'integrations' %}<script src="/static/js/integrations.js"></script>{% else %}<script src="/static/js/identity.js"></script>{% endif %}
-{% if kind == 'integrations' %}<script src="/static/js/messenger-settings.js"></script><script src="/static/js/integration-test.js"></script><script src="/static/js/yclients-client-sync.js"></script>{% endif %}
+{% if kind in ['integrations','messenger_only'] %}<script src="/static/js/messenger-settings.js"></script>{% endif %}
+{% if kind == 'integrations' %}<script src="/static/js/integration-test.js"></script><script src="/static/js/yclients-client-sync.js"></script><script src="/static/js/qr-delivery.js"></script>{% endif %}
 {% endblock %}

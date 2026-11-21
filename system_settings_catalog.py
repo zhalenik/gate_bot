@@ -5,6 +5,7 @@ import re
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from yclients_urls import normalize_yclients_base_url
+from message_templates import PASS_TEMPLATE, CODE_TEMPLATE, validate_template
 
 
 GROUPS = {
@@ -32,7 +33,10 @@ FIELDS = [
     item('SESSION_COOKIE_SECURE','Cookie только через HTTPS','service',False,'bool'),
     item('GATEBOT_DATA_DIR','Каталог данных приложения','service','./data','path',help='Изменение не переносит файлы. Перед перезапуском подготовьте согласованную копию SQLite, журналов и ключей в новом каталоге.'),
     item('GATEBOT_LOG_DIR','Каталог диагностических журналов','service','./data/logs','path'),
-    item('OUTBOUND_ENABLED','Разрешить исходящие уведомления','delivery',False,'bool',help='Общий переключатель фоновых отправок. Не управляет ответами бота в текущем диалоге.'),
+    item('CLIENT_OUTBOUND_ENABLED','Уведомления клиентам','delivery',False,'bool'),
+    item('ADMIN_OUTBOUND_ENABLED','Уведомления администраторам','delivery',False,'bool'),
+    item('PASS_LINK_TEMPLATE','Сообщение со ссылкой на пропуск','delivery',PASS_TEMPLATE,'template',placeholder='link',help='Параметр {link} подставляет персональную ссылку.'),
+    item('VERIFICATION_CODE_TEMPLATE','Сообщение с кодом подтверждения','delivery',CODE_TEMPLATE,'template',placeholder='code',help='Параметр {code} подставляет код.'),
     item('BOT_ENABLED','Запускать Telegram Bot','telegram',False,'bool'),
     item('BOT_TOKEN','Токен Telegram Bot','telegram','','secret',secret=True),
     item('TELEGRAM_PROXY_URL','Прокси Telegram Bot','telegram','','proxy',secret=True,help='HTTP(S) или SOCKS5 прокси VPN-контейнера. Используется для polling, ответов и уведомлений Telegram.'),
@@ -81,6 +85,9 @@ def default_values(environment=None):
     values={key:encode(field, field['default']) for key,field in BY_KEY.items()}
     if environment:
         values.update({key:str(value) for key,value in environment.items() if key in BY_KEY})
+        for key in ('CLIENT_OUTBOUND_ENABLED', 'ADMIN_OUTBOUND_ENABLED'):
+            if key not in environment and 'OUTBOUND_ENABLED' in environment:
+                values[key] = str(environment['OUTBOUND_ENABLED'])
     if 'SESSION_COOKIE_SECURE' not in (environment or {}):
         values['SESSION_COOKIE_SECURE']='true' if values['GATEBOT_ENV']=='production' else 'false'
     if 'GATEBOT_LOG_DIR' not in (environment or {}):
@@ -90,6 +97,8 @@ def default_values(environment=None):
 
 def encode(field, value):
     kind=field['kind'];key=field['key']
+    if kind == 'template':
+        return validate_template(value, field['placeholder'])
     if kind=='bool':
         if type(value) is bool:return 'true' if value else 'false'
         if isinstance(value,str) and value.lower() in {'true','false','1','0','yes','no','on','off'}:

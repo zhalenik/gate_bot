@@ -113,14 +113,15 @@ def create(links, client_id, branch=1, **kwargs):
     return links.create_link({"branch_id": branch, "id_ycl": client_id, **kwargs})
 
 
-def test_access_starts_exactly_two_hours_before_and_ends_at_branch_midnight(state):
+def test_access_starts_two_hours_before_and_ends_after_configured_duration(state):
     links, _, _ = state
     clients = eligible_clients([record(1, 14), record(2, 15), record(3, 8)], 1, AT, "Europe/Moscow")
     assert set(clients) == {"1", "3"}
     links.reconcile_appointments(1, clients, at=AT, branch_timezone="Europe/Moscow")
     entries = links.load_links()
     assert len(entries) == 2
-    assert all(data["access_expires"] == "2026-11-05T23:59:59.999999+03:00" for data in entries.values())
+    assert {data["id_ycl"]:data["access_expires"] for data in entries.values()} == {
+        "1":"2026-11-05T22:00:00+03:00", "3":"2026-11-05T16:00:00+03:00"}
     assert all(access_is_active(data, AT) for data in entries.values())
     assert all(not access_is_active(data, AT + timedelta(days=1)) for data in entries.values())
 
@@ -138,7 +139,7 @@ def test_local_calendar_day_is_not_utc_day(state):
     assert set(eligible_clients(records, 1, local, "Asia/Vladivostok")) == {"1"}
     links, _, _ = state
     links.reconcile_appointments(1, {"1": {"id": 1}}, at=local, branch_timezone="Asia/Vladivostok")
-    assert next(iter(links.load_links().values()))["access_expires"] == "2026-11-05T23:59:59.999999+10:00"
+    assert next(iter(links.load_links().values()))["access_expires"] == "2026-11-05T08:30:00+10:00"
 
 
 def test_manual_unlimited_and_admin_block_take_precedence_over_crm(state):

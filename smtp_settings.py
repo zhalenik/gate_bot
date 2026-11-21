@@ -98,7 +98,9 @@ class SmtpSettings:
             saved = db.execute('SELECT updated FROM application_settings WHERE name="smtp"').fetchone()
         return {k: v for k, v in values.items() if k != 'password'} | {
             'has_password': bool(values['password']), 'source': 'saved' if saved else 'environment',
-            'outbound_enabled': config.OUTBOUND_ENABLED}
+            'outbound_enabled': config.outbound_enabled('client') or config.outbound_enabled('admin'),
+            'client_outbound_enabled': config.outbound_enabled('client'),
+            'admin_outbound_enabled': config.outbound_enabled('admin')}
 
     def save(self, username, payload):
         self._super(username)

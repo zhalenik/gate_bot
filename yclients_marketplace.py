@@ -450,7 +450,7 @@ class MarketplaceService:
                 step = 'original'
                 return original[0], original[1], branch_id
             return subject, phone, branch_id
-        result = self.identity.request_phone_otp(resolve, ip)
+        result = self.identity.request_phone_otp(resolve, ip, flow='branch_registration')
         return {**result, 'step':step}
 
     def complete_registration(self, raw, browser, branch_id, profile, challenge, code, password, confirm):

@@ -68,6 +68,11 @@ class BranchManager:
             raise ValueError('yclients_enabled must be boolean')
         if type(data.get('sms_notifications_enabled',False)) is not bool:
             raise ValueError('sms_notifications_enabled must be boolean')
+        if type(data.get('auto_approve_pass_requests', False)) is not bool:
+            raise ValueError('Выберите режим подтверждения запросов')
+        hours = data.get('pass_duration_hours', 8)
+        if type(hours) is not int or not 1 <= hours <= 168:
+            raise ValueError('Срок разового пропуска должен быть от 1 до 168 часов')
         if data.get('id_origin') == 'internal' and data.get('yclients_enabled',True):
             raise ValueError('A standalone internal ID cannot be used as a YCLIENTS company ID')
         seen = set()
@@ -92,6 +97,7 @@ class BranchManager:
         data = deepcopy(self._validate(branch_dict))
         buttons = [SimpleNamespace(id=self._button_id(button), stable_id=button.get('stable_id') or hashlib.sha256((str(data['branch_id'])+':gate:'+str(index)).encode()).hexdigest()[:24], type=button['type'], label=str(button.get('label', '')), phone=button['phone']) for index,button in enumerate(data.get('buttons', []))]
         return SimpleNamespace(branch_id=int(data['branch_id']), name=str(data.get('name', '')), logo=str(data.get('logo', '')), timezone=data.get('timezone', 'Europe/Moscow'), enabled=data.get('enabled', True) is True, yclients_enabled=data.get('yclients_enabled',True), sms_notifications_enabled=data.get('sms_notifications_enabled',False), id_origin=data.get('id_origin','yclients'), buttons=buttons,
+                               pass_duration_hours=data.get('pass_duration_hours',8), auto_approve_pass_requests=data.get('auto_approve_pass_requests',False),
                                yclients_marketplace_state=data.get('yclients_marketplace_state'),
                                yclients_sync_revision=data.get('yclients_sync_revision',0))
 
@@ -142,7 +148,8 @@ class BranchManager:
 
     def update_settings(self, branch_id, settings, create=False):
         allowed = {'name', 'timezone', 'enabled', 'buttons', 'logo', 'yclients_enabled', 'sms_notifications_enabled'}
-        if set(settings) - allowed:
+        allowed.update({'pass_duration_hours', 'auto_approve_pass_requests'})
+        if set(settings) - (allowed | {'modem_ids'}):
             raise ValueError('Unsupported branch settings')
         key = str(branch_id)
         if not key.isdigit() or int(key) <= 0:
@@ -154,6 +161,9 @@ class BranchManager:
                 raise ValueError('Branch already exists')
             value = deepcopy(branches.get(key, {'branch_id': int(key)}))
             previous = value.get('buttons', [])
+            if 'modem_ids' in settings:
+                from modem_settings import check_assignment, read_modems
+                check_assignment(settings['modem_ids'], {row['id'] for row in read_modems(self.store.product())})
             value.update(deepcopy(settings))
             if create and value.get('yclients_enabled') is False:
                 value['id_origin']='internal'

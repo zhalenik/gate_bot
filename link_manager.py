@@ -6,9 +6,11 @@ legacy compatibility; a runtime process lock prevents multiple hardware owners.
 from copy import deepcopy
 from datetime import timedelta
 import secrets
+import hashlib
+import string
 from pathlib import Path
-from storage.sql_documents import DocumentStore as JsonStore, is_sql_active
-from timeutil import now, end_of_day, parse_datetime
+from storage.sql_documents import DocumentStore as JsonStore, current_connection, is_sql_active
+from timeutil import now, end_of_day, parse_datetime, pass_expiry, timezone
 
 _notify_hook = None
 
@@ -69,8 +71,19 @@ class LinkManager:
         """Whole-state import only; normal mutations must use transactional methods."""
         self.store.replace(links)
 
-    def generate_token(self):
-        return secrets.token_urlsafe(16)
+    @staticmethod
+    def generate_token(links=(), db=None):
+        db = db if db is not None else current_connection()
+        has_removed = db is not None and db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='removed_guest_links'").fetchone()
+        while True:
+            token = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(10))
+            if token in links:
+                continue
+            if has_removed and db.execute('SELECT 1 FROM removed_guest_links WHERE digest=?',
+                                          (hashlib.sha256(token.encode()).hexdigest(),)).fetchone():
+                continue
+            return token
 
     def create_link(self, user_data, expires_days=None, expires_at=None):
         branch = user_data.get('branch_id')
@@ -80,9 +93,7 @@ class LinkManager:
             raise ValueError('Invalid access duration')
         expiry = parse_datetime(expires_at) if expires_at else (now() + timedelta(days=int(expires_days)) if expires_days else None)
         with self.store.transaction() as links:
-            token = self.generate_token()
-            while token in links:
-                token = self.generate_token()
+            token = self.generate_token(links)
             links[token] = {
                 'id_ycl': user_data.get('id_ycl'),
                 'user_name': str(user_data.get('user_name') or ''),
@@ -99,7 +110,34 @@ class LinkManager:
                 'access_expires': expiry.isoformat() if expiry else None,
                 'created': now().isoformat(),
             }
+            if user_data.get('system_phone') is True:
+                links[token]['system_phone'] = True
+            if user_data.get('mailing_enabled') is False and not links[token]['is_temporary']:
+                links[token]['mailing_opted_out'] = True
         return token
+
+    def create_guest(self, branch, phone, *, name='Гость', email='', system_phone=False, at=None):
+        expiry = pass_expiry(branch, at)
+        branch_id = branch['branch_id'] if isinstance(branch,dict) else branch.branch_id
+        return self.create_link({'branch_id': branch_id, 'user_name': name, 'email': email, 'phone': phone,
+                                 'is_temporary': True, 'gate_access': True, 'access_source': 'guest',
+                                 'system_phone': system_phone, 'mailing_enabled': False}, expires_at=expiry)
+
+    def guest_pass_removed(self, token, card=None):
+        if card is not None:
+            if not card.get('is_temporary') or card.get('admin_role_active') or not card.get('access_expires'):
+                return False
+            try:
+                return parse_datetime(card['access_expires']) <= now()
+            except (TypeError, ValueError):
+                return False
+        if not is_sql_active(self.store.path.parent):
+            return False
+        with self.store.product().connect() as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='removed_guest_links'").fetchone():
+                return False
+            return bool(db.execute('SELECT 1 FROM removed_guest_links WHERE digest=?',
+                                   (hashlib.sha256(token.encode()).hexdigest(),)).fetchone())
 
     def verify_token(self, token):
         data = self.load_links().get(token)
@@ -115,7 +153,7 @@ class LinkManager:
         normalized = normalize_phone(phone)
         if not normalized:
             return []
-        return [(token, data) for token, data in self.load_links().items() if normalize_phone(data.get('phone')) == normalized]
+        return [(token, data) for token, data in self.load_links().items() if not data.get('system_phone') and normalize_phone(data.get('phone')) == normalized]
 
     def bind_identity(self, platform, user_id, token=None, phone=None):
         field = {'telegram': 'tg_id', 'max': 'max_id'}.get(platform)
@@ -123,7 +161,7 @@ class LinkManager:
             raise ValueError('Invalid messenger identity')
         normalized = normalize_phone(phone) if phone else None
         with self.store.transaction() as links:
-            candidates = [(key, data) for key, data in links.items() if (key == token if token else normalized and normalize_phone(data.get('phone')) == normalized)]
+            candidates = [(key, data) for key, data in links.items() if (key == token if token else not data.get('system_phone') and normalized and normalize_phone(data.get('phone')) == normalized)]
             if not candidates:
                 return 0
             if is_sql_active(self.store.path.parent) and any(not normalize_phone(data.get('phone')) for _,data in candidates):
@@ -193,7 +231,7 @@ class LinkManager:
     def set_mailing_enabled(self, token, enabled):
         if not isinstance(enabled, bool):
             raise ValueError('mailing_enabled must be boolean')
-        return self._change(token, lambda data: data.update(mailing_enabled=enabled))
+        return self._change(token, lambda data: data.update(mailing_enabled=enabled, mailing_opted_out=not enabled))
 
     def set_user_phone(self, token, phone):
         return self.update_user(token, {'phone': phone})
@@ -214,6 +252,7 @@ class LinkManager:
                     value = normalize_phone(value)
                     if data.get('phone') != value:
                         data['tg_id'] = data['max_id'] = None
+                        data.pop('system_phone', None)
                 if key == 'email':
                     # An explicit local edit, including clear, survives CRM sync.
                     data['email_override'] = True
@@ -259,13 +298,10 @@ class LinkManager:
 
     def cleanup_guest_users(self):
         # Legacy records named 'Гость' may be staff or permanent: never delete by name.
-        # A client identity and its notification preferences outlive its grant.
-        if is_sql_active(self.store.path.parent):
-            return 0
         with self.store.transaction() as links:
             expired = []
             for token, data in links.items():
-                if not data.get('is_temporary') or not data.get('access_expires') or access_is_active(data):
+                if not data.get('is_temporary') or data.get('admin_role_active') or not data.get('access_expires') or access_is_active(data):
                     continue
                 try:
                     if parse_datetime(data['access_expires']) <= now():
@@ -296,8 +332,13 @@ class LinkManager:
             raise ValueError('CRM client identity conflict: ' + reason + '; snapshot not applied')
 
         at = at or now(branch_timezone)
-        default_expiry = end_of_day(at, branch_timezone).isoformat()
         eligible = {str(key): value for key, value in eligible_clients.items()}
+        default_expiry = None
+        if any('_access_expires' not in client for client in eligible.values()):
+            from branch_manager import BranchManager
+            branch = BranchManager(self.store.path.with_name('branches.json')).get_branch(branch_id)
+            default_expiry = pass_expiry(branch, at).isoformat()
+            fallback_date = at.astimezone(timezone(branch_timezone or getattr(branch,'timezone',None))).date().isoformat()
         events = []
         emitted = False
         matched = 0
@@ -335,7 +376,7 @@ class LinkManager:
             for key, client in eligible.items():
                 expiry = client.get('_access_expires', default_expiry)
                 parsed_expiry = parse_datetime(expiry, branch_timezone)
-                if parsed_expiry < at or parsed_expiry != end_of_day(parsed_expiry, branch_timezone):
+                if parsed_expiry <= at:
                     raise ValueError('Invalid appointment expiry; snapshot not applied')
                 if key in by_id:
                     resolved[key] = by_id[key]
@@ -361,9 +402,7 @@ class LinkManager:
                         matched += 1
                     by_id[key] = (token, data)
                 else:
-                    token = self.generate_token()
-                    while token in links:
-                        token = self.generate_token()
+                    token = self.generate_token(links)
                     data = {'id_ycl': key, 'branch_id': int(branch_id), 'user_name': client.get('name', ''), 'phone': normalize_phone(client.get('phone')), 'email': client.get('email', ''), 'tg_id': None, 'max_id': None, 'mailing_enabled': True, 'gate_access': False, 'admin_blocked': False, 'access_source': 'appointment', 'access_expires': None, 'created': at.isoformat(), 'is_temporary': False}
                     links[token] = data
                     by_id[key] = (token, data)
@@ -385,6 +424,20 @@ class LinkManager:
                     continue
                 if data.get('access_source', 'manual') == 'manual' and access_is_active(data, at):
                     continue
+                if '_access_expires' in client:
+                    data.pop('appointment_fallback_date',None)
+                else:
+                    # Old snapshot producers can omit the appointment time.
+                    # Start one window at the first observation on that date.
+                    if data.get('appointment_fallback_date') == fallback_date and data.get('access_expires'):
+                        expiry = data['access_expires']
+                        if parse_datetime(expiry,branch_timezone) <= at:
+                            if data.get('gate_access'):
+                                data['gate_access'] = False
+                                data['access_revision'] = int(data.get('access_revision',0)) + 1
+                                events.append(dict(data,token=token,event='revoked'))
+                            continue
+                    data['appointment_fallback_date'] = fallback_date
                 changed = not access_is_active(data, at) or data.get('access_expires') != expiry
                 data.update(gate_access=True, access_source='appointment', access_expires=expiry,
                             appointment_notice_until=client.get('_notice_until'))
@@ -399,7 +452,9 @@ class LinkManager:
                     events.append(dict(data, token=token, event='revoked'))
             if events and self.store.flush(links):
                 for event in events:
-                    _emit_event(event)
+                    # Matching a newly created manual card to its first CRM
+                    # identity may seed its delivery channel during this flush.
+                    _emit_event({**event,'mailing_enabled':links[event['token']].get('mailing_enabled',False)})
                 emitted = True
         if not emitted:
             for event in events:

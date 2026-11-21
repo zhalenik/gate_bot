@@ -5,6 +5,7 @@ import time
 import uuid
 
 from link_manager import access_is_active
+from identity_service import valid_phone
 from storage import config
 
 
@@ -49,14 +50,17 @@ def handle(workflow, platform, user, value):
             workflow.access._emit('admin_contact_requested',state['branch_id'])
             numbers=[c['label']+' · '+c['phone'] for c in state['contacts']]
             return {'text':'\n'.join(numbers) or 'Номер пока не указан','actions':[back]}
-        if kind=='share':
-            return {'text':'Выберите ворота для гостя. Ссылка действует один час и допускает одно открытие.',
-                    'actions':[{'label':b['label'],'callback':f'x:gate:{key}:{b["id"]}'} for b in state['gates']]}
-        if kind=='gate':
-            return {'text':'Гостевая ссылка для передачи:\n'+config.BASE_URL+desk.share(token,gate),'actions':[]}
+        if kind in {'share','gate'}:
+            if not state['active']:
+                raise PermissionError('Для передачи ссылки нужен действующий пропуск')
+            nonce=uuid.uuid4().hex[:20]
+            workflow._set(platform,user,{'phase':'guest_phone','key':key,'nonce':nonce,'expires':time.time()+600})
+            return {'text':'Введите номер телефона гостя или выберите «Нет номера».',
+                    'actions':[{'label':'Нет номера','callback':'x:guest:none:'+nonce},{'label':'Отмена','callback':'x:cancel'}]}
         if kind=='request':
             desk.client_send(token,'request','',uuid.uuid4().hex)
-            return {'text':'Запрос передан администратору филиала.','actions':[back]}
+            text='Разовый пропуск выдан.' if desk.client_view(token)['active'] else 'Запрос передан администратору филиала.'
+            return {'text':text,'actions':[back]}
         if kind=='write':
             workflow._set(platform,user,{'phase':'desk_client','key':key,'nonce':uuid.uuid4().hex,'expires':time.time()+600})
             return {'text':'Введите сообщение администратору филиала.','actions':[{'label':'Отмена','callback':'x:cancel'}]}
@@ -67,6 +71,13 @@ def handle(workflow, platform, user, value):
         if not state['active']:
             actions.append({'label':'Запросить пропуск','callback':'x:request:'+key})
         return {'text':'\n'.join(lines),'actions':actions}
+    match=re.fullmatch(r'x:guest:(none|send|copy):([a-f0-9]{20})',value)
+    if match:
+        action,nonce=match.groups()
+        dialog=workflow._get(platform,user)
+        if dialog.get('nonce')!=nonce or dialog.get('phase')!=('guest_phone' if action=='none' else 'guest_send'):
+            raise ValueError('Откройте форму гостевого пропуска заново')
+        return _issue_guest(workflow,platform,user,dialog,action=='send')
     match=re.fullmatch(r'x:(inbox|thread|respond|approve):(\d{1,16})(?::(\d{1,16}))?',value)
     if not match:
         return None
@@ -90,13 +101,37 @@ def handle(workflow, platform, user, value):
     actions=[{'label':'Ответить','callback':'x:respond:'+identifier}]
     for m in reversed(thread['messages']):
         if m['kind']=='request' and not m['approved']:
-            actions.append({'label':'Разрешить до конца дня','callback':f'x:approve:{identifier}:{m["id"]}'})
+            actions.append({'label':'Выдать разовый пропуск','callback':f'x:approve:{identifier}:{m["id"]}'})
             break
     return {'text':'\n'.join(lines),'actions':actions}
 
 
+def _issue_guest(workflow, platform, user, dialog, send):
+    token=_client(workflow,platform,user,dialog['key'])
+    result=workflow.access.desk.share(token,phone=dialog.get('phone'),no_phone=not dialog.get('phone'),send=send,key=dialog['nonce'])
+    workflow._set(platform,user,{})
+    text='Гостевой пропуск готов.'
+    if send:
+        text+=(' Ссылка отправлена.' if result['delivery'] in {'accepted','sent','success'}
+               else ' Сервис не подтвердил отправку. Передайте ссылку гостю.')
+    return {'text':text+'\n'+config.BASE_URL.rstrip('/')+result['path'],'actions':[]}
+
+
 def input_message(workflow, platform, user, dialog, text):
     phase=dialog.get('phase')
+    if phase=='guest_phone':
+        token=_client(workflow,platform,user,dialog['key'])
+        dialog={**dialog,'phone':valid_phone(text),'phase':'guest_send'}
+        if not workflow.access.desk.client_view(token)['share_delivery']:
+            return _issue_guest(workflow,platform,user,dialog,False)
+        workflow._set(platform,user,dialog)
+        return {'text':'Отправить ссылку гостю?', 'actions':[
+            {'label':'Да, отправить','callback':'x:guest:send:'+dialog['nonce']},
+            {'label':'Только получить ссылку','callback':'x:guest:copy:'+dialog['nonce']}]}
+    if phase=='guest_send':
+        return {'text':'Отправить ссылку гостю?', 'actions':[
+            {'label':'Да, отправить','callback':'x:guest:send:'+dialog['nonce']},
+            {'label':'Только получить ссылку','callback':'x:guest:copy:'+dialog['nonce']}]}
     if phase not in {'desk_client','desk_reply'}:
         return None
     if phase=='desk_client':

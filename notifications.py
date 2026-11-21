@@ -46,7 +46,7 @@ class NotificationDispatcher:
             try:
                 self.process_once()
                 with self._health_lock:
-                    if config.OUTBOUND_ENABLED:
+                    if config.outbound_enabled('client'):
                         self._last_success_at = datetime.now(timezone.utc).isoformat()
                     self._last_error_type = None
                     self._consecutive_failures = 0
@@ -64,7 +64,7 @@ class NotificationDispatcher:
             self._stop.wait(delay)
 
     def process_once(self):
-        if not config.OUTBOUND_ENABLED:
+        if not config.outbound_enabled('client'):
             return
         for channel, callback in self.callbacks.items():
             if self._stop.is_set():
@@ -107,7 +107,7 @@ class NotificationDispatcher:
         """Worker health only; does not promise external or physical delivery."""
         with self._health_lock:
             return {'worker_alive': bool(self._thread and self._thread.is_alive()),
-                    'outbound_enabled': config.OUTBOUND_ENABLED,
+                    'outbound_enabled': config.outbound_enabled('client'),
                     'last_success_at': self._last_success_at,
                     'last_error_type': self._last_error_type,
                     'consecutive_failures': self._consecutive_failures}

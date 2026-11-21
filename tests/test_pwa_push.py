@@ -153,7 +153,8 @@ def test_real_encryption_uses_bounded_no_redirect_transport_and_safe_errors(iden
     assert len(captured)==1
 
 
-def test_http_push_requires_csrf_and_never_returns_subscription_secrets(web,tmp_path):
+def test_http_push_requires_csrf_and_never_returns_subscription_secrets(web,tmp_path,monkeypatch):
+    monkeypatch.setattr(config,'CLIENT_OUTBOUND_ENABLED',True)
     from storage.sql_documents import migrate_legacy
     migrate_legacy(tmp_path,activate=True)
     client=web.app.test_client();endpoint='/pwa/'+web.token_a+'/push/'

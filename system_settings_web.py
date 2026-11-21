@@ -58,8 +58,29 @@ def create_blueprint(provider):
         settings, username = context()
         fields = {f['key']:f['value'] for f in settings.public(username)['fields'] if not f['secret']}
         document = compose(request.args, fields, read_modems(settings.identity.product))
-        return Response(document, mimetype='application/yaml', headers={
-            'Content-Disposition':'attachment; filename="gatebot.yaml"', 'Cache-Control':'no-store'})
+        return Response(document, mimetype='text/plain', headers={'Cache-Control':'no-store'})
+
+    @bp.post('/admin/api/system-settings/export')
+    def export_json():
+        from settings_transfer import export_settings
+        settings, username = context()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            abort(400)
+        response = jsonify(export_settings(settings, username, payload.get('password')))
+        response.headers['Content-Disposition'] = 'attachment; filename="gatebot-settings.json"'
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @bp.post('/admin/api/system-settings/import')
+    def import_json():
+        from settings_transfer import import_settings
+        settings, username = context()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            abort(400)
+        result = import_settings(settings, username, payload.get('password'), payload.get('document'), payload.get('revision'))
+        return jsonify(settings=result)
 
     @bp.get('/admin/api/system-settings/modems')
     def modems():

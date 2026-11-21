@@ -146,6 +146,11 @@ def create_blueprint(provider):
     def admin_preferences_status():
         username,admin=actor();return jsonify(preferences=svc().admin_preferences(username))
 
+    @bp.post('/admin/api/identity/notification-events')
+    def admin_events_save():
+        username,admin=actor()
+        return jsonify(preferences=svc().select_admin_events(username,body().get('events')))
+
     @bp.post('/admin/api/identity/email')
     def admin_email():
         username,admin=actor();data=body()
@@ -173,6 +178,11 @@ def create_blueprint(provider):
     @bp.get('/admin/integrations')
     def integrations_page():
         username,admin=actor()
+        if not admin.get('is_super'):
+            current=services()['branches'].get_branch(admin.get('branch_id'))
+            if current and not current.yclients_enabled and getattr(current,'sms_notifications_enabled',False):
+                return render_template('identity/page.html',kind='messenger_only',title='Сообщения клиентам',bootstrap={},
+                                       admin_page=True,is_super=False,branches=choices(admin))
         allowed={str(b.branch_id) for b in services()['branches'].get_all_branches() if getattr(b,'yclients_enabled',True)}
         branches=[b for b in choices(admin) if b['id'] in allowed]
         return render_template('identity/page.html',kind='integrations',title='Подключения филиала',bootstrap={},admin_page=True,is_super=bool(admin.get('is_super')),branches=branches)

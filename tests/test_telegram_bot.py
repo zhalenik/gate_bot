@@ -197,6 +197,8 @@ def fake_application(webhook_url=""):
 
 
 def patch_runtime(monkeypatch, tmp_path, application):
+    import polling_lock
+    monkeypatch.setattr(polling_lock.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.setenv("GATEBOT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("GATEBOT_LOG_DIR", str(tmp_path / "logs"))
     from storage import config

@@ -1,4 +1,5 @@
 """Offline regressions: branch registration, notification defaults and contact isolation."""
+from registration_samples import agreements
 import json
 import re
 
@@ -22,9 +23,9 @@ def test_new_branch_never_copies_superadmin_client(identities, crm):
     state.service.bind_ticket('max', '88009', ticket)
     state.service.save_admin_preferences('owner', {'events': {'branch_registered': {'max': True}}})
     registration = state.service.register_branch('99' if crm else None, 'New branch', 'New admin', PHONE, yclients_enabled=crm)
-    otp = state.service.request_otp(registration['registration_token'], registration=True)
+    otp = state.service.request_otp(registration['registration_token'], registration=True, documents=agreements(state.service))
     code = re.search(r'\b[0-9]{6}\b', state.sent[-1][2]).group()
-    result = state.service.complete_registration(registration['registration_token'], otp['challenge_id'], code, 'new@example.invalid', PASSWORD)
+    result = state.service.complete_registration(registration['registration_token'], otp['challenge_id'], code, 'new@example.invalid', PASSWORD, documents=agreements(state.service))
     state.service.import_legacy()
     state.service.attach_console_account('owner', '+15550100999')
     assert {token for token, c in state.links.load_links().items() if c['person_id'] == owner} == original

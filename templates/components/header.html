@@ -1,5 +1,5 @@
 {% set is_admin_view = admin_page | default(false) %}
-<header class="app-bar{% if client_page | default(false) or centered_brand | default(false) %} app-bar-centered{% endif %}" data-shared-header>
+<header class="app-bar{% if is_admin_view %} full-cabinet-bar{% endif %}{% if client_page | default(false) or centered_brand | default(false) %} app-bar-centered{% endif %}" data-shared-header>
   {% if client_page | default(false) %}<div class="brand" aria-label="GateBot">{% else %}<a class="brand" href="{{ '/admin/users' if is_admin_view else '/' }}" aria-label="GateBot — главная">{% endif %}
     <img src="{{ branding.logo_url if branding is defined else '/static/images/logo.svg' }}" alt="GateBot" width="152" height="36" data-brand-logo>
     {% if is_admin_view %}<span class="brand-scope">{{ 'Все филиалы · Суперадминистратор' if is_super else (admin_branch_name or 'Администратор филиала') }}</span>{% endif %}
@@ -12,16 +12,26 @@
       {% endif %}
     {% endfor %}
   </nav>
+  <nav class="full-mobile-links" aria-label="Разделы кабинета">
+    {% for path,label,icon in [('/admin/users','Клиенты','M16 20v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M20 20v-2a4 4 0 0 0-3-4'),('/admin/client-messages','Сообщения','M4 4h16v12H9l-5 4V4 M8 8h8 M8 12h5'),('/admin/notifications','События','M4 17h16l-2-3V9a6 6 0 1 0-12 0v5l-2 3 M10 20h4')] %}
+    <a href="{{ path }}"{% if request.path==path %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ icon }}"/></svg>{{ label }}</a>
+    {% endfor %}
+  </nav>
   <details class="account-menu"><summary class="icon-button" aria-label="Меню администратора" title="Меню администратора">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span class="full-mobile-label">Меню</span>
   </summary><div class="dropdown">
     <div class="menu-heading">Управление</div>
+    <div class="full-mobile-shortcuts">
+      <a href="/admin/settings">Филиал</a>
+      {% if is_super %}<a href="/admin/telephony">Связь</a>{% else %}<a href="/admin/subscription">Подписка</a>{% endif %}
+      <a href="/admin/statistics">Статистика</a>
+    </div>
     {% if not is_super %}<a href="/office/?view=mobile">Мобильный кабинет</a>{% endif %}
     <a href="/admin/client-messages">Переписка с клиентами</a>
     <a href="/admin/client-notices">Уведомления клиентов</a>
     <a href="/admin/add-user">Добавить клиента</a><a href="/admin/invitations">Администраторы</a>
     <a href="/admin/notifications">Уведомления</a><a href="/admin/notification-settings">Настройки уведомлений</a>{% if admin_yclients_enabled | default(true) or admin_sms_enabled %}<a href="/admin/integrations">Интеграции</a>{% endif %}
-    {% if is_super %}<a href="/admin/branch-plans">Тарифы филиалов</a><a href="/admin/tariffs">Тарифы</a><a href="/admin/packages">Пакеты</a><a href="/admin/system-settings">Системные настройки</a><a href="/admin/palette">Цвета и логотип</a><a href="/admin/logs">Журнал событий</a>{% endif %}
+    {% if is_super %}<a href="/admin/branch-plans">Тарифы филиалов</a><a href="/admin/tariffs">Тарифы</a><a href="/admin/documents">Документы</a><a href="/admin/packages">Пакеты</a><a href="/admin/system-settings">Системные настройки</a><a href="/admin/palette">Цвета и логотип</a><a href="/admin/logs">Журнал событий</a>{% endif %}
     {% if is_super %}<a href="/admin/feedback">Пожелания и отзывы</a><a href="/admin/service-api">API GateBot</a>{% endif %}
     <a href="/admin/change-password">Сменить пароль</a>
     <a href="/admin/help">Помощь</a>

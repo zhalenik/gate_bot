@@ -1,4 +1,5 @@
 """An administrator uses their own client contact, without a second address."""
+from registration_samples import agreements
 import re
 from unittest.mock import Mock
 
@@ -24,9 +25,9 @@ def test_registration_contact_is_ready_without_separate_email_confirmation(ident
         result,*_=accept(state)
     else:
         reg=state.service.register_branch(None,'Local','Owner',PHONE,yclients_enabled=False)
-        otp=state.service.request_otp(reg['registration_token'],registration=True)
+        otp=state.service.request_otp(reg['registration_token'],registration=True, documents=agreements(state.service))
         code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-        result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'registered@example.invalid',PASSWORD)
+        result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'registered@example.invalid',PASSWORD, documents=agreements(state.service))
     prefs=state.service.admin_preferences(result['username'])
     assert prefs['email']==result['username']==state.links.load_links()[own_token(state,result['username'])]['email']
     assert prefs['channels']['email'] and not prefs['email_verified']

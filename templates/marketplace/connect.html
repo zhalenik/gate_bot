@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% set hide_admin_signin = true %}
 {% set marketplace_login = '/yclients/marketplace/resume?next=login#' ~ frame_ticket if frame_ticket else '/admin/login?next=marketplace' %}
-{% block head %}
+{% block head %}<link rel="stylesheet" href="/static/css/legal.css">
 <link rel="stylesheet" href="/static/css/marketplace.css">
 {% if frame_ticket %}<base target="_blank"><script src="/static/js/marketplace-frame.js" data-mode="form" data-ticket="{{ frame_ticket }}"></script>{% endif %}
 {% endblock %}
@@ -34,8 +34,10 @@
       <div class="form-group"><label for="marketplaceEmail">Email для входа</label><input id="marketplaceEmail" name="email" type="email" autocomplete="email" maxlength="254" required></div>
       <div class="form-group"><label for="marketplacePhone">Телефон</label><input id="marketplacePhone" name="phone" type="tel" autocomplete="tel" maxlength="64" required>
         <small id="marketplacePhoneChange" hidden>Для замены номера понадобятся два кода. Первый придёт на телефон из YCLIENTS, второй — на новый номер.</small></div>
+      {% set legal_audience="admin" %}{% include "components/registration_documents.html" %}
       <div class="form-group"><button id="marketplaceSendCode" class="btn-action" type="button">Получить код по SMS</button><small id="marketplaceCodeStatus" role="status" aria-live="polite"></small></div>
       <div class="form-group"><label for="marketplaceCode" id="marketplaceCodeLabel">Код из SMS</label><input id="marketplaceCode" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+        {% include "components/registration_code_note.html" %}
         <button id="marketplaceVerifyOriginal" class="btn-action" type="button" hidden>Подтвердить и отправить код на новый номер</button></div>
       <div class="form-group"><label for="marketplacePassword">Пароль для входа в GateBot</label><input id="marketplacePassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required><small>Не менее 12 символов.</small></div>
       <div class="form-group"><label for="marketplacePasswordConfirm">Повторите пароль</label><input id="marketplacePasswordConfirm" name="confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></div>
@@ -48,5 +50,6 @@
 {% endblock %}
 {% block scripts %}
 <script id="marketplaceBootstrap" type="application/json">{{ state|tojson }}</script>
+<script src="/static/js/legal.js"></script>
 <script src="/static/js/marketplace.js"></script>
 {% endblock %}

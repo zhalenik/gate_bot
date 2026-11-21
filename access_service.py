@@ -1,4 +1,5 @@
 """One authorization path for web, Telegram and MAX. No transport may dial directly."""
+from storage.client_roles import directory_role
 from pathlib import Path
 import threading
 import time
@@ -142,7 +143,7 @@ class AccessService:
             return
         self.billing.record_denied(uuid.uuid4().hex, str(data['branch_id']), self.person_key(data),
             getattr(button, 'stable_id', None) or button.id, reason, source.split(':', 1)[0],
-            branch_client_id=token, pass_type=self.pass_type(data))
+            branch_client_id=token, pass_type=self.pass_type(data), client_role=directory_role(data))
         self._emit('gate_denied', data['branch_id'], client_name=data.get('user_name'), gate_label=button.label,
                    message='Нет действующего разрешения')
 
@@ -250,7 +251,7 @@ class AccessService:
                                 self.billing.finalize(command['id'], 'cancelled', 'route_changed', db=db)
                             admission = self.billing.admit(request_id, branch_id, self.person_key(data),
                                 stable_gate_id, actor.split(':', 1)[0],
-                                branch_client_id=data.get('branch_client_id') or token, pass_type=self.pass_type(data),
+                                branch_client_id=data.get('branch_client_id') or token, pass_type=self.pass_type(data), client_role=directory_role(data),
                                 cooldown_seconds=self.cooldown_seconds, ttl_seconds=config.call_queue_timeout,
                                 simulated=config.GATE_DRY_RUN, db=db)
                             if admission['admitted'] and not admission.get('duplicate'):

@@ -1,4 +1,5 @@
 """Gate QR regression tests: no hardware or external delivery."""
+from registration_samples import agreements
 import re
 from types import SimpleNamespace
 
@@ -105,7 +106,7 @@ def test_no_pass_duplicate_phone_subscription_and_global_otp_limit(qr):
     qr.base.links.delete_link(duplicate)
     assert not qr.base.sent
     invitation = qr.base.service.invite('owner', '11', client_token='example-client')
-    qr.base.service.request_otp(invitation['link'].rsplit('/', 1)[1], ip='127.0.0.1')
+    qr.base.service.request_otp(invitation['link'].rsplit('/', 1)[1], ip='127.0.0.1', documents=agreements(qr.base.service))
     with pytest.raises(OtpRateLimit): qr.svc.request_code(qr.raw, PHONE, 'browser')
 
 

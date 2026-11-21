@@ -16,6 +16,7 @@ def test_standalone_registration_needs_no_company_id_and_completes(web,browser_u
     services=web.module.product_services();sent=[]
     services.identity.sender=lambda *args:sent.append(args) or {'status':'sent'}
     page.goto(origin+'/register-branch')
+    page.locator('#agree-admin-privacy').check();page.locator('#agree-terms').check()
     page.locator('[name=yclients_enabled]').select_option('false')
     expect(page.locator('[name=branch_id]')).to_be_hidden()
     for field,value in [('branch_name','Standalone example'),('name','Local owner'),('phone','+15550400606'),('username','local-owner@example.invalid'),('password','offline-browser-password')]:
@@ -40,6 +41,7 @@ def test_standalone_clients_hide_only_crm_and_keep_manual_actions(web,browser_ui
     from storage.sql_documents import migrate_legacy,DocumentStore
     page,origin,expect,errors=browser_ui
     migrate_legacy(tmp_path,activate=True);monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
+    monkeypatch.setattr('storage.config.CLIENT_OUTBOUND_ENABLED',True)
     web.branches.update_settings('12',{'yclients_enabled':False,'buttons':[]})
     with web.branches.store.transaction() as branches:branches['12']['hardware_routes_verified']=False
     with web.links.store.transaction() as links:links[web.token_a]['tg_id']=101
@@ -53,11 +55,13 @@ def test_standalone_clients_hide_only_crm_and_keep_manual_actions(web,browser_ui
     page.get_by_role('switch',name='Telegram Bot',exact=True).uncheck()
     expect(status).to_have_attribute('data-active-channels','')
     page.get_by_role('dialog',name='Уведомления клиента',exact=True).get_by_role('button',name='Закрыть',exact=True).click()
-    page.locator('#usersTableBody [title="Редактировать"]').click()
+    page.locator('#usersTableBody .client-name-link').click()
     expect(page.get_by_label('YCLIENTS ID',exact=True)).to_have_count(0)
     expect(page.get_by_label('Telegram — подтвержденная привязка')).to_be_visible()
     page.get_by_role('button',name='Отмена',exact=True).click()
-    page.locator('#usersTableBody [title="Назначить администратором"]').click()
+    page.locator('#usersTableBody .client-name-link').click()
+    page.get_by_label('Роль',exact=True).select_option('admin')
+    page.get_by_role('button',name='Сохранить',exact=True).click()
     expect(page.locator('.modal option[value=chatpush]')).to_have_count(0)
     page.get_by_role('button',name='Отмена',exact=True).click()
     page.goto(origin+'/preferences/'+web.token_a)

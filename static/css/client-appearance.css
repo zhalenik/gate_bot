@@ -1,0 +1,16 @@
+.custom-client[data-client-wallpaper]{background-image:var(--client-wallpaper);background-position:center;background-size:cover;background-attachment:fixed}
+.custom-client[data-client-wallpaper] .app-bar,.custom-client[data-client-wallpaper] .access-main,.custom-client[data-client-wallpaper] #identityPage{background-color:var(--gb-color-client-appearance-background-color-cb58f0dd875f, transparent)}
+.custom-client[data-hide-brand] .app-bar,.custom-client[data-hide-brand] [data-brand-fallback]{display:none}
+.custom-client:not([data-client-font=system]),.custom-client:not([data-client-font=system]) :is(input,select,textarea,button,h1,h2,h3,summary){font-family:var(--client-font)}
+.custom-client[data-client-size]{font-size:var(--client-unit)}
+.custom-client[data-client-size] :is(p,label,summary,input,select,textarea,button,.contact-link,.preferences-link,.preference-channel-label,.bot-links a){font-size:var(--client-unit)}
+.custom-client[data-client-size] :is(small,.form-hint,.access-footer,.pass-eyebrow,.pass-topline,.access-badge,.preference-channel-status){font-size:calc(var(--client-unit)*.8)}
+.custom-client[data-client-size] h1{font-size:calc(var(--client-unit)*1.8)}.custom-client[data-client-size] h2{font-size:calc(var(--client-unit)*1.45)}.custom-client[data-client-size] h3{font-size:calc(var(--client-unit)*1.18)}
+.custom-client[data-client-radius] :is(button,.contact-link,.preferences-link,.bot-links a,.btn-action,.btn-primary,.button-gate){border-radius:var(--client-radius)}
+.custom-client .branch-banner{background:var(--client-banner-bg);color:var(--client-banner-fg);font-size:var(--client-banner-size);text-align:var(--client-banner-align);padding:12px 16px;border-radius:var(--client-radius,12px);white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0}
+.custom-client .branch-barrier-image{height:100%;max-height:150px;max-width:100%;object-fit:contain}
+.custom-client .branch-barrier-image:not([hidden]) + svg,.custom-client .branch-barrier-image[hidden],.custom-client .branch-banner[hidden]{display:none}
+
+.custom-client[data-client-size] .branch-banner{font-size:var(--client-banner-size)}
+
+.custom-client .gate-illustration [fill=white]{fill:var(--surface)}.custom-client .gate-illustration [stroke=white]{stroke:var(--surface)}

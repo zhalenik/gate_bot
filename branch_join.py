@@ -1,6 +1,7 @@
 """On-site client enrolment, scoped to a printed branch QR and an SMS-verified browser."""
 import json
 import secrets
+import legal_documents as legal
 from datetime import datetime, timezone
 
 from gate_qr_service import GateQRUnavailable
@@ -19,6 +20,9 @@ class BranchJoin:
             db.execute('CREATE TABLE IF NOT EXISTS branch_join_codes(branch_id TEXT PRIMARY KEY,token TEXT UNIQUE NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS branch_join_proofs(subject TEXT PRIMARY KEY,branch_id TEXT NOT NULL,'
                        'phone TEXT NOT NULL,expires REAL NOT NULL,profile TEXT,client_token TEXT)')
+
+            if 'challenge' not in {col['name'] for col in db.execute('PRAGMA table_info(branch_join_proofs)')}:
+                db.execute('ALTER TABLE branch_join_proofs ADD COLUMN challenge TEXT')
 
     def admin_view(self, username, branch_id, action=None):
         with self.product.connect() as db:
@@ -43,30 +47,35 @@ class BranchJoin:
             raise GateQRUnavailable('Регистрация по этой ссылке недоступна.')
         return row['branch_id'], branch
 
-    def name(self, raw):
+    def page_info(self, raw):
         with self.product.connect() as db:
-            return self._branch(db, raw)[1]['name']
+            branch_id, branch = self._branch(db, raw)
+            return branch_id, branch['name']
+
+    def name(self, raw):
+        return self.page_info(raw)[1]
 
     def _subject(self, branch_id, raw, browser):
         return 'branch_join:' + branch_id + ':' + self.identity._hash(raw + ':' + browser)
 
-    def code(self, raw, browser, phone, ip):
+    def code(self, raw, browser, phone, ip, *, documents):
         def resolve(db):
             branch_id, _ = self._branch(db, raw)
             subject = self._subject(branch_id, raw, browser)
             db.execute('DELETE FROM branch_join_proofs WHERE subject=? OR expires<=?', (subject, self.clock()))
             return subject, phone, branch_id
-        return self.identity.request_phone_otp(resolve, ip, flow='branch_qr')
+        return self.identity.request_phone_otp(resolve, ip, flow='branch_qr',documents=documents)
 
-    def verify(self, raw, browser, challenge, code):
+    def verify(self, raw, browser, challenge, code, *, documents):
         with self.product.connect() as db:
             branch_id, _ = self._branch(db, raw)
             subject = self._subject(branch_id, raw, browser)
             otp = self.identity._check_otp(db, subject, challenge, code)
             if otp:
+                legal.confirm(db,'branch_qr',documents,otp,subject,self.clock())
                 db.execute('UPDATE identity_otp SET state="used" WHERE id=?', (challenge,))
-                db.execute('INSERT OR REPLACE INTO branch_join_proofs(subject,branch_id,phone,expires) VALUES(?,?,?,?)',
-                           (subject, branch_id, otp['phone'], self.clock() + 600))
+                db.execute('INSERT OR REPLACE INTO branch_join_proofs(subject,branch_id,phone,expires,challenge) VALUES(?,?,?,?,?)',
+                           (subject, branch_id, otp['phone'], self.clock() + 600,challenge))
         if not otp:  # Commit failed-attempt accounting.
             raise ValueError('Код неверен или срок его действия истёк.')
 
@@ -76,6 +85,9 @@ class BranchJoin:
                            (self._subject(branch_id, raw, browser), branch_id, self.clock())).fetchone()
         if not proof:
             raise ValueError('Подтвердите номер телефона кодом из сообщения.')
+        if not db.execute('SELECT 1 FROM registration_consent WHERE challenge=? AND participant=? AND accepted IS NOT NULL',
+                                               (proof['challenge'],proof['subject'])).fetchone():
+            raise ValueError('Подтвердите согласие новым кодом регистрации')
         return proof, branch
 
     @staticmethod

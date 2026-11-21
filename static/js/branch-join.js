@@ -26,7 +26,8 @@
     update(); timer = setInterval(update, 1000);
   }
   async function sendCode() {
-    const result = await post('code', {phone: element('phone').value});
+    const documents=window.registrationChoices();if(!documents)return;
+    const result = await post('code', {phone: element('phone').value,documents});
     countdown(result.retry_after);
     if (!result.ready) throw new Error('Не удалось отправить код. Повторите позже.');
     codeForm.querySelector('label').textContent = result.channel === 'chatpush' ? 'Код из мессенджера' : 'Код из SMS';
@@ -53,7 +54,7 @@
   }
   on(phoneForm, 'submit', sendCode); on(resend, 'click', sendCode);
   on(codeForm, 'submit', async () => {
-    await post('verify', {challenge_id: challenge, code: element('code').value});
+    await post('verify', {challenge_id: challenge, code: element('code').value,documents:window.registrationChoices()});
     codeForm.hidden = true; await loadProfile();
   });
   on(retry, 'click', loadProfile);

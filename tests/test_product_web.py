@@ -116,3 +116,15 @@ def test_templates_render_and_invalid_inputs_stay_client_errors(web):
     assert client.post('/admin/api/subscriptions/orders',json={'branch_id':12,'plan_id':'start'}).status_code==400
     assert client.post('/admin/api/statistics/query',json={'timezone':'invalid'}).status_code==400
     assert client.post('/admin/api/statistics/query',json={'group_by':[{}]}).status_code==400
+
+
+def test_role_filter_tracks_role_at_request_and_creation(web):
+    client,services=web
+    for i,role in enumerate(('employee','client','guest')):
+        services['billing'].record_denied('r-'+role,'12','same-person','gate','hours_closed',client_role=role)
+        services['analytics'].record_client('c-'+str(i),'12','p-'+str(i),role=role)
+    result=client.post('/admin/api/statistics/query',json={'roles':['employee'],'group_by':['role']}).json
+    assert result['summary']['requests']==result['summary']['new_branch_clients']==1
+    assert result['groups'][0]['dimensions']=={'role':'employee'}
+    detail=client.post('/admin/api/statistics/records',json={'roles':['guest']}).json
+    assert [record['client_role'] for record in detail['records']]==['guest']

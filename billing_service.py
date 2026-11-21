@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS gate_requests (
  id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, person_id TEXT NOT NULL,
  branch_client_id TEXT, gate_id TEXT NOT NULL, source TEXT NOT NULL, pass_type TEXT NOT NULL,
  happened_at REAL NOT NULL, status TEXT NOT NULL, reason TEXT, command_id TEXT,
- coalesced INTEGER NOT NULL DEFAULT 0, cooldown_key TEXT);
+ coalesced INTEGER NOT NULL DEFAULT 0, cooldown_key TEXT, client_role TEXT NOT NULL DEFAULT 'client');
 CREATE INDEX IF NOT EXISTS request_branch_time ON gate_requests(branch_id,happened_at);
 CREATE INDEX IF NOT EXISTS request_person_time ON gate_requests(person_id,happened_at);
 CREATE INDEX IF NOT EXISTS request_gate_time ON gate_requests(gate_id,happened_at);
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS billing_notice_claims (
  payload TEXT NOT NULL, created REAL NOT NULL, delivered INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS client_branch_events (
  branch_client_id TEXT NOT NULL, branch_id TEXT NOT NULL, person_id TEXT NOT NULL,
- created REAL NOT NULL, source TEXT NOT NULL DEFAULT 'local',
+ created REAL NOT NULL, source TEXT NOT NULL DEFAULT 'local', client_role TEXT NOT NULL DEFAULT 'unknown',
  PRIMARY KEY(branch_id,branch_client_id));
 '''
 
@@ -105,6 +105,12 @@ class BillingService(BillingV2Mixin):
                 if sqlite3.complete_statement(statement):
                     db.execute(statement)
                     statement = ''
+            if 'client_role' not in {r['name'] for r in db.execute('PRAGMA table_info(gate_requests)')}:
+                db.execute("ALTER TABLE gate_requests ADD COLUMN client_role TEXT NOT NULL DEFAULT 'client'")
+                db.execute("UPDATE gate_requests SET client_role='admin' WHERE pass_type='admin_role'")
+                db.execute("UPDATE gate_requests SET client_role='guest' WHERE pass_type='guest'")
+            if 'client_role' not in {r['name'] for r in db.execute('PRAGMA table_info(client_branch_events)')}:
+                db.execute("ALTER TABLE client_branch_events ADD COLUMN client_role TEXT NOT NULL DEFAULT 'unknown'")
         self._init_commercial()
 
     def _transaction(self, db):
@@ -223,8 +229,9 @@ class BillingService(BillingV2Mixin):
             row=tx.execute('SELECT expires FROM billing_cooldowns WHERE key=?',(key,)).fetchone()
             return max(0,math.ceil(row['expires']-epoch(at))) if row else 0
 
-    def record_denied(self, request_id, branch_id, person_id, gate_id, reason, source='web', *, branch_client_id=None, pass_type='none', at=None, db=None):
+    def record_denied(self, request_id, branch_id, person_id, gate_id, reason, source='web', *, branch_client_id=None, pass_type='none', client_role=None, at=None, db=None):
         """Persist AccessService denials without admitting or creating a subscription."""
+        client_role = client_role or {'admin_role':'admin','guest':'guest'}.get(pass_type,'client')
         request_id=identifier(request_id,'запрос');branch=identifier(branch_id,'филиал')
         person=identifier(person_id,'клиент');gate=identifier(gate_id,'ворота');now=epoch(at)
         with self._transaction(db) as tx:
@@ -232,15 +239,16 @@ class BillingService(BillingV2Mixin):
             if old:
                 if (old['branch_id'],old['person_id'],old['gate_id'])!=(branch,person,gate):raise ValueError('Ключ запроса уже использован')
                 return False
-            tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,'denied',reason,None,0,None))
+            tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,'denied',reason,None,0,None,client_role))
             self._event(tx,'gate_denied',branch,request_id,now,reason=reason,person_id=person,gate_id=gate)
             return True
 
 
     def admit(self, request_id, branch_id, person_id, gate_id, source='web', *,
-              branch_client_id=None, pass_type='manual', command_id=None,
+              branch_client_id=None, pass_type='manual', client_role=None, command_id=None,
               coalesce=True, simulated=False, cooldown_seconds=20, ttl_seconds=40,
               operational=True, at=None, db=None):
+        client_role = client_role or {'admin_role':'admin','guest':'guest'}.get(pass_type,'client')
         request_id=identifier(request_id,'запрос');branch=identifier(branch_id,'филиал');person=identifier(person_id,'клиент');gate=identifier(gate_id,'ворота')
         now=epoch(at)
         if not math.isfinite(cooldown_seconds) or not 0<=cooldown_seconds<=300 or not 0<ttl_seconds<=3600:
@@ -260,7 +268,7 @@ class BillingService(BillingV2Mixin):
                 shared=tx.execute('SELECT * FROM hardware_commands WHERE branch_id=? AND gate_id=? AND period_id=? AND status="queued" AND deadline>? ORDER BY created LIMIT 1',(branch,gate,view['period_id'],now)).fetchone()
             if not reason and not shared and not simulated and view['remaining']==0:reason='quota_exhausted'
             if reason:
-                tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,'denied',reason,None,0,cooldown_key))
+                tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,'denied',reason,None,0,cooldown_key,client_role))
                 self._event(tx,'gate_denied',branch,request_id,now,reason=reason,person_id=person,gate_id=gate)
                 return {'admitted':False,'reason':reason,'request_id':request_id,'retry_after':max(1,math.ceil(cooling['expires']-now)) if reason=='cooldown' else 0}
             command=shared['id'] if shared else identifier(command_id or uuid.uuid4().hex,'команда')
@@ -269,7 +277,7 @@ class BillingService(BillingV2Mixin):
                 tx.execute('INSERT INTO hardware_commands(id,branch_id,gate_id,period_id,status,created,deadline,finished) VALUES(?,?,?,?,?,?,?,?)',(command,branch,gate,view['period_id'],status,now,now+ttl_seconds,now if simulated else None))
                 if not simulated:
                     tx.execute('INSERT INTO quota_ledger VALUES(?,?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,view['period_id'],command,'reserve',1,0,0,now,None,None))
-            tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,status,None,command,int(shared is not None),cooldown_key))
+            tx.execute('INSERT INTO gate_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(request_id,branch,person,branch_client_id,gate,source,pass_type,now,status,None,command,int(shared is not None),cooldown_key,client_role))
             self._record_request_details(tx,request_id,branch,gate,branch_client_id)
             tx.execute('INSERT INTO billing_cooldowns VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET expires=excluded.expires,request_id=excluded.request_id',(cooldown_key,now+cooldown_seconds,request_id))
             self._event(tx,'gate_admitted',branch,request_id,now,command_id=command,coalesced=shared is not None,simulated=simulated,person_id=person,branch_client_id=branch_client_id,gate_id=gate,source=source,pass_type=pass_type,period_id=view['period_id'])

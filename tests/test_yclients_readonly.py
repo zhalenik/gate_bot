@@ -185,3 +185,15 @@ def test_client_response_cannot_substitute_crm_identity_or_branch(crm_config, da
     api, _ = client(crm_config, [Response({"success": True, "data": data})])
     with pytest.raises(YClientsError):
         api.get_client(1, 7)
+
+
+def test_staff_directory_is_tenant_scoped_and_excludes_dismissed(crm_config):
+    rows=[{'id':12,'company_id':1,'phone':'15550100933','name':'Office','email':'office@example.invalid'},
+          {'id':13,'company_id':1,'is_fired':True}, {'id':14,'is_deleted':True}]
+    api,session=client(crm_config,[Response({'success':True,'data':rows}),Response({'success':True,'data':[{'id':1,'company_id':2}]})])
+    assert api.staff_for_branch(1)==[{'id':'12','phone':'+15550100933','name':'Office','email':'office@example.invalid'}]
+    assert session.calls[0][0].endswith('/company/1/staff')
+    with pytest.raises(YClientsReadOnlyError):
+        api.request('GET','company/2/staff',1)
+    with pytest.raises(YClientsError):
+        api.staff_for_branch(1)

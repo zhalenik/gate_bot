@@ -10,10 +10,11 @@
     <h1>Ссылка недоступна</h1><p class="access-description">{{ unavailable }}</p>
     {% else %}
     <div class="pass-topline"><span class="pass-eyebrow">Доступ к воротам</span><span id="qrBadge" class="access-badge">Проверка…</span></div>
-    <div class="pass-brand"><img src="{{ bootstrap.branch_logo or '/static/images/favicon.svg' }}" alt="" class="branch-logo"><div><h1>{{ bootstrap.branch_name }}</h1><p>{{ bootstrap.gate_label }}</p></div></div>
-    <div class="qr-gate-symbol" aria-hidden="true"><svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="3"><rect x="12" y="33" width="16" height="34" rx="4"/><path d="m21 32 43-14M48 66V44m-7 8 7-8 7 8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="pass-brand"><img src="{{ bootstrap.branch_logo or (branding.icon_url if branding is defined else '/static/images/favicon.svg') }}" alt="" class="branch-logo" {% if not bootstrap.branch_logo %}data-brand-fallback{% endif %}><div><h1>{{ bootstrap.branch_name }}</h1><p>{{ bootstrap.gate_label }}</p></div></div>
+    <div class="qr-gate-symbol" aria-hidden="true">{% include 'components/branch_barrier.html' %}<svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="3"><rect x="12" y="33" width="16" height="34" rx="4"/><path d="m21 32 43-14M48 66V44m-7 8 7-8 7 8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     <h2 id="qrHeading">{% if bootstrap.state == 'closed' %}Сейчас доступ закрыт{% else %}Ваш номер телефона{% endif %}</h2>
     <p id="qrDescription" class="access-description">{% if bootstrap.state == 'closed' %}{{ bootstrap.message }}{% else %}Проверим пропуск в этом филиале. При первом входе подтвердите номер кодом из сообщения.{% endif %}</p>
+    {% include 'components/branch_banner.html' %}
     <form id="qrPhoneForm" class="qr-form" {% if bootstrap.state == 'closed' %}hidden{% endif %}>
       <label for="qrPhone">Номер телефона</label><input id="qrPhone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00" maxlength="40" required>
       <button id="qrSendCode" type="submit" class="gate-action">Продолжить <span aria-hidden="true">→</span></button>

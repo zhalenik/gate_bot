@@ -39,7 +39,7 @@ class IntegrationTestDelivery:
     @staticmethod
     def _provider(provider):
         if not isinstance(provider, str) or provider not in LIMITS:
-            raise ValueError('Выберите ChatPush или YCLIENTS')
+            raise ValueError('Выберите сервис рассылки или YCLIENTS')
         return provider
 
     def _state(self, db, username, branch_id, provider):

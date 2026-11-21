@@ -1,4 +1,5 @@
 """External integration entry points, isolated from providers and physical hardware."""
+from registration_samples import agreements
 import os
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -97,15 +98,15 @@ def test_both_qr_flows_use_branch_choice_and_sms_billing_context(qr):
     for channel, phone in [('chatpush','+15550100102'),('sms','+15550100103')]:
         with base.product.connect() as db:
             qr_settings(base.service,db,11,channel)
-        result = join.code(raw,'second',phone,'127.0.0.1')
+        result = join.code(raw,'second',phone,'127.0.0.1', documents=agreements(join.identity, client=True))
         actual,target,_,context = base.sent[-1]
         assert result['channel'] == actual == channel and target == phone
         assert context['branch_id'] == '11' and 'billing_exempt' not in context
     new_branch = base.service.register_branch(None,'Branch','Owner','+15550100104',yclients_enabled=False)
-    base.service.request_otp(new_branch['registration_token'],registration=True)
+    base.service.request_otp(new_branch['registration_token'],registration=True, documents=agreements(base.service))
     assert base.sent[-1][3]['billing_exempt'] == 'registration'
     invite = base.service.invite('north','11',phone='+15550100105')
-    base.service.request_otp(invite['link'].rsplit('/',1)[-1])
+    base.service.request_otp(invite['link'].rsplit('/',1)[-1], documents=agreements(base.service))
     assert base.sent[-1][3]['branch_id'] == '11' and 'billing_exempt' not in base.sent[-1][3]
 
 

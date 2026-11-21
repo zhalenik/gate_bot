@@ -19,6 +19,8 @@ class ApplicationServices:
         self.billing = BillingService(self.store)
         self.analytics = AnalyticsService(self.store)
         self.identity = IdentityService(self.store)
+        from branch_appearance import BranchAppearance
+        self.appearance = BranchAppearance(self.identity,self.billing)
         from pwa_service import PwaService
         self.pwa = PwaService(self.identity)
         from yclients_client_sync import YClientsClientSync
@@ -49,7 +51,7 @@ class ApplicationServices:
             from gate_qr_service import GateQRService
             self.gate_qr = GateQRService(self.identity, self.links, self.branches, access)
         return {'service': self.identity, 'auth': auth, 'links': self.links, 'branches': self.branches,
-                'billing': self.billing, 'analytics': self.analytics,
+                'billing': self.billing, 'analytics': self.analytics, 'appearance':self.appearance,
                 'gate_qr': self.gate_qr, 'branch_join': self.branch_join, 'support': self.support,
                 'pwa': self.pwa, 'desk': self.desk, 'access': access,
                 'notifications': self.notifications, 'check_yclients': check_yclients,

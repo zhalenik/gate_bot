@@ -18,7 +18,7 @@ SCOPES = {
     'reviews': 'Чтение отзывов',
     'system_sms': 'Системные SMS',
     'branch_sms': 'SMS за счёт филиала',
-    'branch_chatpush': 'Коды через ChatPush филиала',
+    'branch_chatpush': 'Коды через сервис рассылки филиала',
     'branch_yclients': 'Коды через YCLIENTS филиала',
 }
 

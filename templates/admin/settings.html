@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set admin_page = true %}
 {% block title %}Настройки филиала — GateBot{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/gate-qr.css"><link rel="stylesheet" href="/static/css/branch-hours.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/gate-qr.css"><link rel="stylesheet" href="/static/css/branch-hours.css"><link rel="stylesheet" href="/static/css/appearance-editor.css">{% endblock %}
 {% block content %}
 <div class="admin-container branch-settings-page">
         <div class="admin-content">
@@ -16,6 +16,7 @@
             {% set tabs = [('general', 'Общие данные'), ('gates', 'Ворота и QR'), ('access', 'Доступ по пропускам'), ('notifications', 'Уведомления и запросы')] %}
             <nav class="branch-tabs" role="tablist" aria-label="Настройки филиала">
                 {% for key,label in tabs %}<button id="branch-tab-{{ key }}" type="button" role="tab" data-branch-tab="{{ key }}" aria-controls="branch-panel-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}">{{ label }}</button>{% endfor %}
+                <button type="button" id="branch-tab-appearance" role="tab" data-branch-tab="appearance" aria-controls="branch-panel-appearance" aria-selected="false" tabindex="-1" hidden>Персонализация</button>
             </nav>
             <form id="branchSettingsForm">
                 <section role="tabpanel" id="branch-panel-general" aria-labelledby="branch-tab-general" data-branch-panel="general" class="panel branch-settings-fields">
@@ -25,7 +26,7 @@
                             <option value="true">С YCLIENTS</option>
                             <option value="false">Без CRM — самостоятельный филиал</option>
                         </select>
-                        <small class="form-hint" id="settingsYclientsHint">Самостоятельному филиалу не нужны YCLIENTS и ChatPush.</small>
+                        <small class="form-hint" id="settingsYclientsHint">Самостоятельному филиалу не нужны YCLIENTS и сервис рассылки.</small>
                     </div>
                     <div class="form-group">
                         <label for="settingsBranchId" id="settingsBranchIdLabel">ID филиала в YCLIENTS</label>
@@ -99,6 +100,7 @@
                 </section>
                 <button type="submit" id="saveSettingsButton" class="btn-primary" disabled>Сохранить настройки</button>
             </form>
+            {% include 'components/appearance_editor.html' %}
             <div data-branch-panel="access" id="branchScheduleHost" hidden></div>
             {% if is_super %}
             <div data-branch-panel="general">
@@ -132,5 +134,6 @@
 <script src="/static/js/admin.js"></script>
 <script src="/static/js/gate-qr-admin.js"></script>
 <script src="/static/js/branch-hours.js"></script>
+<script src="/static/js/appearance-editor.js"></script>
 {% if is_super %}<script src="/static/js/branch-lifecycle.js"></script>{% endif %}
 {% endblock %}

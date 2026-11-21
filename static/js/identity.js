@@ -2,7 +2,7 @@
 (() => {
  const boot=JSON.parse(document.getElementById('identityBootstrap').textContent),data=boot.data,root=document.getElementById('identityContent');
  const notice=document.getElementById('identityNotice'),description=document.getElementById('identityDescription');
- const labels={email:'Email',telegram:'Telegram',max:'MAX',chatpush:'ChatPush',sms:'SMS'};
+ const labels={email:'Email',telegram:'Telegram',max:'MAX',chatpush:'Сервис рассылки',sms:'SMS'};
  const events={gate_requested:'Запрос открытия ворот',gate_denied:'Отказ в доступе',gate_error:'Ошибка открытия',admin_contact_requested:'Запрос контакта администратора',invitation_accepted:'Приглашение принято',access_changed:'Изменение пропуска',crm_error:'Ошибка CRM',crm_recovered:'CRM восстановлена',modem_error:'Ошибка модема',modem_recovered:'Модем восстановлен',delivery_failed:'Ошибка доставки',subscription_expiring:'Подписка заканчивается',subscription_expired:'Подписка закончилась',quota_warning:'Квота заканчивается',quota_exhausted:'Квота исчерпана',branch_registered:'Регистрация нового филиала',marketplace_disconnected:'Отключение в маркетплейсе YCLIENTS',sms_received:'Входящие SMS',call_received:'Входящие звонки'};
  Object.assign(events,{client_message:'Сообщение клиента',pass_requested:'Запрос пропуска',pass_request_auto_granted:'Пропуск под запрос выдан автоматически'});
  function tell(text,error=false){notice.hidden=false;notice.textContent=text;notice.className='panel '+(error?'alert-error':'alert-success');}
@@ -134,8 +134,10 @@
   const email=field(f,'Email — ваш логин','username','email',true,initial.email||'');email.maxLength=254;email.autocomplete='email';
   const password=field(f,'Пароль GateBot (от 12 символов)','password','password');password.minLength=12;password.autocomplete='new-password';
   if(!registration)field(f,'Текущий пароль, если аккаунт уже существует','existing_password','password',false);
+  f.append(document.getElementById('registrationChecks').content.cloneNode(true));
   let registrationToken='',challenge='',sending=false,deadline=0,waiting=false,statusBusy=false,ready=false,finished=false,flowVersion=0;
   const code=field(f,'Код из SMS','code','text',false);code.inputMode='numeric';code.maxLength=6;code.autocomplete='one-time-code';code.pattern='[0-9]{6}';
+  f.append(document.getElementById('registrationCodeNote').content.cloneNode(true));
   const codeStatus=element('p','page-description');codeStatus.id='otpDeliveryStatus';codeStatus.setAttribute('role','status');f.append(codeStatus);
   const resend=element('button','btn-action','Получить SMS-код');resend.type='button';resend.id='otpResend';f.append(resend);
   // Clear obsolete drafts from older versions. New flows live only in memory.
@@ -157,14 +159,15 @@
   resend.addEventListener('click',async()=>{
    if(sending||finished||performance.now()<deadline)return;
    for(const name of verifiedFields){const input=f.elements[name];if(input&&!input.disabled&&!input.reportValidity())return;}
+   const documents=window.registrationChoices();if(!documents)return;
    const version=++flowVersion;sending=true;paint();
-   try{const values=Object.fromEntries(new FormData(f));if(registration&&!registrationToken){values.yclients_enabled=registrationMode.value==='true';if(!values.yclients_enabled)delete values.branch_id;const details=Object.fromEntries(['branch_id','branch_name','name','phone','yclients_enabled'].filter(key=>key in values).map(key=>[key,values[key]]));const result=await post('/register-branch',details);if(version!==flowVersion||finished)return;registrationToken=result.registration_token;}
-    const token=registrationToken;cooldown(60);const result=await post(registration?'/register-branch/code':'/invite/'+data.token+'/code',registration?{registration_token:token}:{phone:values.phone});if(version!==flowVersion||token!==registrationToken||finished)return;received(result);code.focus();
+   try{const values=Object.fromEntries(new FormData(f));if(registration&&!registrationToken){values.yclients_enabled=registrationMode.value==='true';if(!values.yclients_enabled)delete values.branch_id;const details=Object.fromEntries(['branch_id','branch_name','name','phone','yclients_enabled'].filter(key=>key in values).map(key=>[key,values[key]]));const result=await post('/register-branch',{...details,documents});if(version!==flowVersion||finished)return;registrationToken=result.registration_token;}
+    const token=registrationToken;cooldown(60);const result=await post(registration?'/register-branch/code':'/invite/'+data.token+'/code',registration?{registration_token:token,documents}:{phone:values.phone,documents});if(version!==flowVersion||token!==registrationToken||finished)return;received(result);code.focus();
    }catch(error){if(version!==flowVersion||finished)return;if(error.retry_after)cooldown(error.retry_after);else if(error.status===400)cooldown(0);else waiting=true;tell(error.message,true);}finally{if(version===flowVersion){sending=false;paint();if(waiting&&!finished)refreshCode();}}
   });
   const timer=setInterval(paint,250),poll=setInterval(()=>{if(waiting&&!document.hidden)refreshCode();},2000);paint();
   addEventListener('pagehide',()=>{clearInterval(timer);clearInterval(poll);});
-  submit(f,'Завершить регистрацию',async values=>{if(sending||!challenge||!ready)throw new Error('Сначала запросите SMS-код и дождитесь отправки');await post(registration?'/register-branch/complete':'/invite/'+data.token+'/accept',{...values,registration_token:registrationToken,challenge_id:challenge});finished=true;clearInterval(timer);clearInterval(poll);root.replaceChildren(element('p','','Регистрация завершена. Войдите с указанным email и паролем.'));const link=element('a','btn-primary','Войти');link.href='/admin/login';root.append(link);});
+  submit(f,'Завершить регистрацию',async values=>{if(sending||!challenge||!ready)throw new Error('Сначала запросите SMS-код и дождитесь отправки');await post(registration?'/register-branch/complete':'/invite/'+data.token+'/accept',{...values,registration_token:registrationToken,challenge_id:challenge,documents:window.registrationChoices()});finished=true;clearInterval(timer);clearInterval(poll);root.replaceChildren(element('p','','Регистрация завершена. Войдите с указанным email и паролем.'));const link=element('a','btn-primary','Войти');link.href='/admin/login';root.append(link);});
  } else if(boot.kind==='preferences'){
   let prefs=data.preferences,busy=false,version=0,connecting=null;
   const channelNames={email:'Email',telegram:'Telegram Bot',max:'MAX Bot',messengers:'Мессенджеры (сообщение от администратора)',sms:'СМС',push:'Push'},icons={email:'@',telegram:'TG',max:'M',messengers:'↗',sms:'SMS',push:'◉'},cards={};
@@ -303,23 +306,75 @@
    }finally{pendingSaves--;savePreferences.disabled=false;emailInput.disabled=false;emailCancel.disabled=false;}
   });
   const emailCancel=action(emailForm,'Отмена',()=>{emailForm.hidden=true;emailEdit.hidden=false;emailEdit.focus();});cards.email.card.append(emailForm);
-  const f=form(),table=element('table','users-table admin-event-matrix'),head=element('tr'),eventControls={};
-  f.append(element('h2','','События и каналы'),element('p','page-description','Отметьте события для ленты и выберите, куда присылать уведомления.'));
-  for(const title of ['Событие','Email','Telegram','MAX','Push'])head.append(element('th','',title));table.append(head);
+  const f=form(),table=element('table','admin-event-matrix'),head=table.createTHead().insertRow(),body=table.createTBody(),eventControls={};
+  const compact=matchMedia('(max-width: 759px)');
+  f.classList.add('event-settings-form');
+  f.append(element('h2','','События и каналы'));
+  for(const title of ['Событие','Email','Telegram','MAX','Push']){
+   const cell=element('th','',title);cell.scope='col';head.append(cell);
+  }
   for(const event of data.events){
-   const row=element('tr'),eventCell=element('th');
+   const title=events[event]||event,row=body.insertRow(),eventCell=element('th');
    eventCell.scope='row';
-   eventControls[event]=check(eventCell,events[event]||event,event,prefs.active_events.includes(event));
-   eventControls[event].onchange=()=>paintConnections();
+   const master=check(eventCell,'',event,prefs.active_events.includes(event));
+   master.setAttribute('aria-label',title);master.parentNode.append(element('span','event-desktop-title',title));
+   eventControls[event]=master;
+   const edit=button(title,()=>openEvent(event),'event-mobile-title');
+   edit.setAttribute('aria-haspopup','dialog');eventCell.append(edit);
+   master.onchange=async()=>{
+    if(!master.checked){
+     if(compact.matches) await saveMobileEvent(event,false,{});
+     else for(const input of Object.values(controls[event]))input.checked=false;
+    }else if(compact.matches){
+     master.checked=false;openEvent(event);
+    }
+    paintConnections();
+   };
    row.append(eventCell);controls[event]={};
    for(const channel of channels){
-    const cell=element('td'),input=check(cell,'',event+'_'+channel,prefs.events[event]?.[channel]);controls[event][channel]=input;
-    cell.dataset.channel=channelLabels[channel];
-    input.setAttribute('aria-label',(events[event]||event)+' '+channelLabels[channel]);input.setAttribute('aria-describedby','adminChannelStatus-'+channel);row.append(cell);
+    const cell=row.insertCell(),input=check(cell,'',event+'_'+channel,prefs.events[event]?.[channel]);
+    controls[event][channel]=input;
+    input.setAttribute('aria-label',title+' '+channelLabels[channel]);
+    input.setAttribute('aria-describedby','adminChannelStatus-'+channel);
    }
-   table.append(row);
   }
-  const tableScroll=element('div','users-table-container');tableScroll.append(table);f.append(tableScroll);
+  f.append(table);
+  const editor=element('dialog','event-channel-dialog'),editorTitle=element('h2'),options=element('div','event-options');
+  editorTitle.id='eventChannelHeading';editor.setAttribute('aria-labelledby',editorTitle.id);
+  const dialogStatus=element('p','form-hint');dialogStatus.setAttribute('role','status');
+  const dialogActions=element('div','event-dialog-actions'),cancel=button('Отмена',()=>editor.close());
+  let editing=null;
+  const apply=button('Сохранить',async()=>{
+   const choices=Object.fromEntries([...options.querySelectorAll('input')].map(input=>[input.name,input.checked]));
+   if(await saveMobileEvent(editing,true,choices))editor.close();
+  },'btn-primary');
+  dialogActions.append(cancel,apply);editor.append(editorTitle,options,dialogStatus,dialogActions);root.append(editor);
+  function openEvent(event){
+   if(pendingSaves)return;editing=event;editorTitle.textContent=events[event]||event;dialogStatus.textContent='';
+   options.replaceChildren();
+   for(const channel of channels){
+    const input=check(options,channelLabels[channel],channel,controls[event][channel].checked);
+    input.disabled=!prefs.channels[channel];
+    if(input.disabled)input.parentElement.append(element('small','', 'Канал не подключён'));
+   }
+   editor.showModal();
+  }
+  async function saveMobileEvent(event,enabled,choices){
+   if(pendingSaves)return false;
+   pendingSaves++;++connectionVersion;apply.disabled=cancel.disabled=true;
+   const master=eventControls[event];master.disabled=true;
+   try{
+    const result=await post('/admin/api/identity/notification-settings/'+encodeURIComponent(event),{enabled,channels:choices});
+    Object.assign(prefs,result.preferences);
+    for(const channel of channels)controls[event][channel].checked=Boolean(prefs.events[event][channel]);
+    return true;
+   }catch(error){
+    if(editor.open)dialogStatus.textContent=error.message;else tell(error.message,true);return false;
+   }finally{
+    master.checked=prefs.active_events.includes(event);master.disabled=false;
+    apply.disabled=cancel.disabled=false;pendingSaves--;paintConnections();
+   }
+  }
   const unavailable=element('p','page-description');unavailable.id='adminNotificationUnavailable';unavailable.setAttribute('role','status');f.append(unavailable);
   function refreshUnavailable(){const pending=channels.filter(channel=>!prefs.channels?.[channel]&&data.events.some(event=>eventControls[event].checked&&controls[event][channel].checked));unavailable.hidden=!pending.length;unavailable.textContent=pending.length?'Для доставки через '+pending.map(channel=>channelLabels[channel]).join(', ')+' завершите подключение канала. Выбранные события сохранятся.':'';return pending.length;}
   function paintConnections(){

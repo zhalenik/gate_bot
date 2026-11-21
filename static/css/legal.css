@@ -1,0 +1,12 @@
+.legal-library,.legal-library form,[data-registration-documents]{display:grid;gap:14px}
+.legal-library .panel{margin:0}.legal-library form,.legal-library details{margin-top:14px}.legal-library form{justify-items:start}
+.legal-choice{display:flex;align-items:flex-start;gap:10px;text-align:left}
+.legal-choice input[type=checkbox]{appearance:auto;flex:0 0 20px;min-height:0;width:20px;height:20px;margin:3px 0 0}
+.legal-choice label{display:block;font-weight:600;font-size:1rem}
+.legal-choice a{display:inline-block;text-decoration:underline;text-underline-offset:3px;margin-top:4px}
+.legal-code-note{color:var(--muted);font-size:.86rem;line-height:1.5;text-align:left}
+.legal-dialog{width:min(680px,92vw);max-height:86vh;max-height:86dvh;overflow:auto;border:1px solid var(--line);border-radius:18px;padding:22px;color:var(--ink);background:var(--surface)}
+.legal-dialog::backdrop{background:var(--gb-color-legal-background-b01804721f07, rgb(0 0 0 / .45))}
+.legal-dialog header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.legal-dialog h2{margin:0;font-size:1.25rem}.legal-dialog article{margin-top:16px;white-space:pre-line;text-align:left;line-height:1.55}
+.legal-dialog iframe{width:100%;height:54vh;border:0}.legal-dialog a{text-decoration:underline}

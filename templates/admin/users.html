@@ -7,7 +7,6 @@
         <div class="admin-content">
             <div class="page-heading"><div><p class="page-eyebrow">Парковка и доступ</p><h1>Клиенты</h1><p class="page-description">Пропуска, контакты и уведомления в одном месте.</p></div><span class="badge" id="clientCount" aria-live="polite"></span></div>
             {% if not is_super and admin_branch_name %}
-            {% if not office %}<div class="client-directory-title">{{ admin_branch_name }}</div>{% endif %}
             <style>
                 /* Скрываем колонку Филиал и фильтр филиала для обычного админа */
                 .filter-section #filterBranch { display: none; }

@@ -11,7 +11,7 @@
     {% if not system_enabled %}<p class="form-hint">Отправка отключена администрацией сервиса GateBot.</p>{% endif %}
   </form></section>{% endif %}
   <section class="panel"><h2>История отправки</h2>
-  {% set channels={'sms':'СМС','push':'Push','email':'Email','chatpush':'ChatPush','yclients':'YCLIENTS','telegram':'Telegram Bot','max':'MAX Bot'} %}
+  {% set channels={'sms':'СМС','push':'Push','email':'Email','chatpush':'Сервис рассылки','yclients':'YCLIENTS','telegram':'Telegram Bot','max':'MAX Bot'} %}
   {% set states={'pending':'Ожидает отправки','queued':'В очереди','sending':'Отправляется','accepted':'Принято сервисом','sent':'Отправлено','success':'Отправлено','network_accepted':'Принято оператором','skipped':'Пропущено','failed':'Ошибка','error':'Ошибка','unknown':'Результат неизвестен'} %}
   {% for item in items %}<article class="notification-item"><div class="notification-content"><div class="notification-heading"><h2>{{ channels.get(item.channel,item.channel) }}{% if item.recipient %} · {{ item.recipient }}{% endif %}</h2><time>{{ item.time }}</time></div><p>{{ states.get(item.state,item.state) }}</p><p class="notification-text">{{ item.text }}</p></div></article>{% else %}<p class="empty-state">Исходящих уведомлений пока нет.</p>{% endfor %}
   {% if page>1 %}<a class="btn-action" href="{{ url_for('client_notices_page',branch_id=branch_id,page=page-1) }}">Новее</a>{% endif %}

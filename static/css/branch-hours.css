@@ -1,6 +1,6 @@
 .branch-settings-page [hidden]{display:none!important}
 .branch-settings-page .admin-content{min-width:0}
-.branch-settings-page .page-heading h1{font-size:clamp(1.9rem,4vw,3rem);letter-spacing:-.035em;overflow-wrap:anywhere}
+.branch-settings-page .page-heading h1{font-size:clamp(1.45rem,2.7vw,2rem);letter-spacing:-.035em;overflow-wrap:anywhere}
 .branch-tabs{display:flex;gap:6px;max-width:100%;overflow-x:auto;padding:5px;margin-block:20px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
 .branch-tabs button{border:0;background:var(--gb-color-branch-hours-background-3467656fd825, transparent);color:var(--muted);padding:11px 16px;border-radius:11px;white-space:nowrap;cursor:pointer;font:inherit;font-size:.9rem;font-weight:600}
 .branch-tabs button[aria-selected="true"]{background:var(--lavender);color:var(--ink)}

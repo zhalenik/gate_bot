@@ -103,6 +103,11 @@ def test_desktop_admin_can_connect_browser_and_choose_events(web,tmp_path,monkey
     page,origin,expect,errors=browser_ui
     mock_push(page)
     sign_in(page,origin)
+    page.evaluate("""() => {const subscribe=PushManager.prototype.subscribe;
+        PushManager.prototype.subscribe=function(options){
+          if(!window.simulatedTemporaryFailure){window.simulatedTemporaryFailure=true;throw new DOMException('Registration failed - push service error','AbortError');}
+          return subscribe.call(this,options);
+        };}""")
     offer=page.locator('[data-admin-push-offer]')
     expect(offer).to_be_visible()
     assert page.evaluate('fakePermissionCalls')==0

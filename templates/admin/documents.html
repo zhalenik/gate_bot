@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Документы — GateBot{% endblock %}
+{% block content %}
+<main class="admin-container"><section class="admin-content legal-library"><h1>Документы</h1>
+{% for category,message in get_flashed_messages(with_categories=true) %}<p role="status" class="alert {{ 'alert-error' if category=='error' else 'alert-success' }}">{{ message }}</p>{% endfor %}
+{% for kind,title in titles.items() %}
+  {% set revisions=versions|selectattr('kind','equalto',kind)|list %}
+  <section class="panel"><h2>{{ title }}</h2>
+    <p><a href="/documents/{{ kind }}/{{ revisions[0].id }}" target="_blank" rel="noopener">Открыть действующую редакцию № {{ revisions[0].id }}</a></p>
+    <form method="post" action="/admin/documents/{{ kind }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Новый документ · PDF или текст UTF-8, до 5 МБ<input name="document" type="file" accept=".pdf,.txt" required></label>
+      <button class="btn-action">Опубликовать</button>
+    </form>
+    {% if revisions|length > 1 %}<details><summary>Предыдущие редакции</summary><ul>
+    {% for row in revisions[1:] %}<li><a href="/documents/{{ kind }}/{{ row.id }}" target="_blank" rel="noopener">№ {{ row.id }} · {{ row.filename }}</a></li>{% endfor %}
+    </ul></details>{% endif %}
+  </section>
+{% endfor %}
+  <section class="panel"><h2>Договор оферты</h2><p>При оформлении заказа филиал принимает опубликованную редакцию.</p>
+  {% if offer %}<a id="offerCurrent" href="{{ offer.url }}" target="_blank" rel="noopener">Действующая оферта · {{ offer.filename }}</a>{% endif %}
+  <form id="offerUploadForm" action="/admin/api/billing/offer" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Новая редакция · PDF до 10 МБ<input name="document" type="file" accept=".pdf,application/pdf" required></label>
+    <button class="btn-action">Опубликовать оферту</button><output role="status"></output>
+  </form></section>
+</section></main>
+{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/legal.css">{% endblock %}
+{% block scripts %}<script src="/static/js/legal.js"></script>{% endblock %}

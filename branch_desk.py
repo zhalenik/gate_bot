@@ -249,7 +249,7 @@ class BranchDesk:
             if not self._matches(row,data,gate):
                 raise PermissionError('Доступ невозможен')
             if access is None:
-                return {'branch':branch.name,'gate':gate.label}
+                return {'branch':branch.name,'branch_id':row['branch_id'],'gate':gate.label}
             request_id='shared_'+secrets.token_hex(16)
             db.execute('UPDATE desk_shares SET request_id=? WHERE id=?',(request_id,row['id']))
         result=access.open_for_token(row['token'],gate.id,request_id=request_id,expected_gate_id=row['gate_id'],expected_phone=row['phone'] or None)

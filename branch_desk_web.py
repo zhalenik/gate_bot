@@ -1,5 +1,5 @@
 """Branch inbox and guest handoffs. Never return a pass owner's bearer to a guest."""
-from flask import Blueprint, abort, jsonify, redirect, render_template, request, session
+from flask import Blueprint, abort, g, jsonify, redirect, render_template, request, session
 
 
 def create_blueprint(provider):
@@ -44,6 +44,7 @@ def create_blueprint(provider):
     @bp.route('/shared/<raw>', methods=['GET','POST'])
     def shared(raw):
         view = desk().shared(raw)
+        g.client_appearance_branch = view['branch_id']
         if request.method == 'GET':
             return render_template('shared_gate.html', **view)
         result = desk().shared(raw,provider()['access'])

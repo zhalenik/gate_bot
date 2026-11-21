@@ -91,8 +91,13 @@ def inject_context():
             pwa.update(manifest_url=pwa['scope']+'manifest.webmanifest', allow_push=not pwa['guest'])
         except (ValueError, PermissionError):
             pass
+    from branch_appearance import public_brand
+    from branch_appearance_web import css_values
+    theme_branch = pwa.get('branch_id') if pwa else getattr(g,'client_appearance_branch',None)
+    theme = product_services().appearance.public(theme_branch) if theme_branch else None
     return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token,
-            'branding': BrandingSettings(product_services().identity).public_view(),
+            'client_appearance':theme, 'client_styles':css_values(theme) if theme else {},
+            'branding':public_brand(BrandingSettings(product_services().identity).public_view(),theme),
             'client_pwa': pwa, 'public_site_url': config.PUBLIC_SITE_URL if config.PUBLIC_SITE_URL.startswith(('http://','https://')) else '',
             'client_page': request.path.split('/', 2)[1] in {'opn','gate','join','preferences','pwa','verify-email','unsubscribe','shared'},
             'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
@@ -116,6 +121,9 @@ def protect_request():
         return None
     supplied = request.headers.get("X-CSRF-Token")
     if supplied is None and request.mimetype in {"application/x-www-form-urlencoded", "multipart/form-data"}:
+        if request.endpoint == 'legal.upload':
+            from legal_documents import MAX_SIZE
+            request.max_content_length = MAX_SIZE + 65536
         supplied = request.form.get("csrf_token")
     expected = session.get("csrf_token")
     if not isinstance(supplied, str) or not isinstance(expected, str) or not hmac.compare_digest(supplied, expected):
@@ -131,6 +139,11 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     if request.method == 'GET' and request.endpoint in {'yclients_marketplace.entry', 'yclients_marketplace.page'}:
         response.headers['Content-Security-Policy'] = FRAME_ANCESTORS
+    elif request.endpoint=='legal.edition':
+        response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://yclients.ru https://*.yclients.ru"
+    elif request.endpoint == 'branch_appearance.preview':
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        response.headers['Content-Security-Policy'] = "frame-ancestors 'self'; form-action 'none'"
     else:
         response.headers['X-Frame-Options'] = 'DENY'
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -318,7 +331,7 @@ def _send_link(phone, token, user, channel='auto'):
         with services.store.connect() as db:
             plan = MessengerService(services.identity).plan(db, user.get('branch_id'), token)
         if not plan['connected']:
-            reason = ('Клиент не связан с YCLIENTS. Для отправки по номеру телефона выберите подключённый ChatPush.'
+            reason = ('Клиент не связан с YCLIENTS. Для отправки по номеру телефона выберите подключённый сервис рассылки.'
                       if plan['reason'] == 'yclients_client_missing' else 'Подключите выбранный сервис рассылки в настройках филиала.')
             return {'status': 'unavailable', 'message': reason}
         result = services.notifications.send(plan['provider'], plan['target'], pass_link(_full_link(token)),
@@ -421,15 +434,20 @@ def pwa_manifest(token):
         metadata = product_services().pwa.metadata(_token(token))
     except (ValueError, PermissionError):
         abort(404)
-    brand = BrandingSettings(product_services().identity).public_view()
+    from branch_appearance import public_brand
+    theme = product_services().appearance.public(metadata['branch_id'])
+    brand = public_brand(BrandingSettings(product_services().identity).public_view(),theme)
     manifest = {'id': metadata['scope'], 'name': 'GateBot · ' + metadata['branch_name'][:100],
                 'short_name': 'GateBot', 'lang': 'ru', 'dir': 'ltr',
                 'description': 'Ваш пропуск и настройки уведомлений',
                 'start_url': metadata['gate_url'], 'scope': metadata['scope'],
-                'display': 'standalone', 'background_color': '#EFF0E8', 'theme_color': '#FFFFFF',
+                'display': 'standalone', 'background_color': theme['background_color'] if theme else '#EFF0E8',
+                'theme_color': theme['theme_color'] if theme else '#FFFFFF',
                 'prefer_related_applications': False, 'categories': ['utilities'],
                 'icons': [{'src': brand['icon192_url'], 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
                           {'src': brand['icon512_url'], 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'}]}
+    if theme and theme['settings']['hide_logo']:
+        manifest.update(name=metadata['branch_name'][:100],short_name=metadata['branch_name'][:30])
     if metadata['preferences_url']:
         manifest['shortcuts'] = [{'name': 'Настройки уведомлений', 'short_name': 'Уведомления',
                                   'url': metadata['preferences_url']}]
@@ -876,6 +894,7 @@ def _public_branch_settings(branch, *, include_modems=False):
     return {
         "branch_id": branch.branch_id, "name": branch.name, "timezone": branch.timezone,
         "enabled": branch.enabled, "logo": branch.logo,
+        "personalization":product_services().appearance.enabled(branch.branch_id),
         "yclients_enabled": branch.yclients_enabled, "id_origin": branch.id_origin,
         "sms_notifications_enabled": getattr(branch,'sms_notifications_enabled',False),
         "client_notifications_enabled": raw.get('client_notifications_enabled', True),
@@ -1079,6 +1098,9 @@ def api_get_users():
         # create a second SQL writer just to render notification controls.
         for user in users:
             user['notification_status']={'available':False,'enabled':False,'effective_channels':{},'reason':'startup_required'}
+    from storage.client_roles import directory_role
+    for user in users:
+        user['directory_role'] = directory_role(user, user.get('admin_role'))
     users.sort(key=lambda user:(user.get('pass_changed_at') or '',user['token']),reverse=True)
     return jsonify(users=users)
 
@@ -1205,25 +1227,31 @@ def api_update_user():
             if branch is not None and not branch.yclients_enabled:
                 abort(400, description='Этот филиал работает без YCLIENTS')
             updates[key] = _external_id(data[key], key)
-    if not updates:
+    role = data.get('role')
+    if not updates and role is None:
         abort(400, description="Нет изменений")
-    if "email" in updates and is_sql_active(link_manager.store.path.parent):
+    sql_active = is_sql_active(link_manager.store.path.parent)
+    if role is not None and not sql_active:
+        abort(409, description="Перезапустите приложение для подготовки управления ролями")
+    if sql_active and ("email" in updates or role is not None):
         services = product_services()
         try:
-            # A privileged recipient check and the contact update share the
-            # document transaction, so a role change cannot race the write.
             with link_manager.store.lock, services.store.connect():
-                token, user = _scoped_link(data.get("token"))
-                if updates["email"] != user.get("email", ""):
+                token, user = _scoped_link(token)
+                if "email" in updates and updates["email"] != user.get("email", ""):
                     services.identity.assert_client_email_change(session['admin_username'], token, updates["email"])
-                updated = link_manager.update_user(token, updates)
+                updated = link_manager.update_user(token, updates) if updates else True
+                if role is not None:
+                    services.identity.set_client_role(session['admin_username'],token,role,data.get('expected_role'))
         except PermissionError as error:
             abort(403, description=str(error))
+        except ValueError as error:
+            abort(409, description=str(error))
     else:
         updated = link_manager.update_user(token, updates)
     if not updated:
         abort(404, description="Пользователь не найден")
-    _audit("UPDATE_USER", user["branch_id"], changed_fields=sorted(updates))
+    _audit("UPDATE_USER", user["branch_id"], changed_fields=sorted(set(updates) | ({"role"} if role is not None else set())))
     return jsonify(status="success")
 
 
@@ -1440,6 +1468,7 @@ def unsubscribe():
     user = link_manager.load_links().get(token)
     if not isinstance(user, dict):
         abort(404)
+    g.client_appearance_branch = user.get('branch_id')
     if request.method == "POST":
         if not link_manager.set_mailing_enabled(token, False):
             abort(404)
@@ -1497,6 +1526,8 @@ app.register_blueprint(branch_desk_blueprint(product_provider))
 app.register_blueprint(feedback_blueprint(product_provider))
 from service_api import create_blueprint as service_api_blueprint
 app.register_blueprint(service_api_blueprint(product_provider))
+from branch_appearance_web import create_blueprint as appearance_blueprint
+app.register_blueprint(appearance_blueprint(product_provider))
 app.register_blueprint(branding_blueprint(product_provider))
 app.register_blueprint(pwa_blueprint(product_provider))
 app.register_blueprint(palette_blueprint(product_provider))
@@ -1512,6 +1543,8 @@ app.register_blueprint(branch_hours_blueprint(product_provider))
 app.register_blueprint(logo_blueprint(product_provider))
 app.register_blueprint(marketplace_blueprint(product_provider))
 app.register_blueprint(gate_qr_blueprint(product_provider))
+from legal_documents_web import create_blueprint as document_blueprint
+app.register_blueprint(document_blueprint(product_provider))
 app.register_blueprint(identity_blueprint(product_provider))
 app.register_blueprint(billing_blueprint(provider=product_provider, render_admin=_admin_template))
 

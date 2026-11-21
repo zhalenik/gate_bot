@@ -1,0 +1,8 @@
+<div data-registration-documents>
+{% for doc in registration_documents(legal_audience) %}
+  <div class="legal-choice"><input type="checkbox" required id="agree-{{ doc.kind }}" data-document-kind="{{ doc.kind }}" value="{{ doc.version }}">
+    <div><label for="agree-{{ doc.kind }}">{{ 'Принимаю правила использования GateBot' if doc.kind=='terms' else 'Даю согласие на обработку персональных данных' }}</label>
+    <a href="{{ doc.url }}" data-legal-document="{{ doc.media }}" data-title="{{ doc.title }}">Прочитать {{ 'правила' if doc.kind=='terms' else 'согласие' }}</a></div>
+  </div>
+{% endfor %}
+</div>

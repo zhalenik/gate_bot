@@ -1,4 +1,5 @@
 """Automatic marketplace installation, without real CRM, SMS or email effects."""
+from registration_samples import agreements
 import base64
 import hashlib
 import hmac
@@ -34,7 +35,7 @@ def auto_begin(state):
 
 
 def sms(s, raw, profile=PROFILE):
-    challenge = s.service.request_registration_code(raw, s.browser, '99', profile['phone'], 'local-test')
+    challenge = s.service.request_registration_code(raw, s.browser, '99', profile['phone'], 'local-test', documents=agreements(s.service.identity))
     assert challenge['ready']
     code = re.search(r'\b[0-9]{6}\b', s.identity.sent[-1][2]).group()
     return challenge['challenge_id'], code
@@ -42,7 +43,7 @@ def sms(s, raw, profile=PROFILE):
 
 def finish(s, raw, profile=PROFILE):
     challenge, code = sms(s, raw, profile)
-    return s.service.complete_registration(raw, s.browser, '99', profile, challenge, code, PASSWORD, PASSWORD)
+    return s.service.complete_registration(raw, s.browser, '99', profile, challenge, code, PASSWORD, PASSWORD, documents=agreements(s.service.identity))
 
 
 @pytest.mark.parametrize('local_legacy_attempt,provider_pending,field',
@@ -147,7 +148,7 @@ def test_sms_bound_to_browser_phone_and_branch_preserves_edited_owner_on_reconne
     assert s.identity.sent[-1][1] == PROFILE['phone']
     assert s.service.view(raw,s.browser)['branches'][0]['otp']['step']=='original'
     with pytest.raises(ValueError):
-        s.service.complete_registration(raw, s.browser, '99', edited, original, original_code, PASSWORD, PASSWORD)
+        s.service.complete_registration(raw, s.browser, '99', edited, original, original_code, PASSWORD, PASSWORD, documents=agreements(s.service.identity))
     with pytest.raises(ValueError):
         s.service.verify_original_phone(raw, s.browser, '99', '+15550100666', original, original_code)
     with pytest.raises(ValueError):
@@ -156,7 +157,7 @@ def test_sms_bound_to_browser_phone_and_branch_preserves_edited_owner_on_reconne
     challenge, code = sms(s, raw, edited)
     assert s.identity.sent[-1][1] == edited['phone'] and len(s.identity.sent) == 2
     def complete(token=raw, browser=s.browser, profile=edited, value=code):
-        return s.service.complete_registration(token, browser, '99', profile, challenge, value, PASSWORD, PASSWORD)
+        return s.service.complete_registration(token, browser, '99', profile, challenge, value, PASSWORD, PASSWORD, documents=agreements(s.service.identity))
     with pytest.raises(MarketplaceError):
         complete(browser='other-browser')
     another = auto_begin(s)
@@ -218,7 +219,7 @@ def test_signed_salon_alone_without_installer_or_original_phone_requires_new_red
     with pytest.raises(MarketplaceError):
         s.service.onboard(raw,s.browser,'99')
     with pytest.raises(MarketplaceError):
-        s.service.request_registration_code(raw,s.browser,'99',PROFILE['phone'],'local-test')
+        s.service.request_registration_code(raw,s.browser,'99',PROFILE['phone'],'local-test', documents=agreements(s.service.identity))
     assert not s.identity.sent and not s.api.method_calls
 
 
@@ -286,7 +287,7 @@ def test_active_admin_cannot_acquire_second_branch_by_signed_profile(marketplace
     token = s.service.begin(signed_args('98'), s.browser)
     s.service.onboard(token, s.browser, '98')
     with pytest.raises(PermissionError):
-        s.service.complete_registration(token, s.browser, '98', PROFILE, 'none', '123456', PASSWORD, PASSWORD)
+        s.service.complete_registration(token, s.browser, '98', PROFILE, 'none', '123456', PASSWORD, PASSWORD, documents=agreements(s.service.identity))
     assert s.identity.branches.get_branch('98') is None
     assert s.api.install.call_count == 1
 
@@ -313,7 +314,7 @@ def test_disconnect_and_expiry_block_registration_even_with_correct_sms(marketpl
     challenge, code = sms(s, raw)
     s.service.disconnect({'salon_id':99,'application_id':123,'partner_token':'offline-partner-key','event':'uninstall'})
     with pytest.raises(MarketplaceError):
-        s.service.complete_registration(raw, s.browser, '99', PROFILE, challenge, code, PASSWORD, PASSWORD)
+        s.service.complete_registration(raw, s.browser, '99', PROFILE, challenge, code, PASSWORD, PASSWORD, documents=agreements(s.service.identity))
     assert s.identity.branches.get_branch('99') is None
     assert not s.identity.service.integration_credentials('99', 'yclients')
 
@@ -387,10 +388,14 @@ def test_real_app_automatic_post_is_csrf_bound_and_first_password_logs_in(market
     assert s.identity.branches.get_branch('99') is None
     headers = {'X-CSRF-Token': csrf}
     assert client.post('/yclients/marketplace/code', json={'branch_id':'99','phone':PROFILE['phone']}).status_code == 403
-    sms_result = client.post('/yclients/marketplace/code', json={'branch_id':'99','phone':PROFILE['phone']}, headers=headers)
+    from legal_documents import ADMIN_DOCS,current
+    with s.service.store.connect() as db:
+        documents={d['kind']:d['version'] for d in current(db,ADMIN_DOCS)}
+    assert client.post('/yclients/marketplace/code', json={'branch_id':'99','phone':PROFILE['phone']}, headers=headers).status_code==400
+    sms_result = client.post('/yclients/marketplace/code', json={'documents':documents,'branch_id':'99','phone':PROFILE['phone']}, headers=headers)
     assert sms_result.status_code == 200 and sms_result.json['ready']
     code = re.search(r'\b[0-9]{6}\b', s.identity.sent[-1][2]).group()
-    payload = {'branch_id':'99','profile':PROFILE,'challenge':sms_result.json['challenge_id'],
+    payload = {'documents':documents,'branch_id':'99','profile':PROFILE,'challenge':sms_result.json['challenge_id'],
                'code':code,'password':PASSWORD,'confirm':PASSWORD}
     assert client.post('/yclients/marketplace/register', json={**payload,'confirm':'mismatch'}, headers=headers).status_code == 400
     assert client.post('/yclients/marketplace/register', json={**payload,'code':'wrong'}, headers=headers).status_code == 400

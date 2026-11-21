@@ -1,4 +1,5 @@
 """Local registration routing is opt-in and cannot verify a phone in production."""
+from registration_samples import agreements
 import re
 import pytest
 from storage import config
@@ -40,7 +41,7 @@ def test_disabled_missing_explicit_environment_and_unmatched_numbers(redirect,mo
 def test_invalid_local_configuration_fails_before_any_delivery(redirect,identities,monkeypatch,key,value):
     monkeypatch.setattr(config,key,value)
     raw=identities.service.register_branch(None,'Test','Owner',PHONE,yclients_enabled=False)['registration_token']
-    with pytest.raises(ValueError):identities.service.request_otp(raw,registration=True)
+    with pytest.raises(ValueError):identities.service.request_otp(raw,registration=True, documents=agreements(identities.service))
     assert not identities.sent
 
 
@@ -52,15 +53,15 @@ def test_original_phone_remains_identity_and_redirect_only_changes_sms_target(re
     else:
         raw=s.service.invite('owner','11',phone=PHONE)['link'].rsplit('/',1)[1]
         assert s.sent[-1][1]==PHONE  # Invitation itself is not redirected.
-    response=s.service.request_otp(raw,registration=registration)
+    response=s.service.request_otp(raw,registration=registration, documents=agreements(s.service))
     assert s.sent[-1][1]==DESTINATION and response['phone_hint'].endswith(PHONE[-4:])
     assert '_development_redirect' not in response['delivery']
     assert s.service.otp_status(raw,registration=registration)['ready']
     code=re.search(r'\b[0-9]{6}\b',s.sent[-1][2]).group()
     if registration:
-        s.service.complete_registration(raw,response['challenge_id'],code,'test-owner@example.invalid',PASSWORD,billing=s.billing)
+        s.service.complete_registration(raw,response['challenge_id'],code,'test-owner@example.invalid',PASSWORD,billing=s.billing, documents=agreements(s.service))
     else:
-        s.service.accept_invitation(raw,response['challenge_id'],code,'Test owner','test-owner@example.invalid',PASSWORD)
+        s.service.accept_invitation(raw,response['challenge_id'],code,'Test owner','test-owner@example.invalid',PASSWORD, documents=agreements(s.service))
     assert s.service.web_admin('test-owner@example.invalid')['phone']==PHONE
 
 
@@ -75,7 +76,7 @@ def test_qr_and_other_sms_keep_original_destination(redirect,qr):
 def test_development_code_cannot_be_consumed_after_configuration_changes(redirect,identities,monkeypatch,change):
     s=identities
     raw=s.service.register_branch(None,'Test','Owner',PHONE,yclients_enabled=False)['registration_token']
-    response=s.service.request_otp(raw,registration=True)
+    response=s.service.request_otp(raw,registration=True, documents=agreements(s.service))
     code=re.search(r'\b[0-9]{6}\b',s.sent[-1][2]).group()
     # Hardware reconciliation does not erase the original redirect marker.
     s.service.delivery_status=lambda *args:{'status':'network_accepted','delivery':'network_accepted'}
@@ -86,5 +87,5 @@ def test_development_code_cannot_be_consumed_after_configuration_changes(redirec
     else:monkeypatch.setattr(config,'EXPLICIT_DEVELOPMENT',False)
     assert not s.service.otp_status(raw,registration=True)['ready']
     with pytest.raises(ValueError):
-        s.service.complete_registration(raw,response['challenge_id'],code,'test-owner@example.invalid',PASSWORD,billing=s.billing)
+        s.service.complete_registration(raw,response['challenge_id'],code,'test-owner@example.invalid',PASSWORD,billing=s.billing, documents=agreements(s.service))
     with pytest.raises(PermissionError):s.service.web_admin('test-owner@example.invalid')

@@ -133,6 +133,8 @@ function formField(body, label, value, type = 'text', readOnly = false) {
     return input;
 }
 
+const roleNames = {client:'Клиент', employee:'Сотрудник', guest:'Гость', admin:'Администратор'};
+
 function passInfo(user) {
     if (!user.gate_access) return { category: 'Запрещен', text: 'Запрещен', className: 'btn-pass-denied' };
     if (user.admin_role_active || user.admin_role?.is_admin || user.admin_role?.is_super || !user.access_expires) return { category: 'Постоянный', text: 'Постоянный', className: 'btn-pass-permanent' };
@@ -197,9 +199,12 @@ function displayUsers(users) {
             row.append(td);
             return td;
         }
-        const nameCell=cell('Имя');nameCell.append(element('span','',user.user_name||'—'));
+        const nameCell=cell('Имя');
+        const openCard=button(user.user_name||'Без имени',()=>openEditUserModal(user.token),'client-name-link');
+        openCard.title='Открыть карточку клиента';
         const role=user.admin_role||{};
-        if(role.is_admin||role.is_super){const badge=element('span','client-role-badge',role.is_super?'Администрация сервиса GateBot':role.last_admin?'Администратор · единственный':'Администратор');nameCell.append(element('br'),badge);}
+        const badge=role.is_super?'Администрация сервиса GateBot':role.last_admin?'Администратор · единственный':roleNames[user.directory_role];
+        nameCell.append(openCard,element('br'),element('span','client-role-badge',badge||'Клиент'));
         cell('Телефон', user.phone || '—');
         cell('Email', user.email || '—');
         cell('Филиал', user.branch_name || '—').classList.add('client-branch');
@@ -225,8 +230,7 @@ function displayUsers(users) {
         const actions = cell('Действия');
         actions.style.whiteSpace = 'nowrap';
         actions.style.textAlign = 'right';
-        actions.append(iconButton('Копировать ссылку', 'link', () => onCopyUserLink(user.token)),iconButton('Редактировать', 'edit', () => openEditUserModal(user.token)));
-        if(!user.is_temporary&&!role.is_admin&&!role.is_super)actions.append(iconButton('Назначить администратором', 'admin', () => inviteAdministrator(user)));
+        actions.append(iconButton('Копировать ссылку', 'link', () => onCopyUserLink(user.token)));
         const remove=iconButton('Удалить', 'delete', () => onDeleteUser(user.token));
         if(role.can_delete===false){remove.disabled=true;remove.title=role.reason||'Удаление недоступно';}
         actions.append(remove);
@@ -270,7 +274,7 @@ function inviteAdministrator(user) {
     const view=createModal('Пригласить администратора');
     view.body.append(element('p','',`${user.user_name || 'Клиент'} получит приглашение управлять филиалом. Ссылка действует один час. Роль появится после регистрации и проверки телефона.`));
     const group=element('div','form-group'),caption=element('label','','Канал приглашения'),select=element('select');
-    for(const [value,title,available] of [['sms','SMS',!!user.phone],['chatpush','ChatPush',!!user.phone],['email','Email',!!user.email],['telegram','Telegram',!!user.has_telegram],['max','MAX',!!user.has_max]]){
+    for(const [value,title,available] of [['sms','SMS',!!user.phone],['chatpush','Сервис рассылки',!!user.phone],['email','Email',!!user.email],['telegram','Telegram',!!user.has_telegram],['max','MAX',!!user.has_max]]){
         if(value==='chatpush'&&user.yclients_enabled===false)continue;
         const option=element('option','',title+(available?'':' — не подключён'));option.value=value;option.disabled=!available;select.append(option);
     }
@@ -318,13 +322,29 @@ function openEditUserModal(token) {
     const user = usersCache.find(value => value.token === token);
     if (!user) return;
     const view = createModal('Редактировать пользователя');
-    const roleInfo=element('div','client-role-details');roleInfo.hidden=true;roleInfo.dataset.roleInfo='true';view.body.append(roleInfo);
-    function showRole(role){
-        if(!view.modal.isConnected)return;roleInfo.replaceChildren();roleInfo.hidden=!role.is_admin&&!role.is_super;if(roleInfo.hidden)return;
-        roleInfo.append(element('strong','',role.is_super?'Администрация сервиса GateBot':'Администратор филиала'),element('p','form-hint',role.reason||'Права администратора действуют в веб-кабинете и ботах. Можно отозвать роль, сохранив карточку клиента.'));
-        const revoke=button('Отозвать права администратора',()=>confirmRevokeClientAdmin(user,view),'btn-action btn-deny');revoke.disabled=role.can_revoke!==true;roleInfo.append(revoke);
+    const currentRole=user.directory_role;
+    const membership=user.admin_role||{};
+    const roleInfo=element('div','form-group client-role-details');
+    roleInfo.dataset.roleInfo='true';
+    const roleLabel=element('label','','Роль'),roleSelect=element('select'),hint=element('p','form-hint');
+    roleSelect.name='role';roleSelect.setAttribute('aria-label','Роль');
+    for(const [key,title] of Object.entries(roleNames)){
+        if(key==='admin' && currentRole==='guest') continue;
+        const option=element('option','',title);option.value=key;roleSelect.append(option);
     }
-    if(user.admin_role){showRole({...user.admin_role,can_revoke:false});api('/admin/api/client-role?token='+encodeURIComponent(token)).then(result=>{user.admin_role=result.admin_role;showRole(result.admin_role);}).catch(error=>{if(view.modal.isConnected){roleInfo.hidden=false;roleInfo.append(element('p','form-hint',error.message));}});}
+    roleSelect.value=currentRole;
+    roleSelect.disabled=!user.admin_role || membership.is_super || membership.last_admin;
+    const roleHint=()=>{
+        let text=membership.reason||'';
+        if(roleSelect.value!==currentRole){
+            if(roleSelect.value==='admin')text='Отправьте приглашение. Права появятся после регистрации администратора.';
+            else if(currentRole==='admin')text='Сохранение отзовёт доступ к администрированию филиала.';
+            if(roleSelect.value==='guest')text+=(text?' ':'')+'Гостевая ссылка будет действовать до конца разового пропуска. После истечения срока гостевая карточка удалится.';
+        }
+        hint.textContent=text;hint.hidden=!text;
+    };
+    roleSelect.addEventListener('change',roleHint);roleHint();
+    roleLabel.append(roleSelect);roleInfo.append(roleLabel,hint);view.body.append(roleInfo);
     const name = formField(view.body, 'Имя', user.user_name);
     const phone = formField(view.body, 'Телефон', user.phone, 'tel');
     const email = formField(view.body, 'Email', user.email, 'email');
@@ -384,10 +404,15 @@ function openEditUserModal(token) {
         if (!email.reportValidity()) return;
         save.disabled = true;
         try {
-            await post('/admin/api/update-user', { token, user_name: name.value, phone: phone.value, email: email.value, ...(crm?{id_ycl:crm.value}:{}) });
+            const newRole=roleSelect.value,roleChanged=newRole!==currentRole;
+            if(roleChanged && currentRole==='admin' && !confirm('Отозвать права администратора и сохранить новую роль?'))return;
+            const changes={token,user_name:name.value,phone:phone.value,email:email.value,...(crm?{id_ycl:crm.value}:{})};
+            if(roleChanged && newRole!=='admin'){changes.role=newRole;changes.expected_role=currentRole;}
+            await post('/admin/api/update-user',changes);
             view.close();
             await loadUsers();
-            showAlert('Изменения сохранены', 'success');
+            if(roleChanged && newRole==='admin') inviteAdministrator({...user,...changes});
+            else showAlert('Изменения сохранены', 'success');
         } catch (error) { showAlert(error.message, 'error'); }
         finally { save.disabled = false; }
     });
@@ -439,11 +464,6 @@ async function onDeleteUser(token) {
         finally { confirm.disabled = false; }
     }, 'btn-action btn-deny');
     view.actions.append(button('Отмена', view.close), confirm);
-}
-
-function confirmRevokeClientAdmin(user,editor){
-    const view=createModal('Отозвать права администратора?');view.body.append(element('p','','Карточка клиента сохранится. Доступ к административным функциям будет закрыт; пропуск по роли администратора перестанет действовать. Независимый ручной или CRM-пропуск сохраняется.'));
-    const confirm=button('Отозвать права',async()=>{confirm.disabled=true;try{await post('/admin/api/client-role/revoke',{token:user.token});view.close();editor.close();await loadUsers();showAlert('Права администратора отозваны. Клиент сохранён.','success');}catch(error){showAlert(error.message,'error');}finally{confirm.disabled=false;}},'btn-action btn-deny');view.actions.append(button('Отмена',view.close),confirm);
 }
 
 function showLinkModal(title, token, link, delivery = null) {
@@ -597,13 +617,13 @@ async function initializeBranchSettings() {
     let loadSerial = 0;
     form.dataset.ready = 'false';
     function showTab(key) {
-        const current = tabs.find(tab => tab.dataset.branchTab === key) || tabs[0];
+        const current = tabs.find(tab => !tab.hidden && tab.dataset.branchTab === key) || tabs[0];
         for (const tab of tabs) {
             tab.setAttribute('aria-selected', String(tab === current));
             tab.tabIndex = tab === current ? 0 : -1;
         }
         for (const panel of panels) panel.hidden = panel.dataset.branchPanel !== current.dataset.branchTab;
-        save.hidden = !creating && current.dataset.branchTab === 'notifications';
+        save.hidden = !creating && ['notifications','appearance'].includes(current.dataset.branchTab);
     }
     function selectTab(tab) {
         history.replaceState(history.state, '', '#' + tab.dataset.branchTab);
@@ -612,10 +632,11 @@ async function initializeBranchSettings() {
     tabs.forEach((tab, i) => {
         tab.addEventListener('click', () => selectTab(tab));
         tab.addEventListener('keydown', event => {
-            const targets = {ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1};
+            const visible=tabs.filter(tab=>!tab.hidden), index=visible.indexOf(tab);
+            const targets = {ArrowRight:(index+1)%visible.length, ArrowLeft:(index-1+visible.length)%visible.length, Home:0, End:visible.length-1};
             if (!(event.key in targets)) return;
             event.preventDefault();
-            const next = tabs[targets[event.key]];
+            const next = visible[targets[event.key]];
             selectTab(next);
             next.focus();
         });
@@ -663,7 +684,7 @@ async function initializeBranchSettings() {
         if(creating&&!crm)branchId.value='';
         if(creating&&!crm)for(const row of Array.from(rows.children))if(!row.querySelector('[data-field="phone"]').value)row.remove();
         document.getElementById('settingsBranchIdLabel').textContent=internalId?'Внутренний ID филиала':crm?'ID филиала в YCLIENTS':'ID филиала';
-        document.getElementById('settingsYclientsHint').textContent=creating&&!crm?'Внутренний ID назначится автоматически при создании.':internalId?'Филиал работает самостоятельно. Внутренний ID сохраняется на весь срок работы.':'Для самостоятельного филиала интеграции YCLIENTS и ChatPush недоступны.';
+        document.getElementById('settingsYclientsHint').textContent=creating&&!crm?'Внутренний ID назначится автоматически при создании.':internalId?'Филиал работает самостоятельно. Внутренний ID сохраняется на весь срок работы.':'Для самостоятельного филиала интеграции YCLIENTS и сервис рассылки недоступны.';
     }
     crmMode.addEventListener('change',showBranchMode);
     function showLogo(url) {
@@ -780,13 +801,17 @@ async function initializeBranchSettings() {
         document.getElementById('saveSettingsButton').textContent = creating ? 'Создать филиал' : 'Сохранить настройки';
         form.dataset.ready = 'true';
         form.inert = false;
-        document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:value.branch_id,buttons:value.buttons||[]}}));
+        document.getElementById('branch-tab-appearance').hidden = !value.personalization;
+        showTab(location.hash.slice(1));
+        document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:value.branch_id,buttons:value.buttons||[],personalization:Boolean(value.personalization)}}));
     }
     async function load(id) {
         const serial = ++loadSerial;
         form.dataset.ready = 'false';
         form.inert = true;
         if (String(id) !== branchId.value) {
+            document.getElementById('branch-tab-appearance').hidden=true;
+            showTab(location.hash.slice(1));
             document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:null,buttons:[]}}));
         }
         switches.forEach(control => { control.disabled = true; });

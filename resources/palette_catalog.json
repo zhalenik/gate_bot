@@ -1,5 +1,5 @@
 {
-  "catalog_version": "31488189df536bdf9a480066603118ff66fc2f1ca89ccfeca04d7142feb4995a",
+  "catalog_version": "116c73fdc75097bae1b3432c0ecabd3979392ec32d0ee0d05ff5f36e8e3a2a8b",
   "entries": [
     {
       "id": "theme-sidebar-0e4ee20f4ddc",
@@ -55,6 +55,13 @@
           "line": 3,
           "selector": ":root",
           "property": "--secondary",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 102,
+          "selector": ".admin-event-matrix input[type=checkbox],.event-options input[type=checkbox]",
+          "property": "background",
           "context": ""
         },
         {
@@ -144,10 +151,31 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 120,
-          "selector": "#identityPage .admin-event-matrix td::before",
+          "line": 100,
+          "selector": ".admin-event-matrix thead th",
           "property": "color",
-          "context": "@media(max-width:650px)"
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 110,
+          "selector": ".event-options small",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 144,
+          "selector": ".full-cabinet-bar .full-mobile-links>a,.full-cabinet-bar .account-menu>summary.icon-button",
+          "property": "color",
+          "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/appearance-editor.css",
+          "line": 12,
+          "selector": ".appearance-colors small",
+          "property": "color",
+          "context": ""
         },
         {
           "file": "static/css/billing.css",
@@ -433,6 +461,13 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-footer",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/legal.css",
+          "line": 7,
+          "selector": ".legal-code-note",
           "property": "color",
           "context": ""
         },
@@ -898,6 +933,13 @@
           "selector": ":root",
           "property": "--lavender",
           "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 145,
+          "selector": ".full-cabinet-bar .full-mobile-links>a[aria-current],.full-cabinet-bar .account-menu[open]>summary.icon-button",
+          "property": "background",
+          "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/billing.css",
@@ -1400,10 +1442,59 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 95,
+          "line": 94,
           "selector": ".app-bar .brand-scope",
           "property": "color",
           "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 97,
+          "selector": ".admin-event-matrix",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 104,
+          "selector": ".admin-event-matrix input:checked,.event-options input:checked",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 104,
+          "selector": ".admin-event-matrix input:checked,.event-options input:checked",
+          "property": "border-color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 108,
+          "selector": ".event-channel-dialog",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 127,
+          "selector": ".users-table .client-name-link",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 135,
+          "selector": ".event-mobile-title",
+          "property": "color",
+          "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 145,
+          "selector": ".full-cabinet-bar .full-mobile-links>a[aria-current],.full-cabinet-bar .account-menu[open]>summary.icon-button",
+          "property": "color",
+          "context": "@media(max-width:759px)"
         },
         {
           "file": "static/css/billing.css",
@@ -1640,6 +1731,13 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-footer a",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/legal.css",
+          "line": 8,
+          "selector": ".legal-dialog",
           "property": "color",
           "context": ""
         },
@@ -2574,7 +2672,35 @@
         {
           "file": "static/css/admin.css",
           "line": 103,
+          "selector": ".admin-event-matrix input[type=checkbox]::after,.event-options input[type=checkbox]::after",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 108,
+          "selector": ".event-channel-dialog",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 112,
           "selector": ".admin-push-offer",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 141,
+          "selector": "body .full-cabinet-bar",
+          "property": "background",
+          "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/appearance-editor.css",
+          "line": 17,
+          "selector": ".appearance-sample iframe",
           "property": "background",
           "context": ""
         },
@@ -2684,6 +2810,20 @@
           "context": ""
         },
         {
+          "file": "static/css/client-appearance.css",
+          "line": 16,
+          "selector": ".custom-client .gate-illustration [fill=white]",
+          "property": "fill",
+          "context": ""
+        },
+        {
+          "file": "static/css/client-appearance.css",
+          "line": 16,
+          "selector": ".custom-client .gate-illustration [stroke=white]",
+          "property": "stroke",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 4,
           "selector": ".preference-channel",
@@ -2764,6 +2904,13 @@
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-method-list>div",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/legal.css",
+          "line": 8,
+          "selector": ".legal-dialog",
           "property": "background",
           "context": ""
         },
@@ -3029,17 +3176,66 @@
         },
         {
           "file": "static/css/admin.css",
-          "line": 103,
+          "line": 98,
+          "selector": ".admin-event-matrix th,.admin-event-matrix td",
+          "property": "border-bottom",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 102,
+          "selector": ".admin-event-matrix input[type=checkbox],.event-options input[type=checkbox]",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 102,
+          "selector": ".admin-event-matrix input[type=checkbox],.event-options input[type=checkbox]",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 108,
+          "selector": ".event-channel-dialog",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 112,
           "selector": ".admin-push-offer",
           "property": "border",
           "context": ""
         },
         {
           "file": "static/css/admin.css",
-          "line": 116,
-          "selector": "#identityPage .admin-event-matrix tr",
-          "property": "border-bottom",
-          "context": "@media(max-width:650px)"
+          "line": 127,
+          "selector": ".users-table .client-name-link",
+          "property": "text-decoration-color",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 141,
+          "selector": "body .full-cabinet-bar",
+          "property": "border-top",
+          "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/appearance-editor.css",
+          "line": 5,
+          "selector": ".appearance-form details",
+          "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/appearance-editor.css",
+          "line": 17,
+          "selector": ".appearance-sample iframe",
+          "property": "border",
+          "context": ""
         },
         {
           "file": "static/css/billing.css",
@@ -3291,6 +3487,13 @@
           "line": 1,
           "selector": ".landing-footer",
           "property": "border-top",
+          "context": ""
+        },
+        {
+          "file": "static/css/legal.css",
+          "line": 8,
+          "selector": ".legal-dialog",
+          "property": "border",
           "context": ""
         },
         {
@@ -4283,6 +4486,28 @@
       ]
     },
     {
+      "id": "client-appearance-background-color-cb58f0dd875f",
+      "css_var": "--gb-color-client-appearance-background-color-cb58f0dd875f",
+      "label": "Фон · .custom-client[data-client-wallpaper] .app-bar,.custom-client[data-client-wallpaper] .access-main,.custom-client[data-client-wallpaper] #identityPage",
+      "group": "client-appearance",
+      "source_value": "transparent",
+      "default": "#00000000",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/client-appearance.css",
+          "line": 2,
+          "selector": ".custom-client[data-client-wallpaper] .app-bar,.custom-client[data-client-wallpaper] .access-main,.custom-client[data-client-wallpaper] #identityPage",
+          "property": "background-color",
+          "context": ""
+        }
+      ]
+    },
+    {
       "id": "client-pwa-color-97cb60e3f44a",
       "css_var": "--gb-color-client-pwa-color-97cb60e3f44a",
       "label": "Текст · #clientOfflineNotice",
@@ -4343,6 +4568,28 @@
           "file": "static/css/client-pwa.css",
           "line": 6,
           "selector": ".client-pwa-dialog::backdrop",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "legal-background-b01804721f07",
+      "css_var": "--gb-color-legal-background-b01804721f07",
+      "label": "Фон · .legal-dialog::backdrop",
+      "group": "legal",
+      "source_value": "rgb(0 0 0 / .45)",
+      "default": "#00000073",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/legal.css",
+          "line": 9,
+          "selector": ".legal-dialog::backdrop",
           "property": "background",
           "context": ""
         }
@@ -8743,6 +8990,28 @@
           "file": "static/css/admin.css",
           "line": 5,
           "selector": ".segmented-control button[aria-pressed=true]",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "admin-background-54a50555002e",
+      "css_var": "--gb-color-admin-background-54a50555002e",
+      "label": "Фон · .users-table .client-name-link",
+      "group": "Кабинет и таблицы",
+      "source_value": "transparent",
+      "default": "#00000000",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/admin.css",
+          "line": 127,
+          "selector": ".users-table .client-name-link",
           "property": "background",
           "context": ""
         }

@@ -15,7 +15,7 @@
   };
   const option = (value, text) => { const node = make('option', text); node.value = value; return node; };
   const provider = field('Сервис тестовой отправки', 'select', 'integrationTestProvider');
-  provider.append(option('chatpush', 'ChatPush напрямую'), option('yclients', 'YCLIENTS'));
+  provider.append(option('chatpush', 'Сервис рассылки по телефону'), option('yclients', 'YCLIENTS'));
   const ready = make('p', '', 'form-hint'); ready.id = 'integrationTestConnection'; ready.setAttribute('role', 'status'); form.append(ready);
   const mode = field('Как выбрать получателя', 'select', 'integrationTestRecipientMode');
   mode.append(option('phone', 'Ввести номер телефона'), option('client', 'Выбрать клиента филиала'));

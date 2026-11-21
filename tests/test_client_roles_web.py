@@ -140,3 +140,24 @@ def test_super_deletes_branch_from_reviewable_browser_dialog(roles_web,browser_u
     expect(page.locator('#settingsBranch option[value="12"]')).to_have_count(0)
     assert web.branches.get_branch(12) is None and web.branches.get_branch(123)
     assert not errors and not web.calls
+
+
+def test_directory_role_edits_are_scoped_atomic_and_preserve_pass(roles_web):
+    web,identity=roles_web
+    c=web.app.test_client(); csrf=login(c,'tenant-a')
+    token=web.links.create_link({'branch_id':12,'phone':'+15550100501','user_name':'Car owner'})
+    url='/admin/api/update-user'
+    assert post(c,csrf,url,{'token':web.token_b,'role':'employee'}).status_code==404
+    assert post(c,csrf,url,{'token':token,'role':'admin'}).status_code==409
+    assert post(c,csrf,url,{'token':web.token_a,'role':'employee','user_name':'Discard edit'}).status_code==409
+    assert web.links.get_link(web.token_a)['user_name']!='Discard edit'
+    expiry=web.links.get_link(token)['access_expires']
+    assert post(c,csrf,url,{'token':token,'role':'employee','expected_role':'client'}).status_code==200
+    card=web.links.get_link(token)
+    assert card['client_role']=='employee' and card['access_expires']==expiry and not card.get('admin_role_active')
+    assert post(c,csrf,url,{'token':token,'role':'guest','expected_role':'client'}).status_code==409
+    assert post(c,csrf,url,{'token':token,'role':'guest','expected_role':'employee'}).status_code==200
+    guest=web.links.get_link(token)
+    assert guest['is_temporary'] and guest['access_expires'] and not guest['mailing_enabled']
+    assert post(c,csrf,url,{'token':token,'role':'client','expected_role':'guest'}).status_code==200
+    assert not web.links.get_link(token)['is_temporary']

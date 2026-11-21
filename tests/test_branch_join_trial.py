@@ -1,4 +1,5 @@
 """SMS onboarding and durable trial eligibility. All contacts and transports are offline fixtures."""
+from registration_samples import agreements
 from datetime import datetime, timezone
 import re
 from types import SimpleNamespace
@@ -29,11 +30,11 @@ def join_flow(state, phone, crm=True):
         service.admin_view('north','12','create')
     with pytest.raises(ValueError):
         service.profile(raw,'browser')
-    challenge = service.code(raw,'browser',phone,'127.0.0.1')['challenge_id']
+    challenge = service.code(raw,'browser',phone,'127.0.0.1', documents=agreements(service.identity, client=True))['challenge_id']
     assert state.sent[-1][1] == phone
     with pytest.raises(ValueError):
-        service.verify(raw,'other',challenge,code(state))
-    service.verify(raw,'browser',challenge,code(state))
+        service.verify(raw,'other',challenge,code(state), documents=agreements(service.identity, client=True))
+    service.verify(raw,'browser',challenge,code(state), documents=agreements(service.identity, client=True))
     directory.crm.find_clients_by_phone.assert_not_called()
     return service, raw, directory.crm.find_clients_by_phone
 
@@ -93,8 +94,8 @@ def register_trial(state, branch, phone):
     state.clock[0] += 62
     registration = state.service.register_branch(branch,'Example','Admin',phone,yclients_enabled=bool(branch))
     ticket=registration['registration_token']
-    challenge=state.service.request_otp(ticket,registration=True)['challenge_id']
-    result=state.service.complete_registration(ticket,challenge,code(state),'join@example.invalid',PASSWORD,billing=state.billing)
+    challenge=state.service.request_otp(ticket,registration=True, documents=agreements(state.service))['challenge_id']
+    result=state.service.complete_registration(ticket,challenge,code(state),'join@example.invalid',PASSWORD,billing=state.billing, documents=agreements(state.service))
     return result['branch_id'], state.billing.subscription_view(result['branch_id'],at=state.clock[0])['status']
 
 

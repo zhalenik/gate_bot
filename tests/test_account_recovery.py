@@ -1,4 +1,5 @@
 """Offline identity proof, account boundaries and one-time password recovery."""
+from registration_samples import agreements
 import re
 from flask import Flask,session
 import pytest
@@ -49,10 +50,10 @@ def test_legacy_marketplace_setup_requires_verified_password_recovery(identities
 
 def test_new_ordinary_accounts_require_email_and_keep_otp_unused_on_bad_email(identities):
     state=identities;invite=state.service.invite('owner','11',client_token='example-client')
-    raw=invite['link'].rsplit('/',1)[1];otp=state.service.request_otp(raw)
+    raw=invite['link'].rsplit('/',1)[1];otp=state.service.request_otp(raw, documents=agreements(state.service))
     code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    with pytest.raises(ValueError):state.service.accept_invitation(raw,otp['challenge_id'],code,'Example','plain-login',PASSWORD)
-    result=state.service.accept_invitation(raw,otp['challenge_id'],code,'Example','owner@почта.рф',PASSWORD)
+    with pytest.raises(ValueError):state.service.accept_invitation(raw,otp['challenge_id'],code,'Example','plain-login',PASSWORD, documents=agreements(state.service))
+    result=state.service.accept_invitation(raw,otp['challenge_id'],code,'Example','owner@почта.рф',PASSWORD, documents=agreements(state.service))
     assert state.auth.verify_admin('owner@почта.рф',PASSWORD)
     assert result['username']=='owner@xn--80a1acny.xn--p1ai'
 
@@ -60,13 +61,13 @@ def test_new_ordinary_accounts_require_email_and_keep_otp_unused_on_bad_email(id
 def test_registration_cannot_complete_with_changed_verified_details(identities,field,value):
     state=identities
     raw=state.service.register_branch('99','Original branch','Original name',PHONE)['registration_token']
-    otp=state.service.request_otp(raw,registration=True);code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
+    otp=state.service.request_otp(raw,registration=True, documents=agreements(state.service));code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
     details={'name':'Original name','branch_name':'Original branch','phone':PHONE,'branch_id':'99','yclients_enabled':True}
     with pytest.raises(ValueError):
-        state.service.complete_registration(raw,otp['challenge_id'],code,'new@example.invalid',PASSWORD,details={**details,field:value})
+        state.service.complete_registration(raw,otp['challenge_id'],code,'new@example.invalid',PASSWORD,details={**details,field:value}, documents=agreements(state.service))
     assert state.branches.get_branch('99') is None
     assert 'new@example.invalid' not in state.auth.load_admins()
-    state.service.complete_registration(raw,otp['challenge_id'],code,'new@example.invalid',PASSWORD,details=details)
+    state.service.complete_registration(raw,otp['challenge_id'],code,'new@example.invalid',PASSWORD,details=details, documents=agreements(state.service))
 
 def test_new_email_is_login_and_welcome_runs_once_in_transaction(identities):
     state=identities;welcomes=[]
@@ -81,7 +82,7 @@ def test_new_email_is_login_and_welcome_runs_once_in_transaction(identities):
     assert result['username']=='new.admin@example.invalid' and len(welcomes)==1
     assert state.auth.verify_admin(' NEW.ADMIN@EXAMPLE.INVALID ',PASSWORD)
     assert state.auth.verify_admin('north',PASSWORD) # Legacy login retained.
-    with pytest.raises(ValueError):state.service.accept_invitation(raw,otp['challenge_id'],code,'Name','again@example.invalid',PASSWORD)
+    with pytest.raises(ValueError):state.service.accept_invitation(raw,otp['challenge_id'],code,'Name','again@example.invalid',PASSWORD, documents=agreements(state.service))
     assert len(welcomes)==1
 
 def test_request_does_not_mutate_account_and_reset_invalidates_sessions(identities):

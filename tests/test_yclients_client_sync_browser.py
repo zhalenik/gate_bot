@@ -41,7 +41,7 @@ def test_card_refresh_preserves_drafts_requires_saved_phone_and_keeps_id_on_ambi
             reply(route, result={'status': 'ambiguous', 'id_ycl': None, 'message': 'Найдено несколько совпадений. ID не изменён.'})
     page.route('**/admin/api/yclients/client-id', lookup)
     sign_in(page, origin, 'tenant-a')
-    page.locator('#usersTableBody [title="Редактировать"]').click()
+    page.locator('#usersTableBody .client-name-link').click()
     modal = page.get_by_role('dialog', name='Редактировать пользователя', exact=True)
     refresh = modal.get_by_role('button', name='Обновить ID из YCLIENTS', exact=True)
     modal.get_by_label('Имя', exact=True).fill('Unsaved name')
@@ -66,7 +66,7 @@ def test_card_refresh_preserves_drafts_requires_saved_phone_and_keeps_id_on_ambi
     assert modal.locator('.client-yc-id-control').evaluate('(node)=>node.scrollWidth<=node.clientWidth')
     modal.locator('.modal-content').screenshot(path=str(tmp_path / 'yclients-id-card-mobile.png'))
     modal.get_by_role('button', name='Отмена', exact=True).click()
-    page.locator('#usersTableBody [title="Редактировать"]').click()
+    page.locator('#usersTableBody .client-name-link').click()
     expect(page.get_by_label('YCLIENTS ID', exact=True)).to_have_value('8642')
     assert web.calls == [] and not errors
     forbidden.assert_not_called()
@@ -137,7 +137,7 @@ def test_branch_switch_ignores_delayed_old_batch_and_standalone_has_no_controls(
         branches['12']['yclients_enabled'] = False
         write_document(db, 'branches.json', branches)
     sign_in(page, origin, 'tenant-a')
-    page.locator('#usersTableBody [title="Редактировать"]').click()
+    page.locator('#usersTableBody .client-name-link').click()
     expect(page.get_by_role('button', name='Обновить ID из YCLIENTS', exact=True)).to_have_count(0)
     expect(page.get_by_label('YCLIENTS ID', exact=True)).to_have_count(0)
     page.goto(origin + '/admin/integrations')

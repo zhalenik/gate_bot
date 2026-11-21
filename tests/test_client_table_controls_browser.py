@@ -1,4 +1,5 @@
 """Client-table roles and notification modal in Chromium, all sends mocked."""
+from registration_samples import agreements
 import os
 import re
 from types import SimpleNamespace
@@ -23,9 +24,9 @@ def promote_client(state):
     identity,web=state.identity,state.web
     identity.attach_console_account('tenant-a','+15550100611')
     invited=identity.invite('super','12',client_token=web.token_a)
-    token=invited['link'].rsplit('/',1)[-1];challenge=identity.request_otp(token,ip='127.0.0.1')
+    token=invited['link'].rsplit('/',1)[-1];challenge=identity.request_otp(token,ip='127.0.0.1', documents=agreements(identity))
     code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    identity.accept_invitation(token,challenge['challenge_id'],code,'Client A','client-admin@example.invalid',TEST_PASSWORD)
+    identity.accept_invitation(token,challenge['challenge_id'],code,'Client A','client-admin@example.invalid',TEST_PASSWORD, documents=agreements(identity))
     state.sent.clear()
 
 
@@ -67,18 +68,20 @@ def test_admin_badge_edit_revoke_and_last_admin_guard(table_state,browser_ui):
     promote_client(state)
     sign_in(page,origin);page.locator('#searchInput').fill('Client A')
     expect(page.locator('#usersTableBody .client-role-badge')).to_have_text('Администратор')
-    page.locator('#usersTableBody [aria-label=Редактировать]').click()
+    page.locator('#usersTableBody .client-name-link').click()
     modal=page.get_by_role('dialog',name='Редактировать пользователя',exact=True)
-    expect(modal.locator('[data-role-info]')).to_contain_text('Администратор филиала')
-    revoke=modal.get_by_role('button',name='Отозвать права администратора',exact=True);expect(revoke).to_be_enabled();revoke.click()
-    page.get_by_role('dialog',name='Отозвать права администратора?',exact=True).get_by_role('button',name='Отозвать права',exact=True).click()
-    expect(page.locator('#usersTableBody .client-role-badge')).to_have_count(0)
+    roles=modal.get_by_label('Роль',exact=True)
+    expect(roles).to_have_value('admin')
+    roles.select_option('employee')
+    page.once('dialog',lambda dialog:dialog.accept())
+    modal.get_by_role('button',name='Сохранить',exact=True).click()
+    expect(page.locator('#usersTableBody .client-role-badge')).to_have_text('Сотрудник')
     assert web.token_a in web.links.load_links() and not identity.client_admin_state('super',web.token_a)['is_admin']
     page.locator('#searchInput').fill('+15550100611')
     expect(page.locator('#usersTableBody .client-role-badge')).to_contain_text('единственный')
     expect(page.locator('#usersTableBody [aria-label=Удалить]')).to_be_disabled()
-    page.locator('#usersTableBody [aria-label=Редактировать]').click()
-    expect(page.get_by_role('button',name='Отозвать права администратора',exact=True)).to_be_disabled()
+    page.locator('#usersTableBody .client-name-link').click()
+    expect(page.get_by_label('Роль',exact=True)).to_be_disabled()
     assert web.calls==[] and state.sent==[] and not errors
 
 

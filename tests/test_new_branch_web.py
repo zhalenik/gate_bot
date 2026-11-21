@@ -1,4 +1,5 @@
 """Real application routes for branch registration and scoped hardware setup."""
+from registration_samples import agreements
 import re
 import pytest
 from test_web_security import web, login, post, TEST_PASSWORD
@@ -16,10 +17,10 @@ def test_manual_yclients_registration_can_save_own_gate_immediately(web,tmp_path
     messages=[]
     identity.sender=lambda channel,target,text,context: messages.append(text) or {'status':'sent'}
     raw=identity.register_branch('315','New parking','New owner','+15550100911')['registration_token']
-    challenge=identity.request_otp(raw,registration=True)['challenge_id']
+    challenge=identity.request_otp(raw,registration=True, documents=agreements(identity))['challenge_id']
     code=re.search(r'\b[0-9]{6}\b',messages[-1]).group()
     username='new-owner@example.invalid'
-    identity.complete_registration(raw,challenge,code,username,TEST_PASSWORD)
+    identity.complete_registration(raw,challenge,code,username,TEST_PASSWORD, documents=agreements(identity))
     client=web.app.test_client()
     csrf=login(client,username)
     edits=settings(branch_id=315,yclients_enabled=True)

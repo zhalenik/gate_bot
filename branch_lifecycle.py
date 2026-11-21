@@ -98,6 +98,8 @@ class BranchLifecycleService:
             remove('identity_otp','subject LIKE ?',('branch_join:'+branch_id+':%',))
             remove('desk_threads','branch_id=?',(branch_id,))  # messages cascade
             remove('desk_shares','branch_id=?',(branch_id,))
+            for table in ('branch_appearance','branch_appearance_assets'):
+                remove(table,'branch_id=?',(branch_id,))
             if 'support_threads' in tables:
                 where='thread_id IN (SELECT id FROM support_threads WHERE branch_id=?)'
                 remove('support_outbox','message_id IN (SELECT id FROM support_messages WHERE '+where+')',(branch_id,))

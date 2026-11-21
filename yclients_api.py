@@ -64,7 +64,7 @@ class YClientsClient:
         if method.upper() != 'GET':
             raise YClientsReadOnlyError('YCLIENTS is read-only: only allowlisted GET operations are permitted')
         branch = str(branch_id)
-        if not branch.isdigit() or not re.fullmatch(rf'(records/{re.escape(branch)}|client/{re.escape(branch)}/[0-9]+|clients/{re.escape(branch)}|staff/{re.escape(branch)})', path):
+        if not branch.isdigit() or not re.fullmatch(rf'(records/{re.escape(branch)}|client/{re.escape(branch)}/[0-9]+|clients/{re.escape(branch)}|staff/{re.escape(branch)}|company/{re.escape(branch)}/staff)', path):
             raise YClientsReadOnlyError('This YCLIENTS endpoint is not allowed')
         if not config.YCLIENTS_ENABLED:
             raise YClientsError('YCLIENTS integration is disabled')
@@ -83,6 +83,28 @@ class YClientsClient:
             raise YClientsError('YCLIENTS rejected the read request')
         logger.event('CRM_READ', branch_id=branch_id, details={'resource': path.split('/')[0], 'outcome': 'success'})
         return payload
+
+    def staff_for_branch(self, branch_id):
+        """Read this company's staff list, using the authenticated v1 endpoint."""
+        from link_manager import normalize_phone
+        payload = self.request('GET', f'company/{branch_id}/staff', branch_id)
+        rows = payload.get('data')
+        if not isinstance(rows, list):
+            raise YClientsError('Invalid staff collection')
+        result = []
+        for row in rows:
+            if not isinstance(row, dict) or str(row.get('company_id', branch_id)) != str(branch_id):
+                raise YClientsError('Invalid branch in staff response')
+            if any(row.get(key) in (1, '1', True) for key in ('fired','is_fired','is_deleted')):
+                continue
+            staff_id = str(row.get('id') or '')
+            if not staff_id.isascii() or not staff_id.isdigit() or int(staff_id) <= 0:
+                raise YClientsError('Invalid staff identifier')
+            user = row.get('user') if isinstance(row.get('user'), dict) else {}
+            phone = normalize_phone(row.get('phone') or user.get('phone'))
+            result.append({'id':staff_id, 'phone':phone, 'name':str(row.get('name') or '').strip(),
+                           'email':str(row.get('email') or user.get('email') or '').strip()})
+        return result
 
     def records_for_day(self, branch_id, day, page_size=100):
         records, seen = [], set()

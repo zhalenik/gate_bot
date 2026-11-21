@@ -1,0 +1,3 @@
+{% if client_appearance %}
+<img class="branch-barrier-image" alt="" {% if client_appearance.assets.barrier %}src="{{ client_appearance.assets.barrier }}"{% else %}hidden{% endif %}>
+{% endif %}

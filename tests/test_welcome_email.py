@@ -1,4 +1,5 @@
 """Real outbox/HTML composition with mocked SMTP; no real messages or sockets."""
+from registration_samples import agreements
 import re
 from types import SimpleNamespace
 from html.parser import HTMLParser
@@ -33,8 +34,8 @@ def test_each_registration_commits_one_encrypted_welcome_and_sends_once(welcome,
         result,raw,otp,code=accept(s)
     else:
         raw=s.service.register_branch('99' if flow=='yclients' else None,'Welcome branch','New owner',PHONE,yclients_enabled=flow=='yclients')['registration_token']
-        otp=s.service.request_otp(raw,registration=True);code=re.search(r'\b[0-9]{6}\b',s.sent[-1][2]).group()
-        result=s.service.complete_registration(raw,otp['challenge_id'],code,'welcome@example.invalid',PASSWORD,billing=s.billing)
+        otp=s.service.request_otp(raw,registration=True, documents=agreements(s.service));code=re.search(r'\b[0-9]{6}\b',s.sent[-1][2]).group()
+        result=s.service.complete_registration(raw,otp['challenge_id'],code,'welcome@example.invalid',PASSWORD,billing=s.billing, documents=agreements(s.service))
     row=rows(w)[0]
     assert len(rows(w))==1 and row['state']=='pending'
     assert result['username'] not in row['payload'] and PASSWORD not in row['payload'] and code not in row['payload']
@@ -79,19 +80,19 @@ def test_recipient_and_role_are_rechecked_before_smtp(welcome,change):
 def test_welcome_write_failure_rolls_back_account_and_outbox_together(welcome,monkeypatch):
     w=welcome;s=w.state
     invitation=s.service.invite('owner','11',client_token='example-client');raw=invitation['link'].rsplit('/',1)[1]
-    otp=s.service.request_otp(raw);code=re.search(r'\b[0-9]{6}\b',s.sent[-1][2]).group()
+    otp=s.service.request_otp(raw, documents=agreements(s.service));code=re.search(r'\b[0-9]{6}\b',s.sent[-1][2]).group()
     original=w.notices._enqueue
     def interrupted(*args,**kwargs):
         original(*args,**kwargs)
         raise OSError('synthetic transaction interruption')
     monkeypatch.setattr(w.notices,'_enqueue',interrupted)
-    with pytest.raises(OSError):s.service.accept_invitation(raw,otp['challenge_id'],code,'Name','atomic@example.invalid',PASSWORD)
+    with pytest.raises(OSError):s.service.accept_invitation(raw,otp['challenge_id'],code,'Name','atomic@example.invalid',PASSWORD, documents=agreements(s.service))
     assert rows(w)==[] and 'atomic@example.invalid' not in s.auth.load_admins()
     with s.product.connect() as db:
         assert db.execute('SELECT state FROM identity_otp WHERE id=?',(otp['challenge_id'],)).fetchone()[0]=='ready'
         assert not read_document(db,'links.json')['example-client'].get('admin_role_active')
     monkeypatch.setattr(w.notices,'_enqueue',original)
-    s.service.accept_invitation(raw,otp['challenge_id'],code,'Name','atomic@example.invalid',PASSWORD)
+    s.service.accept_invitation(raw,otp['challenge_id'],code,'Name','atomic@example.invalid',PASSWORD, documents=agreements(s.service))
     assert len(rows(w))==1
 
 def test_html_escapes_names_and_has_only_nonsecret_first_party_links():

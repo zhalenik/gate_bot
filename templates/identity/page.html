@@ -2,12 +2,17 @@
 {% set client_page = kind in ['preferences', 'email_verify'] %}
 {% block title %}{{ title }} — GateBot{% endblock %}
 {% block pwa_head %}{% if kind == 'preferences' %}{% include 'components/client_pwa_head.html' %}{% endif %}{% endblock %}
-{% block head %}{% if kind == 'integrations' %}<link rel="stylesheet" href="/static/css/integrations.css">{% endif %}{% if kind == 'preferences' %}<link rel="stylesheet" href="/static/css/client-preferences.css">{% endif %}{% endblock %}
+{% block head %}{% if kind in ['register','accept'] %}<link rel="stylesheet" href="/static/css/legal.css">{% endif %}{% if kind == 'integrations' %}<link rel="stylesheet" href="/static/css/integrations.css">{% endif %}{% if kind == 'preferences' %}<link rel="stylesheet" href="/static/css/client-preferences.css">{% endif %}{% endblock %}
 {% block content %}
 <main class="admin-container" id="identityPage" data-kind="{{ kind }}"><section class="admin-content">
 <div class="page-heading"><div><p class="page-eyebrow">GATEBOT</p><h1>{{ title }}</h1><p class="page-description" id="identityDescription"></p></div></div>
 <div id="identityNotice" role="status" class="panel" hidden></div>
 {% if kind == 'messenger_only' and branches %}<input type="hidden" id="integrationBranch" value="{{ branches[0].id }}">{% endif %}
+ {% if kind in ['register','accept'] %}
+ {% set legal_audience='admin' %}
+ <template id="registrationChecks">{% include 'components/registration_documents.html' %}</template>
+ <template id="registrationCodeNote">{% include 'components/registration_code_note.html' %}</template>
+ {% endif %}
 <div id="identityContent" class="{% if kind == 'integrations' %}integration-workspace{% else %}panel{% endif %}"></div>
 {% if kind == 'invitations' %}
 <div class="invitation-tables">
@@ -32,12 +37,12 @@
   <p><strong>Приложение YCLIENTS Marketplace.</strong> Откройте карточку GateBot в маркетплейсе, нажмите «Подключить» и выберите филиал. При первой регистрации проверьте данные, подтвердите телефон по SMS и задайте пароль GateBot. Если у вас уже есть кабинет этого филиала, войдите с действующим паролем.</p>
   <p>Для автоматических пропусков нужен доступ к записям всех сотрудников и телефонам клиентов в журнале записи. Для поиска ID и email нужен доступ к клиентской базе, а для отправки через YCLIENTS нужны права на рассылку. «Проверить доступ» покажет текущие права подключения.</p>
 </div></details></template>
-<template id="messengerGuide"><details class="integration-guide"><summary aria-label="Каналы сообщений клиентам" title="Каналы сообщений клиентам"><span aria-hidden="true">i</span></summary><div class="integration-help-content"><strong>Каналы сообщений клиентам</strong><p>В блоке «Сообщения клиентам» можно выбрать подключённый сервис или автоматическую отправку. При автоматическом выборе клиент с ID YCLIENTS получает сообщение через рассылку YCLIENTS. Для остальных клиентов используется ChatPush по номеру телефона, затем разрешённые СМС из квоты филиала.</p></div></details></template>
+<template id="messengerGuide"><details class="integration-guide"><summary aria-label="Каналы сообщений клиентам" title="Каналы сообщений клиентам"><span aria-hidden="true">i</span></summary><div class="integration-help-content"><strong>Каналы сообщений клиентам</strong><p>В блоке «Сообщения клиентам» можно выбрать подключённый сервис или автоматическую отправку. При автоматическом выборе клиент с ID YCLIENTS получает сообщение через рассылку YCLIENTS. Для остальных клиентов используется сервис рассылки по номеру телефона, затем разрешённые СМС из квоты филиала.</p></div></details></template>
 {% endif %}
 {% if not admin_page and not client_page %}<p><a href="/admin/login">Вход в кабинет</a></p>{% endif %}
 </section></main>
 {% endblock %}
-{% block scripts %}
+{% block scripts %}{% if kind in ['register','accept'] %}<script src="/static/js/legal.js"></script>{% endif %}
 {% if kind == 'preferences' %}{% include 'components/client_pwa_scripts.html' %}{% endif %}
 <script id="identityBootstrap" type="application/json">{{ {'kind':kind,'data':bootstrap,'branches':branches,'is_super':is_super | default(false)}|tojson }}</script>
 <script src="/static/js/admin.js"></script>{% if kind == 'integrations' %}<script src="/static/js/integrations.js"></script>{% else %}<script src="/static/js/identity.js"></script>{% endif %}

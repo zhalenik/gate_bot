@@ -61,6 +61,7 @@ class BillingCatalog:
         # Visibility is independent of availability for existing subscribers.
         if 'duration_unit' in item:
             item.setdefault('visible', item.get('kind') != 'trial')
+            item.setdefault('personalization', False)
         return item
 
     def get(self, kind, item_id, *, include_archived=False, include_hidden=True, db=None):
@@ -84,7 +85,7 @@ class BillingCatalog:
 
     def save(self, kind, payload, *, actor):
         if kind not in {'plan', 'package'} or not isinstance(payload, dict): raise ValueError('Некорректный каталог')
-        allowed = {'id','name','price_kopecks','logo','active','visible','revision','kind','duration_value','duration_unit','quota','sms_quota'} if kind == 'plan' else {'id','name','price_kopecks','logo','active','revision','resource','quantity'}
+        allowed = {'id','name','price_kopecks','logo','active','visible','personalization','revision','kind','duration_value','duration_unit','quota','sms_quota'} if kind == 'plan' else {'id','name','price_kopecks','logo','active','revision','resource','quantity'}
         if set(payload) - allowed: raise ValueError('Неизвестные поля каталога')
         with self.store.connect() as db:
             item_id = payload.get('id') or uuid.uuid4().hex
@@ -103,6 +104,8 @@ class BillingCatalog:
                 item['kind'] = 'trial' if item_id == 'trial' else 'paid'
                 if type(item.get('visible', item_id != 'trial')) is not bool: raise ValueError('Некорректная видимость тарифа')
                 item['visible'] = item.get('visible', item_id != 'trial')
+                if type(item.setdefault('personalization', False)) is not bool:
+                    raise ValueError('Укажите, доступна ли персонализация')
                 if item.get('duration_unit') not in ('days', 'months'): raise ValueError('Срок задаётся в днях или календарных месяцах')
                 item['duration_value'] = integer(item.get('duration_value'), 'Срок', minimum=1, maximum=1200 if item['duration_unit']=='months' else 36500)
                 item['quota'] = integer(item.get('quota'), 'Квота звонков', nullable=True)

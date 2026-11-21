@@ -1,4 +1,5 @@
 """Standalone tenants keep stable identity, manual grants and ordinary billing."""
+from registration_samples import agreements
 from concurrent.futures import ThreadPoolExecutor
 import re
 from unittest.mock import Mock
@@ -17,9 +18,9 @@ from test_identity_product import identities, PASSWORD, PHONE
 
 def standalone(state, username='standalone@example.invalid'):
     reg=state.service.register_branch(None,'Local access','Local owner',PHONE,yclients_enabled=False)
-    otp=state.service.request_otp(reg['registration_token'],registration=True)
+    otp=state.service.request_otp(reg['registration_token'],registration=True, documents=agreements(state.service))
     code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    return state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,username,PASSWORD,billing=state.billing)
+    return state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,username,PASSWORD,billing=state.billing, documents=agreements(state.service))
 
 
 def test_registration_without_crm_auto_activates_unlimited_trial_and_no_routes(identities):
@@ -40,8 +41,8 @@ def test_default_legacy_and_crm_registration_keep_ids_and_activate_immediately(i
     state=identities;original=set(state.branches.load_branches())
     assert all(branch.yclients_enabled for branch in state.branches.get_all_branches())
     reg=state.service.register_branch('00123','CRM branch','CRM owner',PHONE)
-    otp=state.service.request_otp(reg['registration_token'],registration=True);code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'crm-owner@example.invalid',PASSWORD)
+    otp=state.service.request_otp(reg['registration_token'],registration=True, documents=agreements(state.service));code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
+    result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'crm-owner@example.invalid',PASSWORD, documents=agreements(state.service))
     assert result['status']=='active' and result['branch_id']=='123'
     assert state.branches.get_branch('123').enabled and state.branches.get_branch('123').yclients_enabled
     assert original<=set(state.branches.load_branches())

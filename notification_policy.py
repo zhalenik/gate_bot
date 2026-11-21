@@ -48,7 +48,7 @@ def seed_client_channels(db, person_id, client, previous):
         return
     branch = read_document(db, 'branches.json').get(branch_id, {})
     crm = branch.get('yclients_enabled', True)
-    chatpush = crm and db.execute('SELECT 1 FROM identity_integrations WHERE branch_id=? AND kind="chatpush"', (branch_id,)).fetchone()
+    chatpush = crm and branch.get('delivery_service','chatpush') == 'chatpush' and db.execute('SELECT 1 FROM identity_integrations WHERE branch_id=? AND kind="chatpush"', (branch_id,)).fetchone()
     messenger = bool(crm and (client.get('id_ycl') or chatpush))
     sms = not messenger and branch.get('sms_notifications_enabled') is True
     prefs = {'channels': {'messengers': messenger, 'sms': sms,

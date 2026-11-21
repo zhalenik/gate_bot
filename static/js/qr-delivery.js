@@ -3,7 +3,7 @@
   if (!branch) return;
   const panel = document.createElement('section');
   panel.className = 'panel'; panel.id = 'qrDeliverySettings'; panel.hidden = true;
-  panel.innerHTML = '<h2>Подтверждение телефона по QR</h2><form class="admin-form"><label class="form-group">Канал отправки кода<select name="channel"><option value="sms">SMS</option><option value="chatpush">ChatPush</option></select></label><p class="page-description">Для QR филиала и ворот. Каждая часть SMS расходует квоту филиала.</p><button class="btn-primary">Сохранить</button></form><p role="status"></p>';
+  panel.innerHTML = '<h2>Подтверждение телефона по QR</h2><form class="admin-form"><label class="form-group">Канал отправки кода<select name="channel"><option value="sms">SMS</option><option value="chatpush">Сервис рассылки</option></select></label><p class="page-description">Для QR филиала и ворот. Каждая часть SMS расходует квоту филиала.</p><button class="btn-primary">Сохранить</button></form><p role="status"></p>';
   document.getElementById('identityContent').append(panel);
   const form = panel.querySelector('form'), status = panel.querySelector('[role=status]');
   const url = () => '/admin/api/branches/' + encodeURIComponent(branch.value) + '/qr-delivery';

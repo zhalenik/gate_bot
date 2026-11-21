@@ -18,6 +18,9 @@ from storage import config
 from storage.sql_documents import read_document, write_document
 
 
+import legal_documents as legal
+
+
 class MarketplaceError(ValueError):
     pass
 
@@ -437,7 +440,7 @@ class MarketplaceService:
                     return
         raise ValueError('Проверьте код для номера из YCLIENTS или запросите новый')
 
-    def request_registration_code(self, raw, browser, branch_id, phone, ip):
+    def request_registration_code(self, raw, browser, branch_id, phone, ip, *, documents):
         from identity_service import valid_phone
         branch_id = positive_id(branch_id)
         phone = valid_phone(phone)
@@ -450,12 +453,12 @@ class MarketplaceService:
                 step = 'original'
                 return original[0], original[1], branch_id
             return subject, phone, branch_id
-        result = self.identity.request_phone_otp(resolve, ip, flow='branch_registration')
+        result = self.identity.request_phone_otp(resolve, ip, flow='branch_registration',documents=documents,legal_flow='marketplace')
         return {**result, 'step':step}
 
-    def complete_registration(self, raw, browser, branch_id, profile, challenge, code, password, confirm):
+    def complete_registration(self, raw, browser, branch_id, profile, challenge, code, password, confirm, *, documents):
         from admin_auth import AdminAuth
-        from marketplace_onboarding import provision_marketplace, validate_marketplace_target
+        from marketplace_onboarding import installer_key, provision_marketplace, validate_marketplace_target
         branch_id = positive_id(branch_id)
         AdminAuth.validate_new_password(password)
         if password != confirm:
@@ -473,6 +476,7 @@ class MarketplaceService:
                 raise ValueError('Сначала подтвердите номер телефона из YCLIENTS')
             otp = self.identity._check_otp(db, subject, challenge, code)
             if otp and otp['phone'] == profile['phone']:
+                legal.confirm(db, 'marketplace', documents, otp, installer_key(intent['profile']), self.clock())
                 result = provision_marketplace(self.identity, db, branch_id, profile, {}, password=password,
                                                signed_profile=intent['profile'])
                 self._activate_local(db, result['username'], branch_id, generation)

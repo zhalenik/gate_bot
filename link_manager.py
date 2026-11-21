@@ -317,6 +317,49 @@ class LinkManager:
                 del links[token]
             return len(expired)
 
+    def reconcile_staff(self, branch_id, staff):
+        from collections import Counter, defaultdict
+
+        phones = Counter(row['phone'] for row in staff if row['phone'])
+        ids = Counter(row['id'] for row in staff)
+        created = matched = skipped = 0
+        with self.store.transaction() as links:
+            by_phone, by_id = defaultdict(list), defaultdict(list)
+            for card in links.values():
+                if str(card.get('branch_id')) != str(branch_id):
+                    continue
+                if card.get('yc_staff_id'):
+                    by_id[str(card['yc_staff_id'])].append(card)
+                if not card.get('is_temporary'):
+                    by_phone[normalize_phone(card.get('phone'))].append(card)
+            for row in staff:
+                phone, staff_id = row['phone'], row['id']
+                if not phone or phones[phone] != 1 or ids[staff_id] != 1:
+                    skipped += 1
+                    continue
+                existing = by_id[staff_id] or by_phone[phone]
+                if existing:
+                    if len(existing) != 1:
+                        skipped += 1
+                        continue
+                    card = existing[0]
+                    if normalize_phone(card.get('phone')) != phone or str(card.get('yc_staff_id') or staff_id) != staff_id:
+                        skipped += 1
+                        continue
+                    card['yc_staff_id'] = staff_id
+                    if not card.get('role_override') and not card.get('is_temporary'):
+                        card['client_role'] = 'employee'
+                    matched += 1
+                else:
+                    token = self.generate_token(links)
+                    links[token] = {'branch_id':int(branch_id), 'yc_staff_id':staff_id, 'client_role':'employee',
+                                    'user_name':row['name'] or 'Сотрудник', 'phone':phone, 'email':row['email'],
+                                    'created':now().isoformat(), 'is_temporary':False, 'mailing_enabled':False,
+                                    'id_ycl':None, 'tg_id':None, 'max_id':None, 'gate_access':False,
+                                    'admin_blocked':False, 'access_source':'manual', 'access_expires':None}
+                    created += 1
+        return {'created':created, 'matched':matched, 'skipped':skipped}
+
     def reconcile_appointments(self, branch_id, eligible_clients, at=None, branch_timezone=None):
         """Apply only a complete, successful CRM snapshot. Manual grants are preserved."""
         import re

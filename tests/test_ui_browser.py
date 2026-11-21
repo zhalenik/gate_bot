@@ -59,7 +59,7 @@ def test_client_table_actions_filters_sorting_and_shared_layout(web,browser_ui,t
     page.locator('#accessForm button[type=submit]').click()
     expect(page.locator('#usersTableBody .btn-pass')).to_have_text('3 дня')
     page.locator('#filterStatus').select_option('Временный');expect(page.locator('#usersTableBody tr')).to_have_count(1)
-    page.locator('#usersTableBody [title=Редактировать]').click()
+    page.locator('#usersTableBody .client-name-link').click()
     page.get_by_label('Имя',exact=True).fill('Анна Соколова')
     expect(page.get_by_label('Telegram — подтвержденная привязка')).to_have_attribute('readonly','')
     page.get_by_role('button',name='Сохранить',exact=True).click()
@@ -100,7 +100,8 @@ def test_branch_admin_table_remains_scoped_and_controls_survive_mobile(web,brows
     expect(page.locator('#exportCsvBtn')).to_be_visible()
     expect(page.locator('#filterBranch')).to_be_hidden()
     expect(page.locator('.app-navigation a[href="/admin/telephony"]')).to_have_count(0)
-    expect(page.locator('#usersTableBody [title="Назначить администратором"]')).to_be_visible()
+    expect(page.locator('#usersTableBody [title="Назначить администратором"]')).to_have_count(0)
+    expect(page.locator('#usersTableBody .client-name-link')).to_be_visible()
     page.set_viewport_size({'width':390,'height':844})
     assert page.locator('#usersTableBody tr').first.evaluate("row => getComputedStyle(row).display")=='grid'
     page.locator('#mobileClientSort').select_option('user_name')
@@ -137,7 +138,12 @@ def test_guest_expiry_and_mobile_cabinet_navigation(web,browser_ui,tmp_path,monk
     expect(page).to_have_url(origin+'/office/billing')
     page.locator('.office-menu summary').click()
     page.get_by_role('link',name='Полная версия').click()
-    expect(page.locator('[data-shared-header]')).to_be_visible()
+    full=page.locator('[data-shared-header]')
+    expect(full.locator('.brand')).to_be_hidden()
+    expect(full.locator('.full-mobile-links a')).to_have_count(3)
+    assert full.bounding_box()['y']>page.viewport_size['height']-90
+    full.get_by_label('Меню администратора').click()
+    expect(full.get_by_role('link',name='Филиал',exact=True)).to_be_visible()
     assert not errors
 
 

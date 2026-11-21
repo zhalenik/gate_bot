@@ -118,7 +118,7 @@ development поверх production env. Не переносите тестов�
 
 Используется Apps → Discover Apps → ⋮ → Install via YAML с именем приложения `gatebot`.
 Файл `examples/truenas.example.yaml` подготовлен специально для этого сервера:
-- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.22` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
+- приложение получает готовый образ `ghcr.io/zhalenik/gate_bot:0.2.0-alpha.23` через GHCR; локальные `compose.yaml` и `compose.server.yaml` остаются неизменными;
 - только внутренний HTTP `31500:5000`; TLS завершается существующим Nginx Proxy Manager с Let's Encrypt. В NPM: `bot.zhvakin.space` → `http://<LAN-IP-TRUENAS>:31500`, Force SSL, без прямого внешнего доступа к порту;
 - приватный файл `/mnt/ssd-pool/apps-data/gatebot/gatebot.env`; данные `state/` и `system-config/` в том же каталоге на SSD;
 - первые испытания в `development` с отключёнными настоящими отправками и модемом; production включается отдельно после приёмки.
@@ -135,7 +135,7 @@ development поверх production env. Не переносите тестов�
 - фиксированный `/dev/serial/by-id/...` и правильный host group ID для устройства;
 - внешний HTTPS через Nginx Proxy Manager.
 
-В YAML зафиксирован тег `0.2.0-alpha.22`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
+В YAML зафиксирован тег `0.2.0-alpha.23`, однако доступность образа зависит от успешного GitHub Actions run и видимости GHCR. Реальные пароли, токены и приватные ключи в репозиторий не помещаются.
 
 Шаблон содержит два обязательных mount: данные в `/state` и bootstrap-настройки
 в `/app/private/system-config`. Для второго задайте отдельный постоянный host path;

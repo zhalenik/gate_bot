@@ -1,7 +1,7 @@
 """Super-only settings editor. Saving does not reconfigure a running runtime."""
 from storage import config
 from system_config_bootstrap import SystemConfigStore
-from system_settings_catalog import BY_KEY, FIELDS, GROUPS, decode, default_values, encode, validate_effective
+from system_settings_catalog import BLOCKS, BLOCK_GROUPS, BY_KEY, FIELDS, GROUPS, decode, default_values, encode, validate_effective
 
 
 def _inspect_value(descriptor, value):
@@ -44,7 +44,7 @@ class SystemSettings:
             else:
                 field.update(value=value,active_value=active_value)
             fields.append(field)
-        return {'revision':saved['revision'],'groups':GROUPS,'group_order':list(GROUPS),'fields':fields,
+        return {'revision':saved['revision'],'groups':GROUPS,'group_order':list(GROUPS),'blocks':BLOCKS,'block_groups':BLOCK_GROUPS,'fields':fields,
                 'restart_required':any(field['restart_required'] for field in fields),
                 'restart_keys':[field['key'] for field in fields if field['restart_required']],
                 'invalid_keys':[field['key'] for field in fields if field['validation_error']],

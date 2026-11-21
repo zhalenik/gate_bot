@@ -67,7 +67,7 @@ def send_message(phone, text, branch_id=None, *, credentials=None, external_id=N
     if not transport_enabled(audience):
         return {'status': 'error', 'skipped': True, 'message': 'Отправка уведомлений выключена'}
     if not credentials or not credentials.get('token'):
-        return {'status': 'error', 'skipped': True, 'message': 'ChatPush не подключён для филиала'}
+        return {'status': 'error', 'skipped': True, 'message': 'Сервис рассылки не подключён для филиала'}
     return ChatPushClient(credentials['token']).send(phone, text, external_id=external_id)
 
 

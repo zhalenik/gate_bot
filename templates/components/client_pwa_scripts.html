@@ -1,4 +1,5 @@
 {% if client_pwa | default(none) %}
 <script id="clientPwaConfig" type="application/json">{{ client_pwa | tojson }}</script>
+<script src="/static/js/push-subscription.js"></script>
 <script src="/static/js/client-pwa.js"></script>
 {% endif %}

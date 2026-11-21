@@ -90,6 +90,27 @@ def test_unbound_max_preference_is_honest_and_survives_save(web, browser_ui, tmp
     expect(page.locator('[name=sms_received_max]')).to_be_enabled()
     page.set_viewport_size({'width': 390, 'height': 844})
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    switch=page.locator('[name=sms_received]')
+    row=switch.locator('xpath=ancestor::tr')
+    expect(row.locator('td').first).to_be_hidden()
+    assert switch.bounding_box()['width']>=38
+    with page.expect_response(lambda r: r.url.endswith('/notification-settings/sms_received') and r.request.method=='POST'):
+        switch.uncheck()
+    expect(switch).to_be_enabled()
+    expect(switch).not_to_be_checked()
+    assert 'sms_received' not in identity.admin_preferences('super')['active_events']
+    assert not any(identity.admin_preferences('super')['events']['sms_received'].values())
+    switch.click()
+    dialog=page.get_by_role('dialog',name='Входящие SMS')
+    expect(dialog).to_be_visible()
+    dialog.get_by_label('MAX',exact=True).check()
+    dialog.get_by_role('button',name='Сохранить',exact=True).click()
+    expect(dialog).not_to_be_visible()
+    page.reload()
+    expect(switch).to_be_checked()
+    row.get_by_role('button',name='Входящие SMS').click()
+    expect(dialog.get_by_label('MAX',exact=True)).to_be_checked()
+    dialog.get_by_role('button',name='Отмена').click()
     assert web.calls == []
 
 

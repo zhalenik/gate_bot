@@ -252,3 +252,25 @@ def test_malformed_temporary_expiry_is_preserved_without_stopping_other_branches
     assert token in links.load_links()
     assert result["2"]["status"] == "success"
     assert links.get_user_by_id_ycl(2, 2)[1]["gate_access"]
+
+
+def test_staff_sync_reuses_branch_card_preserves_access_and_manual_role(state):
+    links,branches,events=state
+    token=links.create_link({'branch_id':1,'phone':'+15550100301','gate_access':False,'admin_blocked':True})
+    crm=CRM({})
+    rows=[{'id':'21','name':'Same','phone':'+15550100301','email':''},
+          {'id':'22','name':'New','phone':'+15550100302','email':''},
+          {'id':'23','name':'No phone','phone':'','email':''}]
+    crm.staff_for_branch=lambda branch:rows if branch==1 else []
+    scheduler=Scheduler(links,branches,crm)
+    status=scheduler.run_once()
+    assert status['1']['staff']=={'created':1,'matched':1,'skipped':1}
+    cards=links.load_links()
+    assert len(cards)==2 and cards[token]['client_role']=='employee' and not access_is_active(cards[token])
+    assert all(not access_is_active(card) and card.get('id_ycl') is None for card in cards.values())
+    with links.store.transaction() as data:data[token].update(role_override=True,client_role='client')
+    assert scheduler.run_once()['1']['staff']['created']==0
+    assert links.get_link(token)['client_role']=='client'
+    crm.staff_for_branch=lambda branch:(_ for _ in ()).throw(YClientsError('Staff access denied'))
+    assert scheduler.run_once()['1']['status']=='success'
+    assert len(links.load_links())==2

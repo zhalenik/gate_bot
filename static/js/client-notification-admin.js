@@ -87,7 +87,7 @@ async function openClientNotifications(token) {
                 catch(error){tell(error.message,true);}finally{setBusy(false);}
             }));
         }else if(channel==='sms')connection.append(element('p','form-hint','Добавьте корректный телефон в карточку клиента. SMS расходуют лимит филиала.'));
-        else connection.append(element('p','form-hint',prefs.messengers?.reason==='yclients_client_missing'?'У клиента нет ID YCLIENTS. Для отправки по телефону подключите ChatPush в настройках филиала.':'Подключите выбранный сервис рассылки в настройках филиала.'));
+        else connection.append(element('p','form-hint',prefs.messengers?.reason==='yclients_client_missing'?'У клиента нет ID YCLIENTS. Для отправки по телефону подключите сервис рассылки в настройках филиала.':'Подключите выбранный сервис рассылки в настройках филиала.'));
         connection.append(button('Отмена',closeConnection));
     }
     function confirmUnsubscribe(){

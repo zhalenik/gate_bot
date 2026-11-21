@@ -9,7 +9,7 @@
   if(boot.kind==='integrations') panel.append(el('h2','Сообщения клиентам'),document.getElementById('messengerGuide').content.cloneNode(true));
   const form = el('form', '', 'admin-form'), label = el('label', 'Способ отправки', 'form-group'), select = el('select');
   select.name = 'messenger_provider';
-  const providers = {auto:'Автоматически',yclients:'Сервис рассылки в YCLIENTS',chatpush:'ChatPush напрямую',sms:'СМС филиала'};
+  const providers = {auto:'Автоматически',yclients:'Сервис рассылки в YCLIENTS',chatpush:'Сервис рассылки по телефону',sms:'СМС филиала'};
   label.append(select); form.append(label);
   const description = el('p', '', 'page-description'), status = el('p', '', 'form-hint'); status.setAttribute('role', 'status');
   const save = el('button', 'Сохранить способ отправки', 'btn-primary'); save.type = 'submit';
@@ -29,8 +29,8 @@
       return;
     }
     description.textContent = {
-      auto:'Для клиента с ID YCLIENTS используется рассылка YCLIENTS. Следующий доступный способ — ChatPush, затем СМС филиала.',
-      chatpush:'Сообщение отправляется через ChatPush по номеру телефона.',
+      auto:'Для клиента с ID YCLIENTS используется рассылка YCLIENTS. Следующий доступный способ — сервис рассылки, затем СМС филиала.',
+      chatpush:'Сообщение отправляется через сервис рассылки по номеру телефона.',
       sms:'Сообщение отправляется по номеру телефона и расходует квоту СМС филиала.',
       yclients:'Рассылка YCLIENTS доступна клиентам с ID в этом филиале.'
     }[select.value] || '';
@@ -38,11 +38,12 @@
   function paint(value, preserveSelection = false) {
     const previous=select.value;select.replaceChildren();
     for(const [key,title] of Object.entries(providers)){
-      if(key!=='auto'&&!value.available[key])continue;
-      const option=el('option',title);option.value=key;select.append(option);
+      if(key!=='auto'&&!value.available[key] && key!==value.selected)continue;
+      const unavailable=key!=='auto'&&!value.available[key];
+      const option=el('option',title+(unavailable?' · отключено':''));option.value=key;option.disabled=unavailable;select.append(option);
     }
     const selected=preserveSelection&&dirty?previous:value.selected;
-    select.value=(selected==='auto'||value.available[selected])?selected:'auto';
+    select.value=[...select.options].some(option=>option.value===selected)?selected:'auto';
     explain();
   }
   async function refresh() {

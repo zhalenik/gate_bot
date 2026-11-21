@@ -1,4 +1,5 @@
 """Offline acceptance for identities, invitations, migration and account isolation."""
+from registration_samples import agreements
 import json
 import re
 from pathlib import Path
@@ -46,9 +47,9 @@ def identities(tmp_path,monkeypatch):
 def accept(state,username='new-admin@example.invalid',client=True,branch='11',phone=PHONE):
     result=state.service.invite('owner',branch,client_token='example-client' if client else None,phone=phone)
     token=result['link'].rsplit('/',1)[1]
-    otp=state.service.request_otp(token,ip='127.0.0.1')
+    otp=state.service.request_otp(token,ip='127.0.0.1', documents=agreements(state.service))
     code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    result=state.service.accept_invitation(token,otp['challenge_id'],code,'Example admin',username,PASSWORD)
+    result=state.service.accept_invitation(token,otp['challenge_id'],code,'Example admin',username,PASSWORD, documents=agreements(state.service))
     return result,token,otp,code
 
 
@@ -58,7 +59,7 @@ def test_invitation_acceptance_emits_event_once_inside_transaction(identities):
     result,token,otp,code=accept(identities)
     assert len(events)==1 and events[0][0:2]==('invitation_accepted','11')
     with pytest.raises(ValueError):
-        identities.service.accept_invitation(token,otp['challenge_id'],code,'Again','other',PASSWORD)
+        identities.service.accept_invitation(token,otp['challenge_id'],code,'Again','other',PASSWORD, documents=agreements(identities.service))
     assert len(events)==1
 
 
@@ -81,7 +82,7 @@ def test_invitation_promotes_same_client_and_revocation_preserves_manual_grant(i
     assert set(state.links.load_links())==before
     client=state.links.load_links()['example-client'];assert client['admin_role_active'] and access_is_active(client)
     assert state.auth.verify_admin('new-admin@example.invalid',PASSWORD)
-    with pytest.raises(ValueError):state.service.accept_invitation(token,otp['challenge_id'],code,'Again','other',PASSWORD)
+    with pytest.raises(ValueError):state.service.accept_invitation(token,otp['challenge_id'],code,'Again','other',PASSWORD, documents=agreements(state.service))
     state.service.revoke_admin('owner',result['person_id'],'11')
     client=state.links.load_links()['example-client'];assert not client['admin_role_active'] and client['gate_access'] and access_is_active(client)
     assert not state.auth.verify_admin('new-admin@example.invalid',PASSWORD)
@@ -94,12 +95,12 @@ def test_tenant_scope_inviter_revocation_expiry_and_otp_attempt_budget(identitie
     with pytest.raises(PermissionError):state.service.invite('north','12',phone=PHONE)
     with pytest.raises(ValueError):state.service.invite('owner','11',phone=PHONE,channel='telegram')
     result=state.service.invite('north','11',phone=PHONE);token=result['link'].rsplit('/',1)[1]
-    otp=state.service.request_otp(token,ip='127.0.0.1');correct=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
+    otp=state.service.request_otp(token,ip='127.0.0.1', documents=agreements(state.service));correct=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
     wrong='999999' if correct!='999999' else '000000'
     for _ in range(5):
-        with pytest.raises(ValueError):state.service.accept_invitation(token,otp['challenge_id'],wrong,'Test','new',PASSWORD)
-    with pytest.raises(ValueError):state.service.accept_invitation(token,otp['challenge_id'],correct,'Test','new',PASSWORD)
-    with pytest.raises(ValueError):state.service.request_otp(token,ip='127.0.0.1')
+        with pytest.raises(ValueError):state.service.accept_invitation(token,otp['challenge_id'],wrong,'Test','new',PASSWORD, documents=agreements(state.service))
+    with pytest.raises(ValueError):state.service.accept_invitation(token,otp['challenge_id'],correct,'Test','new',PASSWORD, documents=agreements(state.service))
+    with pytest.raises(ValueError):state.service.request_otp(token,ip='127.0.0.1', documents=agreements(state.service))
     state.clock[0]+=3601
     with pytest.raises(ValueError):state.service.invitation_info(token)
 
@@ -107,16 +108,16 @@ def test_tenant_scope_inviter_revocation_expiry_and_otp_attempt_budget(identitie
 def test_dry_run_otp_never_completes_registration(identities):
     state=identities;state.service.sender=lambda *args:{'status':'success','delivery':'simulated'}
     reg=state.service.register_branch('99','Example','New owner',PHONE)
-    otp=state.service.request_otp(reg['registration_token'],registration=True)
+    otp=state.service.request_otp(reg['registration_token'],registration=True, documents=agreements(state.service))
     assert not otp['ready']
-    with pytest.raises(ValueError):state.service.complete_registration(reg['registration_token'],otp['challenge_id'],'000000','new',PASSWORD)
+    with pytest.raises(ValueError):state.service.complete_registration(reg['registration_token'],otp['challenge_id'],'000000','new',PASSWORD, documents=agreements(state.service))
     assert state.branches.get_branch('99') is None
 
 
 def test_sms_confirmed_manual_registration_immediately_activates_branch_and_trial(identities):
     state=identities;reg=state.service.register_branch('99','Example','New owner',PHONE)
-    otp=state.service.request_otp(reg['registration_token'],registration=True);code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'new-branch@example.invalid',PASSWORD)
+    otp=state.service.request_otp(reg['registration_token'],registration=True, documents=agreements(state.service));code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
+    result=state.service.complete_registration(reg['registration_token'],otp['challenge_id'],code,'new-branch@example.invalid',PASSWORD, documents=agreements(state.service))
     assert result['status']=='active' and state.branches.get_branch('99').enabled
     assert state.auth.verify_admin('new-branch@example.invalid',PASSWORD)
     assert state.service.web_admin(result['username'])['branch_ids']==['99']
@@ -153,10 +154,10 @@ def test_existing_account_cannot_accept_invitation_to_another_branch(identities)
     second=state.links.create_link({'branch_id':12,'user_name':'Same owner','phone':PHONE})
     invite=state.service.invite('owner','12',client_token=second)
     accepted,_,_,_=accept(state);before=state.links.load_links();state.clock[0]+=61
-    raw=invite['link'].rsplit('/',1)[1];otp=state.service.request_otp(raw)
+    raw=invite['link'].rsplit('/',1)[1];otp=state.service.request_otp(raw, documents=agreements(state.service))
     code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
     with pytest.raises(ValueError,match='другим филиалом'):
-        state.service.accept_invitation(raw,otp['challenge_id'],code,'Existing','new-admin@example.invalid',PASSWORD,existing_password=PASSWORD)
+        state.service.accept_invitation(raw,otp['challenge_id'],code,'Existing','new-admin@example.invalid',PASSWORD,existing_password=PASSWORD, documents=agreements(state.service))
     assert state.links.load_links()==before
 
 
@@ -252,6 +253,11 @@ def test_blueprint_invitation_and_connection_session_are_scoped(identities):
         return {'requires_2fa':True,'challenge':'offline-uuid-123'} if not code else {'user_token':'offline-user-token'}
     app=Flask(__name__,template_folder=str(Path(__file__).resolve().parents[1]/'templates'));app.secret_key='offline-session-secret'
     app.register_blueprint(create_blueprint(lambda:{'service':state.service,'auth':state.auth,'branches':state.branches,'billing':state.billing,'authorize_yclients':authorize,'check_yclients':lambda branch,credentials:{'status':'success','connected':True,'code':'ready','checks':[]}}))
+    from legal_documents_web import create_blueprint as legal_blueprint
+    from legal_documents import ADMIN_DOCS,current
+    app.register_blueprint(legal_blueprint(lambda:{'service':state.service}))
+    with state.product.connect() as db:
+        documents={d['kind']:d['version'] for d in current(db,ADMIN_DOCS)}
     app.jinja_env.globals['csrf_token']=lambda:'offline-csrf'
     client=app.test_client()
     with app.app_context():fingerprint=state.auth._session_fingerprint(state.auth.get_admin('owner'))
@@ -261,8 +267,8 @@ def test_blueprint_invitation_and_connection_session_are_scoped(identities):
     assert created['status']=='success'
     raw=created['link'].rsplit('/',1)[1]
     assert client.get('/invite/'+raw).status_code==200
-    otp=client.post('/invite/'+raw+'/code',json={}).get_json();code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
-    accepted=client.post('/invite/'+raw+'/accept',json={'challenge_id':otp['challenge_id'],'code':code,'username':'web-invite@example.invalid','password':PASSWORD,'name':'Web example'})
+    otp=client.post('/invite/'+raw+'/code',json={'documents':documents}).get_json();code=re.search(r'\b[0-9]{6}\b',state.sent[-1][2]).group()
+    accepted=client.post('/invite/'+raw+'/accept',json={'documents':documents,'challenge_id':otp['challenge_id'],'code':code,'username':'web-invite@example.invalid','password':PASSWORD,'name':'Web example'})
     assert accepted.status_code==200
     payload={'branch_id':'11','login':'example@example.invalid','password':'offline-password'}
     assert client.post('/admin/api/identity/integrations/yclients/authorize',json=payload).get_json()['requires_2fa']

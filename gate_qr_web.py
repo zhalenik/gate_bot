@@ -3,7 +3,7 @@ from io import BytesIO
 import re
 import secrets
 
-from flask import Blueprint, abort, current_app, jsonify, render_template, request, session, Response
+from flask import Blueprint, abort, current_app, g, jsonify, render_template, request, session, Response
 import qrcode
 from qrcode.image.svg import SvgPathImage
 
@@ -93,18 +93,21 @@ def create_blueprint(provider):
     @bp.get('/join/<raw>')
     def join_page(raw):
         browser()
-        return render_template('branch_join.html', client_page=True, branch_name=provider()['branch_join'].name(raw))
+        branch_id, name = provider()['branch_join'].page_info(raw)
+        g.client_appearance_branch=branch_id
+        return render_template('branch_join.html', client_page=True, branch_name=name)
 
     @bp.post('/join/<raw>/code')
     def join_code(raw):
-        result = provider()['branch_join'].code(raw, browser(), body().get('phone'), request.remote_addr or '')
+        data=body()
+        result = provider()['branch_join'].code(raw, browser(), data.get('phone'), request.remote_addr or '',documents=data.get('documents'))
         return jsonify(challenge_id=result['challenge_id'],ready=result['ready'],
                        channel=result['channel'],retry_after=result['retry_after'])
 
     @bp.post('/join/<raw>/verify')
     def join_verify(raw):
         data = body()
-        provider()['branch_join'].verify(raw, browser(), data.get('challenge_id'), data.get('code'))
+        provider()['branch_join'].verify(raw, browser(), data.get('challenge_id'), data.get('code'),documents=data.get('documents'))
         return jsonify(verified=True)
 
     @bp.post('/join/<raw>/profile')
@@ -120,6 +123,7 @@ def create_blueprint(provider):
     def gate_page(raw):
         browser()
         state = service().state(raw, request.cookies.get(cookie_name(raw)))
+        g.client_appearance_branch=state['branch_id']
         return render_template('gate_qr.html', client_page=True, unavailable=None, bootstrap={'raw': raw, **state})
 
     @bp.post('/gate/<raw>/state')

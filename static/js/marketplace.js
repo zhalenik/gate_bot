@@ -118,7 +118,8 @@
   if((verify?verifyOriginal.disabled:sendCode.disabled)||!fields.phone.reportValidity())return;
   if(verify&&!fields.code.reportValidity())return;
   const phone=fields.phone.value;
-  const body={branch_id:formId,phone};
+  const documents=window.registrationChoices();if(!documents)return;
+  const body={branch_id:formId,phone,documents};
   if(verify){body.original_challenge=challenge.id;body.original_code=fields.code.value;}
   busy=true;updateActions();
   try{
@@ -141,7 +142,7 @@
   busy=true;button.disabled=true;updateActions();
   try{
    const profile=Object.fromEntries(['name','salon_name','phone','email'].map(key=>[key,fields.namedItem(key).value]));
-   const data=await post('/yclients/marketplace/register',{branch_id:formId,profile,challenge:challenge.id,code:fields.code.value,password:password.value,confirm:confirm.value});
+   const data=await post('/yclients/marketplace/register',{documents:window.registrationChoices(),branch_id:formId,profile,challenge:challenge.id,code:fields.code.value,password:password.value,confirm:confirm.value});
    password.value='';confirm.value='';
    // The completion target is fixed to the GateBot cabinet, never an external URL.
    if(data.redirect_url!=='/admin/integrations')throw new Error('Пароль сохранён. Откройте кабинет через страницу входа.');

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from billing_service import BillingService, epoch, iso, identifier
 
 
-DIMENSIONS = {'branch','person','client','gate','pass_type','source','status','hour','day','week','month'}
+DIMENSIONS = {'branch','person','client','gate','role','pass_type','source','status','hour','day','week','month'}
 
 
 def selected(values, label):
@@ -22,9 +22,9 @@ class AnalyticsService:
         self.billing=BillingService(store)
         self.store=self.billing.store
 
-    def record_client(self, branch_client_id, branch_id, person_id, *, created_at=None, source='local', db=None):
+    def record_client(self, branch_client_id, branch_id, person_id, *, created_at=None, source='local', role='client', db=None):
         with self.billing._transaction(db) as tx:
-            tx.execute('INSERT OR IGNORE INTO client_branch_events VALUES(?,?,?,?,?)',(str(branch_client_id),str(branch_id),str(person_id),epoch(created_at),source))
+            tx.execute('INSERT OR IGNORE INTO client_branch_events VALUES(?,?,?,?,?,?)',(str(branch_client_id),str(branch_id),str(person_id),epoch(created_at),source,role))
 
     @staticmethod
     def _filter(filters, allowed_branches):
@@ -47,6 +47,7 @@ class AnalyticsService:
         fields={'branches':('branch_id',branches),'people':('person_id',selected(filters.get('people'),'люди')),
             'clients':('branch_client_id',selected(filters.get('clients'),'клиенты')),
             'gates':('gate_id',selected(filters.get('gates'),'ворота')),
+            'roles':('client_role',selected(filters.get('roles'),'роли')),
             'pass_types':('pass_type',selected(filters.get('pass_types'),'типы пропуска')),
             'sources':('source',selected(filters.get('sources'),'каналы')),
             'statuses':('status',selected(filters.get('statuses'),'результаты'))}
@@ -59,7 +60,7 @@ class AnalyticsService:
 
     @staticmethod
     def _key(row, dimension, zone):
-        mapping={'branch':'branch_id','person':'person_id','client':'branch_client_id','gate':'gate_id','pass_type':'pass_type','source':'source','status':'status'}
+        mapping={'branch':'branch_id','person':'person_id','client':'branch_client_id','gate':'gate_id','role':'client_role','pass_type':'pass_type','source':'source','status':'status'}
         if dimension in mapping:return row[mapping[dimension]] or 'unknown'
         local=datetime.fromtimestamp(row['happened_at'],zone)
         if dimension=='hour':return local.replace(minute=0,second=0,microsecond=0).isoformat()
@@ -86,7 +87,7 @@ class AnalyticsService:
                 for row in db.execute('SELECT id FROM hardware_commands WHERE charged=1'):
                     if row['id'] in commands:charged.add(row['id'])
             newclauses=['created>=?','created<?'];newargs=[start,end]
-            for filter_key,column in [('branches','branch_id'),('people','person_id'),('clients','branch_client_id')]:
+            for filter_key,column in [('branches','branch_id'),('people','person_id'),('clients','branch_client_id'),('roles','client_role')]:
                 values=fields[filter_key][1]
                 if values is not None:
                     newclauses.append(column+' IN ('+','.join('?' for _ in values)+')' if values else '0');newargs.extend(values)

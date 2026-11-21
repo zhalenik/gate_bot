@@ -66,6 +66,8 @@ def test_auto_install_reconcile_and_password_completion(web, browser_ui, change_
         page.locator('#marketplacePhone').fill(phone)
         expect(page.locator('#marketplacePhoneChange')).to_be_visible()
         assert not sent_code
+    page.locator('#agree-admin-privacy').check();page.locator('#agree-terms').check()
+    documents=page.evaluate('window.registrationChoices()')
     page.locator('#marketplaceSendCode').click()
     if change_phone:
         expect(page.locator('#marketplacePasswordSave')).to_be_disabled()
@@ -74,7 +76,7 @@ def test_auto_install_reconcile_and_password_completion(web, browser_ui, change_
         page.locator('#marketplaceVerifyOriginal').click()
     expect(page.locator('#marketplaceCodeStatus')).to_contain_text('Код отправлен')
     expect(page.locator('#marketplaceSendCode')).to_be_disabled()
-    assert sent_code[0] == {'branch_id':'456','phone':phone}
+    assert sent_code[0] == {'branch_id':'456','phone':phone,'documents':documents}
     if change_phone:
         assert sent_code[1] == {**sent_code[0],'original_challenge':'original','original_code':'654321'}
     page.locator('#marketplaceCode').fill('123456')

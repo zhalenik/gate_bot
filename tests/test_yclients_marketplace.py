@@ -275,6 +275,8 @@ def test_public_entry_removes_profile_from_url_and_keeps_authenticated_views_sco
     app.secret_key='offline-browser-session-secret'*2
     auth=SimpleNamespace(get_current_admin=lambda:None)
     provider=lambda:{'service':s.identity.service,'auth':auth,'marketplace':s.service}
+    from legal_documents_web import create_blueprint as documents_blueprint
+    app.register_blueprint(documents_blueprint(provider))
     app.register_blueprint(create_blueprint(provider))
     app.context_processor(lambda:{'csrf_token':lambda:'offline-csrf-token'})
     client=app.test_client()

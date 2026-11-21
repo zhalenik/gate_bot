@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <meta name="theme-color" content="#EFF0E8">
+  <meta name="theme-color" content="{{ client_appearance.theme_color if client_appearance else '#EFF0E8' }}">
   <title>{% block title %}GateBot{% endblock %}</title>
   <link rel="icon" href="{{ branding.icon_url if branding is defined else '/static/images/favicon.svg' }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ branding.apple_icon_url if branding is defined else '/ui/branding/default/apple-touch-icon.png' }}">
@@ -21,8 +21,12 @@
   <link rel="stylesheet" href="/static/css/theme.css">
   <link rel="stylesheet" href="/static/css/branding.css">
   {% if not palette_defaults | default(false) %}<link rel="stylesheet" href="/ui/palette.css" id="savedPaletteStyles">{% endif %}
+{% if client_appearance %}
+  <link rel="stylesheet" href="/static/css/client-appearance.css">
+  <style id="branchAppearanceValues">:root { {% for property,value in client_styles.items() %}{{ property }}:{{ value }};{% endfor %} }</style>
+  {% endif %}
 </head>
-<body class="{% block body_class %}{% endblock %}" {% if office %}data-office{% endif %}>
+<body class="{% block body_class %}{% endblock %}{% if client_appearance %} custom-client{% endif %}" {% if appearance_preview %}inert{% endif %}{% if client_appearance %} data-client-font="{{ client_appearance.settings.font }}"{% if client_appearance.settings.font_size %} data-client-size{% endif %}{% if client_appearance.settings.radius is not none %} data-client-radius{% endif %}{% if client_appearance.settings.hide_logo %} data-hide-brand{% endif %}{% if client_appearance.assets.background %} data-client-wallpaper{% endif %}{% endif %} {% if office %}data-office{% endif %}>
   {% if office %}{% include 'components/office_header.html' %}{% else %}{% include 'components/header.html' %}{% endif %}
   {% if admin_page | default(false) and not office and kind | default('') != 'admin_preferences' %}
   <aside class="admin-push-offer" data-admin-push-offer hidden aria-label="Уведомления браузера">
@@ -36,7 +40,7 @@
   {% if office %}{% include 'components/office_nav.html' %}{% elif admin_page | default(false) and request.path != '/admin/support' %}{% include 'components/support_widget.html' %}{% endif %}
   <script src="/static/js/ui.js"></script>
   <script src="/static/js/phone-input.js"></script>
-  {% if admin_page | default(false) %}<script src="/static/js/admin-push.js" data-owner="{{ session.get('admin_username', '') }}"></script>{% endif %}
+  {% if admin_page | default(false) %}<script src="/static/js/push-subscription.js"></script><script src="/static/js/admin-push.js" data-owner="{{ session.get('admin_username', '') }}"></script>{% endif %}
   {% block scripts %}{% endblock %}
   {% if office or office_login %}<script src="/static/js/office.js"></script>{% elif admin_page | default(false) %}<script src="/static/js/support.js"></script>{% endif %}
 </body>

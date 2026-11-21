@@ -99,14 +99,14 @@ def create_blueprint(provider):
         from identity_service import OtpRateLimit
         marketplace, raw, browser, _, _ = current()
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) not in ({'branch_id', 'phone'},
-                                                         {'branch_id', 'phone', 'original_challenge', 'original_code'}):
+        if not isinstance(body, dict) or set(body) not in ({'branch_id', 'phone', 'documents'},
+                                                         {'branch_id', 'phone', 'documents', 'original_challenge', 'original_code'}):
             abort(400)
         if 'original_challenge' in body:
             marketplace.verify_original_phone(raw, browser, body['branch_id'], body['phone'],
                                               body['original_challenge'], body['original_code'])
         try:
-            challenge = marketplace.request_registration_code(raw, browser, body['branch_id'], body['phone'], request.remote_addr or '')
+            challenge = marketplace.request_registration_code(raw, browser, body['branch_id'], body['phone'], request.remote_addr or '',documents=body['documents'])
         except OtpRateLimit as exc:
             return jsonify(message=str(exc), retry_after=exc.retry_after), 429
         return jsonify({key: challenge[key] for key in ('challenge_id', 'ready', 'retry_after', 'phone_hint', 'step')})
@@ -115,10 +115,10 @@ def create_blueprint(provider):
     def register():
         marketplace, raw, browser, _, _ = current()
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) != {'branch_id', 'profile', 'challenge', 'code', 'password', 'confirm'}:
+        if not isinstance(body, dict) or set(body) != {'branch_id', 'profile', 'challenge', 'code', 'password', 'confirm', 'documents'}:
             abort(400)
         username = marketplace.complete_registration(raw, browser, body['branch_id'], body['profile'], body['challenge'],
-                                                     body['code'], body['password'], body['confirm'])
+                                                     body['code'], body['password'], body['confirm'],documents=body['documents'])
         if request.args.get('frame') == '1':
             return jsonify(status='success', redirect_url='/admin/integrations')
         dependencies, _ = services()

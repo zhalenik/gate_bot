@@ -141,6 +141,7 @@
       const heading = el('div','','billing-card-heading'), picture = el('div','','billing-logo'); logo(picture,item); heading.append(picture,el('h2',item.name));
       const price = el('div','','billing-card-price'); price.append(el('strong',item.kind === 'trial' ? 'Бесплатно' : money(item.price_kopecks)),el('span',plans ? `за ${duration(item)}` : 'до конца текущего тарифа'));
       const resources = el('ul','','billing-card-resources'); for (const resource of plans ? ['calls','sms'] : [item.resource]) {const li = el('li'); const value = plans ? resource === 'calls' ? item.quota : item.sms_quota : item.quantity; li.append(icon(resource),el('span',`${number(value)} ${resource === 'sms' ? 'SMS' : 'звонков'}`)); resources.append(li);}
+      if (plans && item.personalization) resources.append(el('li','Персонализация клиентских страниц'));
       const actions = el('div','','billing-card-actions');
       if (superUser) {
         actions.append(button('Изменить','btn-action',() => editItem(item)));
@@ -157,7 +158,6 @@
       card.append(heading,price,resources,actions); target.append(card);
     }
     if (!target.childNodes.length) target.append(el('p','Предложений пока нет.','billing-empty'));
-    if ($('offerCurrent')) {const line = $('offerCurrent'); line.replaceChildren(); if (catalog.offer) {const link = el('a',catalog.offer.filename + ' ↗'); link.href = catalog.offer.url; link.target = '_blank'; link.rel = 'noopener'; line.append(link,el('span',' · опубликована ' + date(catalog.offer.published_at)));} else line.textContent = 'Оферта не опубликована. До загрузки PDF оформление оплаты недоступно.';}
   }
   async function setArchived(item, archived) {
     await request('/admin/api/billing/catalog/' + (view === 'plans' ? 'plan' : 'package'),{id:item.id,revision:item.revision,active:!archived});
@@ -189,7 +189,7 @@
     editing = {item,logo:item?.logo || ''}; const f = $('catalogEditorForm'); f.reset(); const plans = view === 'plans'; $('catalogEditorTitle').textContent = (item ? 'Изменить ' : 'Создать ') + (plans ? 'тариф' : 'пакет');
     root.querySelectorAll('[data-plan-field]').forEach(n => n.hidden = !plans); root.querySelectorAll('[data-package-field]').forEach(n => n.hidden = plans);
     for (const key of ['name','duration_value','duration_unit','quota','sms_quota','resource','quantity']) if (item && item[key] != null) f.elements[key].value = item[key];
-    f.elements.price.value = (item?.price_kopecks || 0) / 100; f.elements.visible.checked = item?.visible !== false;
+    f.elements.price.value = (item?.price_kopecks || 0) / 100; f.elements.visible.checked = item?.visible !== false; f.elements.personalization.checked=Boolean(item?.personalization);
     f.elements.calls_unlimited.checked = Boolean(item && item.quota === null); f.elements.sms_unlimited.checked = Boolean(item && item.sms_quota === null);
     f.elements.price.disabled = item?.kind === 'trial'; $('trialEditorNote').hidden = item?.kind !== 'trial'; f.elements.quota.disabled = f.elements.calls_unlimited.checked; f.elements.sms_quota.disabled = f.elements.sms_unlimited.checked;
     logo($('editorLogo'),item); f.querySelector('[data-dialog-error]').hidden = true; $('catalogEditor').showModal();
@@ -199,10 +199,9 @@
   on($('catalogEditorForm'),'submit',async () => {const f = $('catalogEditorForm').elements, item = editing.item, kind = view === 'plans' ? 'plan' : 'package';
     if (f.image.files.length) {const upload = new FormData(); upload.append('image',f.image.files[0]); editing.logo = (await request('/admin/api/billing/logo',upload)).logo;}
     const data = {name:f.name.value,price_kopecks:Math.round(Number(f.price.value)*100),active:item ? item.active : true,logo:editing.logo}; if (item) Object.assign(data,{id:item.id,revision:item.revision});
-    if (kind === 'plan') Object.assign(data,{visible:f.visible.checked,duration_value:Number(f.duration_value.value),duration_unit:f.duration_unit.value,quota:f.calls_unlimited.checked ? null : Number(f.quota.value),sms_quota:f.sms_unlimited.checked ? null : Number(f.sms_quota.value)}); else Object.assign(data,{resource:f.resource.value,quantity:Number(f.quantity.value)});
+    if (kind === 'plan') Object.assign(data,{visible:f.visible.checked,personalization:f.personalization.checked,duration_value:Number(f.duration_value.value),duration_unit:f.duration_unit.value,quota:f.calls_unlimited.checked ? null : Number(f.quota.value),sms_quota:f.sms_unlimited.checked ? null : Number(f.sms_quota.value)}); else Object.assign(data,{resource:f.resource.value,quantity:Number(f.quantity.value)});
     await request('/admin/api/billing/catalog/' + kind,data); closeDialog($('catalogEditor')); notify('Изменения сохранены. Уже подключённые условия не изменились.'); await refresh();
   });
-  on($('offerUploadForm'),'submit',async e => {const form = e.currentTarget; await request('/admin/api/billing/offer',new FormData(form)); form.reset(); notify('Новая версия оферты опубликована. Прежние версии сохранены.'); await refresh();});
   on($('renewalAction'),'click',async () => {if (current.renewal?.enabled) {await request('/admin/api/subscriptions/renewal',{branch_id:branchId,enabled:false}); notify('Автопродление отключено. Текущий срок и остатки сохранены.'); await refresh();} else {if (!catalog.offer) throw Error('Оферта пока не опубликована'); $('renewalForm').reset(); $('renewalConsentText').textContent = `${current.plan.name}: ${money(current.plan.price_kopecks)} каждые ${duration(current.plan)}. Следующий период — после ${date(current.ends_at)}.`; offerLink($('renewalOfferLink'),catalog.offer); $('renewalDialog').showModal();}});
   on($('renewalForm'),'submit',async () => {const f = $('renewalForm').elements; await request('/admin/api/subscriptions/renewal',{branch_id:branchId,enabled:true,consent:f.consent.checked,accept_offer:f.accept_offer.checked,offer_version:catalog.offer.id}); closeDialog($('renewalDialog')); notify('Согласие на автопродление сохранено. Приём платежей пока не подключён.'); await refresh();});
   on($('openCancellation'),'click',() => {$('cancellationForm').reset(); $('cancelBurn').hidden = true; $('cancellationForm').elements.confirm_burn.required = false; $('cancellationDialog').showModal();});

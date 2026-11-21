@@ -221,6 +221,18 @@ class Scheduler:
                     logger.event('SCHEDULER_BRANCH_ERROR', branch_id=branch.branch_id, level='ERROR', details={'error_type': type(error).__name__, 'correlation_id': correlation})
                     if self.event_sink:
                         self.event_sink('crm_error', branch.branch_id, {'message': 'Не удалось обновить записи; действующие пропуска сохранены до своего срока.'})
+                if callable(getattr(crm, 'staff_for_branch', None)) and not self._stop.is_set():
+                    try:
+                        staff = crm.staff_for_branch(branch.branch_id)
+                        with self.link_manager.store.lock, self.store.connect():
+                            current = self.branch_manager.get_branch(branch.branch_id)
+                            if self._stop.is_set() or not _can_sync(current, expected_revision=branch.yclients_sync_revision):
+                                continue
+                            status['staff'] = self.link_manager.reconcile_staff(branch.branch_id, staff)
+                        logger.event('CRM_STAFF_SYNC', branch_id=branch.branch_id, details=status['staff'])
+                    except Exception as error:
+                        status['staff'] = {'status':'error', 'error_type':type(error).__name__}
+                        logger.event('CRM_STAFF_SYNC_ERROR', branch_id=branch.branch_id, level='WARNING', details=status['staff'])
                 self.last_runs[str(branch.branch_id)] = result[str(branch.branch_id)] = status
             return result
         finally:

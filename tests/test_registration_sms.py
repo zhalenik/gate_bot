@@ -1,4 +1,5 @@
 """Registration SMS regressions. Every transport is synthetic and offline."""
+from registration_samples import agreements
 import json
 import os
 import pytest
@@ -11,22 +12,22 @@ from test_sim800c import fake_modem
 def test_verification_code_is_one_cyrillic_sms_and_cooldown_is_precise(identities):
     s=identities
     raw=s.service.invite('owner','11',phone=PHONE)['link'].rsplit('/',1)[1]
-    response=s.service.request_otp(raw)
+    response=s.service.request_otp(raw, documents=agreements(s.service))
     assert len(encode_submit(PHONE,s.sent[-1][2]))==1
     assert response['retry_after']==60 and response['ready']
     s.clock[0]+=17.2
-    with pytest.raises(OtpRateLimit) as limit:s.service.request_otp(raw)
+    with pytest.raises(OtpRateLimit) as limit:s.service.request_otp(raw, documents=agreements(s.service))
     assert limit.value.retry_after==43
     assert s.service.otp_status(raw)['retry_after']==43
     s.clock[0]+=43
-    new=s.service.request_otp(raw)
+    new=s.service.request_otp(raw, documents=agreements(s.service))
     assert new['challenge_id']!=response['challenge_id']
 
 
 def test_status_rechecks_transport_and_never_exposes_code_or_another_invite(identities):
     s=identities
     raw=s.service.invite('owner','11',phone=PHONE)['link'].rsplit('/',1)[1]
-    s.service.request_otp(raw)
+    s.service.request_otp(raw, documents=agreements(s.service))
     s.service.delivery_status=lambda *args:{'status':'failed','code':'sms_network_timeout','private':'not public'}
     status=s.service.otp_status(raw)
     assert not status['ready'] and status['delivery']['code']=='sms_network_timeout'

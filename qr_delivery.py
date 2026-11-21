@@ -12,9 +12,9 @@ def settings(identity, db, branch_id, channel=None):
                      identity.integration_credentials(key, 'chatpush').get('token'))
     if channel is not None:
         if channel not in ('sms', 'chatpush'):
-            raise ValueError('Выберите SMS или ChatPush')
+            raise ValueError('Выберите SMS или сервис рассылки')
         if channel == 'chatpush' and not connected:
-            raise ValueError('Сначала подключите ChatPush')
+            raise ValueError('Сначала подключите сервис рассылки')
         branch['qr_code_channel'] = channel
         write_document(db, 'branches.json', branches)
     return {'available': connected, 'channel': 'chatpush' if connected and branch.get('qr_code_channel') == 'chatpush' else 'sms'}

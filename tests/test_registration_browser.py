@@ -23,6 +23,7 @@ def test_otp_button_countdown_reenable_reload_and_delivery_state(web,browser_ui,
     raw=identity.invite('super','12',client_token=web.token_a)['link'].rsplit('/',1)[1]
     page.clock.install()
     page.goto(origin+'/invite/'+raw)
+    for choice in page.locator('[data-document-kind]').all(): choice.check()
     page.locator('[name=name]').fill('Example admin')
     page.locator('[name=username]').fill('example@example.invalid')
     expect(page.locator('#otpResend')).to_be_enabled()
@@ -34,6 +35,7 @@ def test_otp_button_countdown_reenable_reload_and_delivery_state(web,browser_ui,
     page.locator('#otpResend').dispatch_event('click')
     assert len(sends)==count
     clock[0]+=12;page.reload()
+    for choice in page.locator('[data-document-kind]').all(): choice.check()
     expect(page.locator('[name=name]')).to_have_value('')
     expect(page.locator('[name=username]')).to_have_value('')
     expect(page.locator('#otpResend')).to_be_enabled()
@@ -61,6 +63,7 @@ def test_branch_registration_reload_clears_all_fields_and_context(web,browser_ui
     identity=web.module.product_services().identity
     sent=[];identity.sender=lambda *args:sent.append(args) or {'status':'success','delivery':'queued'}
     page.goto(origin+'/register-branch')
+    for choice in page.locator('[data-document-kind]').all(): choice.check()
     for field,value in [('branch_id','76543'),('branch_name','Test branch'),('name','Test owner'),('phone','+15550400404'),('username','new-owner@example.invalid'),('password','test-not-persisted-password')]:
         page.locator('[name='+field+']').fill(value)
     with page.expect_response('**/register-branch/code') as response:page.locator('#otpResend').click()
@@ -92,6 +95,7 @@ def test_late_otp_status_cannot_restore_previous_registration_state(web,browser_
     held=[]
     page.route('**/register-branch/code-status',lambda route:held.append(route))
     page.goto(origin+'/register-branch')
+    for choice in page.locator('[data-document-kind]').all(): choice.check()
     for field,value in [('branch_id','76543'),('branch_name','Test branch'),('name','Test owner'),('phone','+15550400404'),('username','new-owner@example.invalid'),('password','test-not-persisted-password')]:
         page.locator('[name='+field+']').fill(value)
     with page.expect_response('**/register-branch/code') as first:

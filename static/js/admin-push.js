@@ -20,7 +20,11 @@
     if (!supported) return {unsupported:true};
     const registration = await navigator.serviceWorker.getRegistration('/office/');
     const subscription = registration && await registration.pushManager.getSubscription();
-    return api('state',{endpoint:subscription?.endpoint});
+    const state=await api('state',{endpoint:subscription?.endpoint});
+    if(state.connected && subscription && !window.GateBotPushSubscription.matchesKey(subscription,state.public_key)){
+      state.connected=false;
+    }
+    return state;
   }
 
   async function connect() {
@@ -40,13 +44,8 @@
         worker.addEventListener('statechange',changed); changed();
       });
     }
-    let device = await registration.pushManager.getSubscription();
-    if (!device) {
-      const {public_key} = await api('state',{});
-      const decoded = atob(public_key.replace(/-/g,'+').replace(/_/g,'/'));
-      device = await registration.pushManager.subscribe({userVisibleOnly:true,
-        applicationServerKey:Uint8Array.from(decoded,char => char.charCodeAt(0))});
-    }
+    const state=await api('state',{});
+    const device=await window.GateBotPushSubscription.subscribe(registration,state.public_key);
     await api('subscribe',{consent:true,subscription:device.toJSON()});
   }
 

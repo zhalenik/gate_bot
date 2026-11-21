@@ -10,6 +10,10 @@ def sync_client_index(db, links, previous=None):
     if not db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="branch_clients"').fetchone():
         return
     from link_manager import normalize_phone
+    from storage.client_roles import directory_role
+    event_fields = {r['name'] for r in db.execute('PRAGMA table_info(client_branch_events)')}
+    if event_fields and 'client_role' not in event_fields:
+        db.execute("ALTER TABLE client_branch_events ADD COLUMN client_role TEXT NOT NULL DEFAULT 'unknown'")
     previous = previous or {}
     rows = {r['legacy_token']:r['person_id'] for r in db.execute('SELECT legacy_token,person_id FROM branch_clients')}
     # This is an index of current clients, not a second archive. Keep persons,
@@ -62,9 +66,9 @@ def sync_client_index(db, links, previous=None):
             seed_client_channels(db, person_id, client, old)
         if old and normalize_phone(old.get('phone')) != (phone or ''):
             changed_phones[person_id] = phone
-        if created is not None and db.execute('SELECT 1 FROM sqlite_master WHERE type="table" AND name="client_branch_events"').fetchone():
-            db.execute('INSERT OR IGNORE INTO client_branch_events VALUES(?,?,?,?,?)',
-                (token,str(client['branch_id']),person_id,created,'legacy' if token in previous else 'local'))
+        if created is not None and event_fields:
+            db.execute('INSERT OR IGNORE INTO client_branch_events VALUES(?,?,?,?,?,?)',
+                (token,str(client['branch_id']),person_id,created,'legacy' if token in previous else 'local', directory_role(client)))
     for person_id,phone in changed_phones.items():
         db.execute('UPDATE persons SET phone=?,phone_verified=0 WHERE id=?',(phone,person_id))
         db.execute('DELETE FROM bot_bindings WHERE person_id=?',(person_id,))

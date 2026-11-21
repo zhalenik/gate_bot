@@ -1,0 +1,3 @@
+{% if client_appearance or appearance_preview %}
+<p class="branch-banner" data-branch-banner {% if not client_appearance.settings.banner %}hidden{% endif %}>{{ client_appearance.settings.banner }}</p>
+{% endif %}

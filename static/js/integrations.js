@@ -47,6 +47,7 @@
         if (!marketplace && state.configured && !Object.keys(profile).length) card.account.append(element('p', 'Для этого старого подключения данные пользователя не сохранены. Повторный вход заполнит их.', 'page-description'));
       }
     }
+    if(card.configure)card.configure(state);
     const check = state.blocked || (!state.configured && diagnostic?.connected) ? null : diagnostic;
     const connection = state.blocked ? '○ Подключение остановлено' : state.configured ? (kind === 'chatpush' ? '✓ Токен сохранён' : '● Подключено') : '○ Не подключено';
     card.status.append(element('p', connection, 'page-description'));
@@ -106,23 +107,42 @@
     } catch (error) { if (version === generation) { password.value = ''; tell(error.message, true); await refresh(error.data?.check).catch(() => {}); } }
     finally { if (version === generation) yc.button.disabled = false; }
   };
-  const cp = makeCard('chatpush', 'ChatPush', false);
-  cp.button.textContent = 'Сохранить токен';
-  cp.form.append(element('p', 'Введите токен из кабинета ChatPush. Этого достаточно для отправки уведомлений клиентам.', 'page-description'));
-  const token = field(cp.form, 'Токен ChatPush', 'token', 'password');
-  cp.form.append(cp.button);
-  cp.form.onsubmit = async event => {
-    event.preventDefault(); const branch = selector.value, version = generation; cp.button.disabled = true;
-    try {
-      await api('/admin/api/identity/integrations/chatpush', {branch_id: branch, credentials: {token: token.value}});
-      if (version !== generation) return;
-      cp.form.reset(); tell('Токен ChatPush сохранён. Отправка выполняется по настройкам уведомлений клиентов.'); await refresh();
-    } catch (error) {
-      if (version === generation) tell(error.message, true);
-    } finally { if (version === generation) cp.button.disabled = false; }
+  const cp = makeCard('chatpush', 'Сервис рассылки', false);
+  cp.panel.id='deliveryService';
+  cp.button.textContent='Сохранить';
+  const providerLabel=element('label','Интеграция','form-group'), provider=element('select');
+  provider.name='delivery_service';provider.setAttribute('aria-label','Интеграция');providerLabel.append(provider);cp.form.append(providerLabel);
+  for(const [value,title] of [['disabled','Отключено'],['chatpush','ChatPush']]){
+    const option=element('option',title);option.value=value;provider.append(option);
+  }
+  const token=field(cp.form,'Токен ChatPush','token','password',false);
+  const tokenHint=element('p','','form-hint');tokenHint.id='deliveryTokenHint';
+  token.setAttribute('aria-describedby',tokenHint.id);token.parentElement.after(tokenHint);
+  let hasToken=false,edited=false;
+  function updateFields(){
+    const enabled=provider.value==='chatpush';
+    token.parentElement.hidden=!enabled;tokenHint.hidden=!enabled;token.disabled=!enabled;token.required=enabled&&!hasToken;
+    tokenHint.textContent=hasToken?'Токен сохранён. Чтобы заменить его, введите новый.':'Введите токен из кабинета ChatPush.';
+  }
+  cp.configure=state=>{
+    hasToken=Boolean(state.has_token);
+    if(!edited)provider.value=state.configured?'chatpush':'disabled';
+    updateFields();
+  };
+  provider.onchange=()=>{edited=true;token.value='';updateFields();};
+  token.oninput=()=>{edited=true;};cp.form.append(cp.button);
+  cp.form.onsubmit=async event=>{
+    event.preventDefault();const version=generation,selected=provider.value;cp.button.disabled=true;
+    try{
+      await api('/admin/api/identity/delivery-service',{branch_id:selector.value,provider:selected,
+        credentials:selected==='chatpush' && token.value?{token:token.value}:{}});
+      if(version!==generation)return;
+      edited=false;token.value='';await refresh();tell(selected==='disabled'?'Сервис рассылки отключён.':'Сервис рассылки подключён.');
+    }catch(error){if(version===generation)tell(error.message,true);}
+    finally{if(version===generation)cp.button.disabled=false;}
   };
   selector.onchange = () => {
-    generation++; notice.hidden = true;
+    generation++; edited=false;hasToken=false; notice.hidden = true;
     for (const [kind, card] of Object.entries(cards)) { card.form.reset(); card.button.disabled = false; if (card.check) card.check.disabled = false; paint(kind); }
     code.required = false; code.parentElement.hidden = true;
     refresh().catch(error => tell(error.message, true));

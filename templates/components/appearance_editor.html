@@ -1,0 +1,37 @@
+<section id="branch-panel-appearance" data-branch-panel="appearance" role="tabpanel" aria-labelledby="branch-tab-appearance" hidden>
+  <div class="appearance-layout">
+    <form id="appearanceForm" class="panel appearance-form" enctype="multipart/form-data">
+      <fieldset disabled>
+        <legend>Оформление клиентских страниц</legend>
+        <label class="checkbox-label"><input type="checkbox" name="hide_logo"> Скрыть логотип GateBot</label>
+        <details open><summary>Текст и кнопки</summary><div class="appearance-fields">
+          <label>Шрифт<select name="font"><option value="system">Системный</option><option value="humanist">Trebuchet MS</option><option value="serif">Georgia</option><option value="mono">Courier New</option></select></label>
+          <label>Базовый размер текста, px<input type="number" min="12" max="24" name="font_size" placeholder="По умолчанию"></label>
+          <label>Скругление кнопок, px<input type="number" min="0" max="40" name="radius" placeholder="По умолчанию"></label>
+        </div></details>
+        <details><summary>Изображения</summary><div class="appearance-fields">
+          {% for key,label,formats in [('pwa','Иконка приложения','image/png,image/jpeg,image/webp,image/svg+xml'),('favicon','Значок браузера · SVG','image/svg+xml'),('barrier','Изображение шлагбаума','image/png,image/jpeg,image/webp,image/svg+xml'),('background','Фон страницы','image/png,image/jpeg,image/webp,image/svg+xml')] %}
+          <div class="appearance-upload"><label>{{ label }}<input type="file" name="{{ key }}" accept="{{ formats }}"></label>
+            <div><img data-asset-preview="{{ key }}" alt="" hidden><button type="button" data-reset-asset="{{ key }}" class="btn-action" hidden>Убрать изображение</button></div></div>
+          {% endfor %}<small>До 5 МБ на изображение. Для PWA автоматически создаются квадратные иконки Android и iOS.</small>
+        </div></details>
+        <details><summary>Баннер над кнопками</summary><div class="appearance-fields">
+          <label>Текст баннера<textarea name="banner" maxlength="400" rows="3" placeholder="Например, после въезда поверните направо"></textarea></label>
+          <label>Выравнивание<select name="banner_align"><option value="left">Слева</option><option value="center">По центру</option><option value="right">Справа</option></select></label>
+          <label>Размер текста, px<input type="number" min="12" max="36" name="banner_size"></label>
+          <label>Цвет текста<input type="color" name="banner_color"></label><label>Цвет фона<input type="color" name="banner_bg"></label>
+        </div></details>
+        <details><summary>Цвета интерфейса</summary><div class="appearance-fields">
+          <label>Группа цветов<select data-color-group></select></label>
+          <label>Найти цвет во всех группах<input type="search" data-color-search placeholder="Название или селектор"></label>
+          <div class="appearance-colors" data-branch-colors></div>
+        </div></details>
+        <button type="submit" class="btn-primary">Сохранить оформление</button>
+      </fieldset>
+      <p class="form-hint" id="appearanceStatus" role="status"></p>
+    </form>
+    <section class="panel appearance-sample"><h2>Страница клиента</h2>
+      <iframe id="appearancePreview" title="Предпросмотр страницы пропуска" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>
+    </section>
+  </div>
+</section>

@@ -1,7 +1,7 @@
 """Identity/onboarding views. Provider lookups keep tenant checks current."""
 from functools import wraps
 import secrets
-from flask import Blueprint, abort, jsonify, redirect, render_template, request, session
+from flask import Blueprint, abort, g, jsonify, redirect, render_template, request, session
 from storage import config
 from identity_service import ADMIN_EVENTS, OtpRateLimit
 
@@ -64,14 +64,16 @@ def create_blueprint(provider):
     def invitation_page(token):return page('accept','Приглашение в GateBot',token=token,**svc().invitation_info(token))
 
     @bp.post('/invite/<token>/code')
-    def invitation_code(token):return jsonify(svc().request_otp(token,body().get('phone'),request.remote_addr or ''))
+    def invitation_code(token):
+        data=body()
+        return jsonify(svc().request_otp(token,data.get('phone'),request.remote_addr or '',documents=data.get('documents')))
 
     @bp.post('/invite/<token>/code-status')
     def invitation_code_status(token):return jsonify(svc().otp_status(token))
 
     @bp.post('/invite/<token>/accept')
     def invitation_accept(token):
-        data=body();result=svc().accept_invitation(token,data.get('challenge_id'),data.get('code'),data.get('name'),data.get('username'),data.get('password'),data.get('existing_password'))
+        data=body();result=svc().accept_invitation(token,data.get('challenge_id'),data.get('code'),data.get('name'),data.get('username'),data.get('password'),data.get('existing_password'),documents=data.get('documents'))
         return jsonify(status='success',**result)
 
     @bp.get('/register-branch')
@@ -89,11 +91,14 @@ def create_blueprint(provider):
         data=body()
         if any(session.get(key) for key in SESSION_KEYS):
             raise ValueError('Продолжите подключение на странице маркетплейса GateBot')
+        from legal_documents import choices as legal_choices
+        with svc().product.connect() as db:
+            legal_choices(db,'branch_registration',data.get('documents'))
         return jsonify(svc().register_branch(data.get('branch_id'),data.get('branch_name'),data.get('name'),data.get('phone'),yclients_enabled=data.get('yclients_enabled',True)))
 
     @bp.post('/register-branch/code')
     def registration_code():
-        data=body();return jsonify(svc().request_otp(data.get('registration_token'),ip=request.remote_addr or '',registration=True))
+        data=body();return jsonify(svc().request_otp(data.get('registration_token'),ip=request.remote_addr or '',registration=True,documents=data.get('documents')))
 
     @bp.post('/register-branch/code-status')
     def registration_code_status():return jsonify(svc().otp_status(body().get('registration_token'),registration=True))
@@ -101,7 +106,7 @@ def create_blueprint(provider):
     @bp.post('/register-branch/complete')
     def registration_complete():
         data=body()
-        result=svc().complete_registration(data.get('registration_token'),data.get('challenge_id'),data.get('code'),data.get('username'),data.get('password'),billing=services().get('billing'),details=data)
+        result=svc().complete_registration(data.get('registration_token'),data.get('challenge_id'),data.get('code'),data.get('username'),data.get('password'),billing=services().get('billing'),details=data,documents=data.get('documents'))
         return jsonify(result)
 
     @bp.get('/preferences/<token>')
@@ -128,7 +133,9 @@ def create_blueprint(provider):
     def client_bot_link(token):return jsonify(link=svc().client_bot_link(token,body().get('platform')))
 
     @bp.get('/verify-email/<token>')
-    def email_page(token):return page('email_verify','Подтверждение email',token=token)
+    def email_page(token):
+        g.client_appearance_branch=svc().email_confirmation_branch(token)
+        return page('email_verify','Подтверждение email',token=token)
 
     @bp.post('/verify-email/<token>')
     def email_verify(token):svc().verify_email(token);return jsonify(status='success')
@@ -141,6 +148,12 @@ def create_blueprint(provider):
     @bp.post('/admin/api/identity/notification-settings')
     def admin_preferences_save():
         username,admin=actor();return jsonify(status='success',preferences=svc().save_admin_preferences(username,body()))
+
+    @bp.post('/admin/api/identity/notification-settings/<event>')
+    def admin_event_save(event):
+        username,_=actor()
+        data=body()
+        return jsonify(preferences=svc().save_admin_event(username,event,data.get('enabled'),data.get('channels')))
 
     @bp.post('/admin/api/browser-push/<action>')
     def browser_push(action):
@@ -198,6 +211,11 @@ def create_blueprint(provider):
         username,admin=actor();selected=branch()
         integrations=svc().integration_status(username,selected)
         return jsonify(integrations=integrations)
+
+    @bp.post('/admin/api/identity/delivery-service')
+    def delivery_service():
+        username,_=actor();data=body()
+        return jsonify(svc().set_delivery_service(username,branch(data),data.get('provider'),data.get('credentials',{})))
 
     @bp.post('/admin/api/identity/integrations/<kind>')
     def integration_save(kind):

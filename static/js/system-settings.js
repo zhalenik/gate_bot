@@ -11,15 +11,20 @@
  function paint(settings){
   snapshot=settings;fields.clear();
   const extras=[...document.querySelectorAll('[data-settings-extra], #modemSettings')];
-  const expanded=new Set([...groups.children].filter(section=>section.open).map(section=>section.dataset.group));
+  const expanded=new Set([...groups.querySelectorAll('details[open]')].map(section=>section.dataset.group||section.dataset.block));
   if (!groups.children.length) expanded.add('delivery');
-  groups.replaceChildren();const containers={};
+  groups.replaceChildren();const outer={},containers={};
   for(const key of settings.group_order){
-   const title=settings.groups[key];
-   const section=node('details','','panel system-settings-group');section.dataset.group=key;section.open=expanded.has(key);section.append(node('summary',title));
-   const body=node('div','','system-settings-grid');section.append(body);groups.append(section);containers[key]=body;
+   const section=node('details','','panel system-settings-group');
+   section.dataset.group=key;section.open=expanded.has(key);
+   section.append(node('summary',settings.groups[key]));groups.append(section);outer[key]=section;
   }
-  for(const extra of extras) containers[extra.dataset.settingsExtra || 'hardware'].parentElement.append(extra);
+  for(const [key,title] of Object.entries(settings.blocks)){
+   const block=node('details','','panel system-settings-block'),body=node('div','','system-settings-grid');
+   block.dataset.block='block-'+key;block.open=expanded.has(block.dataset.block);
+   block.append(node('summary',title),body);outer[settings.block_groups[key]].append(block);containers[key]=body;
+  }
+  for(const extra of extras)outer[extra.dataset.settingsExtra || 'hardware'].append(extra);
   for(const field of settings.fields){
    const row=node('div','','form-group system-settings-field');row.dataset.key=field.key;
    const invalidTyped=!!field.validation_error&&['bool','int','float'].includes(field.kind);
@@ -30,7 +35,7 @@
    else{input.type=field.secret?'password':invalidTyped?'text':['int','float'].includes(field.kind)?'number':field.kind==='url'||field.kind==='https_url'?'url':'text';input.value=field.secret?'':field.value??'';input.autocomplete=field.secret?'new-password':'off';input.maxLength=field.secret?8192:1024;if(field.minimum!==undefined)input.min=field.minimum;if(field.maximum!==undefined)input.max=field.maximum;if(field.kind==='float')input.step='any';}
    label.append(input);row.append(label,node('small',field.key));
    if(field.help)row.append(node('p',field.help,'form-hint'));
-   if(field.validation_error){const error=node('p',field.validation_error,'alert alert-error');error.setAttribute('role','alert');row.append(error);input.setAttribute('aria-invalid','true');containers[field.group].parentElement.open=true;}
+   if(field.validation_error){const error=node('p',field.validation_error,'alert alert-error');error.setAttribute('role','alert');row.append(error);input.setAttribute('aria-invalid','true');const block=containers[field.group].parentElement;block.open=true;block.parentElement.open=true;}
    else if(field.active_validation_error)row.append(node('p','Параметр текущего запуска требует перезапуска после исправления: '+field.active_validation_error,'form-hint'));
    const source=node('small',(field.source==='saved'?'Сохранено в GateBot':field.source==='environment'?'Из окружения / .env':'Значение по умолчанию')+(field.restart_required?' · Ожидает перезапуска':''));row.append(source);
    if(field.secret)row.append(node('p',field.configured?'Секрет задан. Пустое поле сохранит его без изменений.':'Секрет не задан.','form-hint'));
@@ -48,13 +53,20 @@
   const query=search.value.trim().toLocaleLowerCase();
   for(const section of groups.children){
    const matchesGroup=section.querySelector('summary').textContent.toLocaleLowerCase().includes(query);
-   for(const row of section.querySelectorAll('.system-settings-field')){
-    const {field}=fields.get(row.dataset.key);
-    row.hidden=!matchesGroup && ![field.key,field.label,field.help].join(' ').toLocaleLowerCase().includes(query);
+   for(const block of section.querySelectorAll(':scope > details')){
+    const matchesBlock=matchesGroup || block.querySelector('summary').textContent.toLocaleLowerCase().includes(query);
+    if(block.dataset.block){
+     for(const row of block.querySelectorAll('.system-settings-field')){
+      const {field}=fields.get(row.dataset.key);
+      row.hidden=!matchesBlock && ![field.key,field.label,field.help].join(' ').toLocaleLowerCase().includes(query);
+     }
+     block.hidden=!block.querySelector('.system-settings-field:not([hidden])');
+     if(query && !block.hidden) block.open=true;
+    }else{
+     block.hidden=!matchesGroup && !block.textContent.toLocaleLowerCase().includes(query);
+    }
    }
-   const extras=[...section.querySelectorAll(':scope > details')];
-   for(const extra of extras) extra.hidden=!matchesGroup && !extra.textContent.toLocaleLowerCase().includes(query);
-   section.hidden=!section.querySelector('.system-settings-field:not([hidden])') && !extras.some(extra=>!extra.hidden);
+   section.hidden=![...section.children].some(el=>el.tagName==='DETAILS'&&!el.hidden);
    if(query && !section.hidden) section.open=true;
   }
  }

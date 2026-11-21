@@ -77,14 +77,14 @@
     async function refreshPush(){
         if(!installed()||!supported()||config.allow_push===false){publish();return pushState;}
         pushState=await request(scope.pathname+'push/status');
-        if(pushState.supported){const reg=await registration();localSubscription=await reg.pushManager.getSubscription();}
+        if(pushState.supported){
+            const reg=await registration();
+            localSubscription=await reg.pushManager.getSubscription();
+            if(localSubscription && !window.GateBotPushSubscription.matchesKey(localSubscription,pushState.public_key))localSubscription=null;
+        }
         publish();return pushState;
     }
     function rememberPrompt(value){prompted=true;if(promptKey)try{localStorage.setItem(promptKey,value);}catch{}}
-    function applicationKey(value){
-        const binary=atob(value.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-value.length%4)%4));
-        return Uint8Array.from(binary,char=>char.charCodeAt(0));
-    }
     async function enablePush(){
         if(pushBusy)throw new Error('Настройка уведомлений уже выполняется.');
         if(!canPush())throw new Error('Откройте установленный GateBot на устройстве с поддержкой уведомлений.');
@@ -98,8 +98,7 @@
         try{
             if(await permission!=='granted'){rememberPrompt('declined');publish();throw new Error('Уведомления не включены. Вы сможете разрешить их позже в настройках.');}
             const reg=await registration();
-            localSubscription=await reg.pushManager.getSubscription();
-            if(!localSubscription)localSubscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:applicationKey(pushState.public_key)});
+            localSubscription=await window.GateBotPushSubscription.subscribe(reg,pushState.public_key);
             const result=await request(scope.pathname+'push/subscribe',{subscription:localSubscription.toJSON(),consent:true});
             rememberPrompt('accepted');pushState={...pushState,channel_enabled:true};publish('subscribed',result.preferences||null);
             return result;

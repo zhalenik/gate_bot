@@ -59,7 +59,7 @@ def test_pre_upgrade_one_use_links_rechecked_before_hardware(product,change,monk
     with desk.store.connect() as db:
         db.execute('INSERT INTO desk_shares VALUES(?,?,?,?,?,?,?,?,NULL)',(desk._digest(raw),'10',p.token,
                    owner['phone'],owner.get('access_revision',0),gate.stable_id,gate.id,desk.identity.clock()+3600))
-    assert desk.shared(raw)=={'branch':'North','gate':'Entry'}
+    assert desk.shared(raw)=={'branch':'North','branch_id':'10','gate':'Entry'}
     assert desk.shared(raw,p.access)['status']=='success'
     with pytest.raises(PermissionError):
         desk.shared(raw,p.access)

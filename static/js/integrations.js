@@ -83,6 +83,8 @@
     return cards[kind];
   }
   const yc = makeCard('yclients', 'Учётная запись YCLIENTS');yc.form.hidden = true;
+  yc.panel.id='yclientsIntegration';
+  yc.heading.after(document.getElementById('yclientsGuide').content.cloneNode(true));
   yc.modeHint = element('p', '', 'page-description');yc.account = element('div');yc.account.id = 'yclientsConnectedAccount';yc.panel.insertBefore(yc.modeHint,yc.form);yc.panel.insertBefore(yc.account,yc.form);
   yc.disconnectInfo = element('p', 'Отключение в маркетплейсе прекращает автоматическую выдачу пропусков по записям YCLIENTS. Подписка и профиль филиала в GateBot сохраняются. Для удаления аккаунта обратитесь в ', 'integration-disconnect-info');
   const support = element('a', 'поддержку GateBot'); support.href = '/admin/support';

@@ -44,7 +44,7 @@ class SystemSettings:
             else:
                 field.update(value=value,active_value=active_value)
             fields.append(field)
-        return {'revision':saved['revision'],'groups':GROUPS,'fields':fields,
+        return {'revision':saved['revision'],'groups':GROUPS,'group_order':list(GROUPS),'fields':fields,
                 'restart_required':any(field['restart_required'] for field in fields),
                 'restart_keys':[field['key'] for field in fields if field['restart_required']],
                 'invalid_keys':[field['key'] for field in fields if field['validation_error']],

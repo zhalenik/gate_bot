@@ -67,6 +67,9 @@ class LinkManager:
     def load_links(self):
         return self.store.read()
 
+    def get_link(self, token):
+        return self.store.read_entry(token)
+
     def save_links(self, links):
         """Whole-state import only; normal mutations must use transactional methods."""
         self.store.replace(links)

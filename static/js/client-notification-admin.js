@@ -83,7 +83,7 @@ async function openClientNotifications(token) {
         }else if(channel==='telegram'||channel==='max'){
             connection.append(element('p','form-hint','Передайте ссылку клиенту: он должен открыть её в своём аккаунте мессенджера. Привязка не даёт административных прав.'));
             connection.append(button('Получить ссылку для клиента',async()=>{
-                try{await save(selected(channel,true));setBusy(true);const result=await post('/admin/api/client-notifications/bot-link',{token,platform:channel});const box=element('div','link-box'),input=element('input');input.readOnly=true;input.value=result.link;input.setAttribute('aria-label','Ссылка для подключения клиента');box.append(input,iconButton('Копировать ссылку подключения','copy',()=>copyToClipboard(result.link)));connection.querySelector('.link-box')?.remove();connection.append(box);}
+                try{await save(selected(channel,true));setBusy(true);const result=await post('/admin/api/client-notifications/bot-link',{token,platform:channel});const box=element('div','link-box'),input=element('input');input.readOnly=true;input.value=result.link;input.setAttribute('aria-label','Ссылка для подключения клиента');box.append(input,iconButton('Копировать ссылку подключения','link',()=>copyToClipboard(result.link)));connection.querySelector('.link-box')?.remove();connection.append(box);}
                 catch(error){tell(error.message,true);}finally{setBusy(false);}
             }));
         }else if(channel==='sms')connection.append(element('p','form-hint','Добавьте корректный телефон в карточку клиента. SMS расходуют лимит филиала.'));

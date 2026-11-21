@@ -3,21 +3,22 @@
 {% block title %}Настройки филиала — GateBot{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/css/gate-qr.css"><link rel="stylesheet" href="/static/css/branch-hours.css">{% endblock %}
 {% block content %}
-<div class="admin-container">
+<div class="admin-container branch-settings-page">
         <div class="admin-content">
-            <div class="page-heading"><div><p class="page-eyebrow">Управление</p><h1>Настройки филиала</h1><p class="page-description">Параметры доступа, кнопки ворот и контакты администратора.</p></div></div>
+            <div class="page-heading"><div><p class="page-eyebrow">Настройки филиала</p><h1 id="branchSettingsTitle">{{ admin_branch_name or 'Филиал' }}</h1></div></div>
             {% if is_super %}
             <div class="filter-section">
                 <label for="settingsBranch">Филиал</label>
                 <select id="settingsBranch"></select>
                 <button type="button" id="newBranchBtn" class="btn-primary">Добавить филиал</button>
             </div>
-            {% else %}
-            <p class="sub-title">{{ admin_branch_name }}</p>
             {% endif %}
+            {% set tabs = [('general', 'Общие данные'), ('gates', 'Ворота и QR'), ('access', 'Доступ по пропускам'), ('notifications', 'Уведомления и запросы')] %}
+            <nav class="branch-tabs" role="tablist" aria-label="Настройки филиала">
+                {% for key,label in tabs %}<button id="branch-tab-{{ key }}" type="button" role="tab" data-branch-tab="{{ key }}" aria-controls="branch-panel-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}">{{ label }}</button>{% endfor %}
+            </nav>
             <form id="branchSettingsForm">
-                <button type="button" id="branchRegistrationQr" class="btn-action" hidden>QR-код регистрации в филиале</button>
-                <div style="max-width:640px">
+                <section role="tabpanel" id="branch-panel-general" aria-labelledby="branch-tab-general" data-branch-panel="general" class="panel branch-settings-fields">
                     <div class="form-group" {% if not is_super %}hidden{% endif %}>
                         <label for="settingsYclients">Тип филиала</label>
                         <select id="settingsYclients" {% if not is_super %}disabled{% endif %}>
@@ -45,14 +46,6 @@
                         </datalist>
                     </div>
                     <div class="form-group">
-                        <label for="settingsPassHours">Срок разового пропуска, часов</label>
-                        <input id="settingsPassHours" type="number" min="1" max="168" step="1" required value="8">
-                        <small class="form-hint">Для записи YCLIENTS срок отсчитывается от начала визита, для гостя — от выдачи.</small>
-                    </div>
-                    <div class="form-group">
-                        <label><input type="checkbox" id="settingsAutoApprove"> Автоматически выдавать разовый пропуск по запросу клиента</label>
-                    </div>
-                    <div class="form-group">
                         <label for="settingsLogoUpload">Логотип филиала</label>
                         <input id="settingsLogo" type="hidden">
                         <div class="branch-logo-editor">
@@ -63,21 +56,33 @@
                         </div>
                         <p id="settingsLogoStatus" class="form-hint" role="status"></p>
                     </div>
-                    {% if is_super %}
-                    <fieldset class="form-group" id="branchModems"><legend>Модемы филиала</legend>
-                        {% for modem in available_modems %}<label class="checkbox-label"><input type="checkbox" value="{{ modem.id }}" checked> {{ modem.name }}</label>{% else %}<p>Добавьте модем в системных настройках.</p>{% endfor %}
-                    </fieldset>
-                    {% endif %}
+                </section>
+                <section role="tabpanel" id="branch-panel-access" aria-labelledby="branch-tab-access" data-branch-panel="access" class="panel branch-settings-fields" hidden>
                     <div class="form-group">
                         <label><input id="settingsEnabled" type="checkbox"> Разрешить доступ по пропускам филиала</label>
                         <small class="form-hint">Выключение блокирует открытие ворот этого филиала во всех интерфейсах.</small>
                     </div>
                     <div class="form-group">
-                        <label><input id="settingsSmsNotifications" type="checkbox" role="switch"> Разрешить SMS-уведомления</label>
+                        <label for="settingsPassHours">Срок разового пропуска, часов</label>
+                        <input id="settingsPassHours" type="number" min="1" max="168" step="1" required value="8">
+                        <small class="form-hint">Для записи YCLIENTS срок отсчитывается от начала визита, для гостя — от выдачи.</small>
+                    </div>
+                </section>
+                <section role="tabpanel" id="branch-panel-notifications" aria-labelledby="branch-tab-notifications" data-branch-panel="notifications" class="panel branch-settings-fields" hidden>
+                    <div class="form-group">
+                        <label><input id="settingsClientNotifications" data-branch-switch="client_notifications_enabled" type="checkbox" role="switch" disabled> Отправлять уведомления клиентам филиала</label>
+                    </div>
+                    <div class="form-group">
+                        <label><input id="settingsSmsNotifications" data-branch-switch="sms_notifications_enabled" type="checkbox" role="switch" disabled> Разрешить SMS-уведомления</label>
                         <small class="form-hint">Ссылки и уведомления по SMS расходуют квоту тарифа и пакетов. Для кодов QR выберите канал в интеграциях. При отправке через модем каждая часть SMS расходует квоту филиала.</small>
                     </div>
-                </div>
-                <h2 style="font-size:18px;margin:24px 0 12px">Кнопки ворот и контакты</h2>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="settingsAutoApprove" data-branch-switch="auto_approve_pass_requests" role="switch" disabled> Автоматически выдавать разовый пропуск по запросу клиента</label>
+                    </div>
+                    <p class="form-hint" id="branchSwitchStatus" role="status"></p>
+                </section>
+                <section role="tabpanel" id="branch-panel-gates" aria-labelledby="branch-tab-gates" data-branch-panel="gates" class="panel branch-settings-gates" hidden>
+                <div class="branch-gates-heading"><h2>Кнопки ворот и контакты</h2><button type="button" id="branchRegistrationQr" class="btn-action" hidden>QR-код регистрации в филиале</button></div>
                 <div class="users-table-container">
                     <table class="users-table">
                         <thead><tr><th>Действие</th><th>Название кнопки</th><th>Телефон</th><th></th></tr></thead>
@@ -85,17 +90,24 @@
                     </table>
                 </div>
                 <p class="form-hint">Номер ворот доступен администраторам. Клиенту показывается кнопка открытия без этого номера.</p>
-                <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap">
-                    <button type="button" id="addSettingsButton" class="btn-action">Добавить кнопку</button>
-                    <button type="submit" id="saveSettingsButton" class="btn-primary">Сохранить настройки</button>
-                </div>
+                <button type="button" id="addSettingsButton" class="btn-action">Добавить кнопку</button>
+                {% if is_super %}
+                <fieldset class="form-group" id="branchModems"><legend>Модемы филиала</legend>
+                    {% for modem in available_modems %}<label class="checkbox-label"><input type="checkbox" value="{{ modem.id }}" checked> {{ modem.name }}</label>{% else %}<p>Добавьте модем в системных настройках.</p>{% endfor %}
+                </fieldset>
+                {% endif %}
+                </section>
+                <button type="submit" id="saveSettingsButton" class="btn-primary" disabled>Сохранить настройки</button>
             </form>
+            <div data-branch-panel="access" id="branchScheduleHost" hidden></div>
             {% if is_super %}
+            <div data-branch-panel="general">
             <section id="branchDeletionPanel" class="panel" hidden>
                 <h2>Удаление филиала</h2>
                 <p class="page-description">Удаляет филиал, его клиентов, аккаунты администраторов, пропуска, настройки и данные подписки. Отменить это действие в интерфейсе нельзя.</p>
                 <button type="button" id="deleteBranchButton" class="btn-danger">Удалить филиал</button>
             </section>
+            </div>
             <dialog id="branchDeletionDialog" aria-labelledby="branchDeletionHeading">
                 <h2 id="branchDeletionHeading">Удалить филиал?</h2>
                 <p id="branchDeletionSummary"></p>

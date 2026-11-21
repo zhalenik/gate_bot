@@ -7,8 +7,8 @@
   const make = (tag, text = '', className = '') => {
     const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
   };
-  const panel = make('section', '', 'panel yclients-sync-panel'); panel.id = 'yclientsClientSyncPanel';
-  panel.append(make('h2', 'Связь клиентов с YCLIENTS'), make('p', 'Обновите ID клиентов по номерам телефонов в клиентской базе этого филиала. При неоднозначном совпадении ID остаётся прежним.', 'page-description'));
+  const panel = make('section', '', 'yclients-sync-panel'); panel.id = 'yclientsClientSyncPanel';
+  panel.append(make('h3', 'Связь клиентов с YCLIENTS'), make('p', 'Обновите ID клиентов по номерам телефонов в клиентской базе этого филиала. При неоднозначном совпадении ID остаётся прежним.', 'page-description'));
   const actions = make('div', '', 'yclients-sync-actions'), start = make('button', 'Обновить ID всех клиентов', 'btn-primary');
   start.type = 'button'; start.id = 'yclientsClientSyncStart'; actions.append(start); panel.append(actions);
   const progress = make('progress'); progress.id = 'yclientsClientSyncProgress'; progress.max = 1; progress.value = 0; progress.hidden = true;
@@ -16,7 +16,7 @@
   const status = make('p', '', 'form-hint'), summary = make('p', '', 'form-hint');
   status.id = 'yclientsClientSyncStatus'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   summary.id = 'yclientsClientSyncSummary'; panel.append(progress, status, summary);
-  document.getElementById('identityContent').append(panel);
+  document.getElementById('yclientsIntegration').append(panel);
   let generation = 0, loading = false, starting = false, state = null, timer = null;
   const active = () => ['queued', 'running'].includes(state?.state);
   const number = value => Math.max(0, Number(value) || 0);

@@ -100,6 +100,8 @@ class IdentityService:
                 'CREATE TABLE IF NOT EXISTS identity_otp(id TEXT PRIMARY KEY,subject TEXT NOT NULL,phone TEXT NOT NULL,code_hash TEXT NOT NULL,expires REAL NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL,created REAL NOT NULL,ip_hash TEXT NOT NULL,delivery TEXT)',
                 'CREATE TABLE IF NOT EXISTS identity_tickets(token_hash TEXT PRIMARY KEY,person_id TEXT NOT NULL,platform TEXT NOT NULL,purpose TEXT NOT NULL,expires REAL NOT NULL,used INTEGER NOT NULL DEFAULT 0,payload TEXT NOT NULL DEFAULT "{}")',
                 'CREATE TABLE IF NOT EXISTS notification_preferences(person_id TEXT NOT NULL,audience TEXT NOT NULL,branch_id TEXT NOT NULL DEFAULT "",payload TEXT NOT NULL,PRIMARY KEY(person_id,audience,branch_id))',
+                'CREATE TABLE IF NOT EXISTS office_push_devices(id TEXT PRIMARY KEY, username TEXT NOT NULL, person_id TEXT NOT NULL,branch_id TEXT NOT NULL,proof TEXT NOT NULL,endpoint_hash TEXT UNIQUE NOT NULL,ciphertext TEXT NOT NULL,events TEXT NOT NULL)',
+                'CREATE INDEX IF NOT EXISTS office_push_owner ON office_push_devices(username,branch_id)',
                 'CREATE TABLE IF NOT EXISTS branch_registrations(id TEXT PRIMARY KEY,token_hash TEXT UNIQUE NOT NULL,branch_id TEXT NOT NULL,name TEXT NOT NULL,person_name TEXT NOT NULL,phone TEXT NOT NULL,expires REAL NOT NULL,state TEXT NOT NULL,created REAL NOT NULL)',
                 'CREATE INDEX IF NOT EXISTS identity_otp_limits ON identity_otp(phone,created)',
                 'CREATE INDEX IF NOT EXISTS branch_clients_person ON branch_clients(person_id,branch_id)',
@@ -388,6 +390,8 @@ class IdentityService:
                 raise PermissionError('ChatPush недоступен самостоятельному филиалу')
             client=read_document(db,'links.json').get(client_token) if client_token else None
             if client_token and (not client or str(client.get('branch_id'))!=str(branch_id)):raise PermissionError('Клиент не найден в филиале')
+            if client and client.get('is_temporary'):
+                raise ValueError('Гостевой пропуск нельзя использовать для назначения администратора')
             if client:phone=client.get('phone');email=client.get('email') or email
             phone=valid_phone(phone) if phone else None;email=valid_email(email)
             if phone:
@@ -556,7 +560,11 @@ class IdentityService:
     def list_invitations(self,username,branch_id):
         with self.product.connect() as db:
             self._scope(db,username,branch_id)
-            return [dict(r) for r in db.execute('SELECT id,phone,email,expires,state,created,delivery FROM identity_invitations WHERE branch_id=? ORDER BY created DESC LIMIT 100',(str(branch_id),))]
+            return [dict(row) for row in db.execute("""
+                SELECT id,phone,email,expires,created,delivery,
+                       CASE WHEN state='pending' AND expires<=? THEN 'expired' ELSE state END AS state
+                FROM identity_invitations WHERE branch_id=? ORDER BY created DESC,id DESC LIMIT 100
+            """,(self.clock(),str(branch_id)))]
 
     def list_admins(self,username,branch_id):
         with self.product.connect() as db:
@@ -962,6 +970,20 @@ class IdentityService:
         # A client link never creates an admin_verified binding.
         return ('https://t.me/' if platform=='telegram' else 'https://max.ru/')+quote(username.lstrip('@'))+'?start='+quote(legacy)
 
+    def push_proof(self, admin):
+        return self._hash(json.dumps([admin['person_id'],admin.get('branch_id'),admin.get('password_hash'),
+                                      admin.get('session_version', 0)]))
+
+    def admin_push_devices(self, db, admin):
+        return db.execute('SELECT id,events FROM office_push_devices WHERE username=? AND person_id=? AND proof=?',
+                          (admin['username'],admin['person_id'],self.push_proof(admin))).fetchall()
+
+    def saved_push_choices(self, db, person_id):
+        row = db.execute('SELECT payload FROM notification_preferences WHERE person_id=? AND audience="admin" AND branch_id=""',
+                         (person_id,)).fetchone()
+        events = json.loads(row['payload']).get('events',{}) if row else {}
+        return {event:channels['push'] for event,channels in events.items() if 'push' in channels}
+
     def admin_preferences(self,username):
         with self.product.connect() as db:
             admin=self._admin(db,username)
@@ -976,22 +998,37 @@ class IdentityService:
                 if not branch.get('yclients_enabled',True):
                     prefs['events'].pop('marketplace_disconnected',None)
             prefs['active_events']=[event for event in prefs['events'] if event in prefs.get('active_events', ADMIN_EVENTS)]
+            devices = self.admin_push_devices(db, admin)
+            # Older subscriptions saved the event choices separately for each device.
+            legacy_events = {event for device in devices for event in json.loads(device['events'])}
+            if devices:
+                for event, choices in prefs['events'].items():
+                    choices.setdefault('push', event in legacy_events)
             bindings={r['platform']:True for r in db.execute('SELECT platform FROM bot_bindings WHERE person_id=? AND assurance="admin_verified"',(admin['person_id'],))}
             return {**prefs,'person_id':admin['person_id'],'requires_phone':False,'email':contact['email'],'email_verified':contact['email_verified'],
-                'channels':{'email':bool(contact['email']),**{p:bindings.get(p,False) for p in ('telegram','max')}},'is_super':bool(admin.get('is_super'))}
+                'channels':{'email':bool(contact['email']),'push':bool(devices),**{p:bindings.get(p,False) for p in ('telegram','max')}},'is_super':bool(admin.get('is_super'))}
 
     def save_admin_preferences(self,username,payload):
         events=payload.get('events')
-        if not isinstance(events,dict) or any(event not in ADMIN_EVENTS or not isinstance(channels,dict) or any(c not in {'email','telegram','max'} or type(v) is not bool for c,v in channels.items()) for event,channels in events.items()):raise ValueError('Некорректная матрица уведомлений')
+        if not isinstance(events,dict) or any(event not in ADMIN_EVENTS or not isinstance(channels,dict) or any(c not in (*ADMIN_CHANNELS,'push') or type(v) is not bool for c,v in channels.items()) for event,channels in events.items()):raise ValueError('Некорректная матрица уведомлений')
         with self.product.connect() as db:
             admin=self._admin(db,username)
             if not admin['person_id']:raise ValueError('Сначала укажите телефон аккаунта через консоль')
             if not admin.get('is_super') and any(any(events.get(e,{}).values()) for e in GLOBAL_ADMIN_EVENTS):
                 raise PermissionError('Эти события доступны только администрации сервиса GateBot')
             current = self.admin_preferences(username)
-            normalized={'events':{e:{c:bool(events.get(e,{}).get(c,False)) for c in ADMIN_CHANNELS} if e in current['active_events']
-                                  else current['events'][e] for e in current['events']},
-                        'active_events':current['active_events']}
+            active = payload.get('active_events', current['active_events'])
+            if not isinstance(active,list) or any(not isinstance(e,str) or e not in current['events'] for e in active):
+                raise ValueError('Выберите доступные события')
+            normalized={'events':{}, 'active_events':list(dict.fromkeys(active))}
+            saved_push = self.saved_push_choices(db,admin['person_id'])
+            for event, previous in current['events'].items():
+                choices = events.get(event,{})
+                source = choices if event in active else previous
+                values = {c:bool(source.get(c,False)) for c in ADMIN_CHANNELS}
+                if 'push' in choices or event in saved_push:
+                    values['push'] = source.get('push',saved_push.get(event,False))
+                normalized['events'][event] = values
             db.execute('INSERT INTO notification_preferences(person_id,audience,branch_id,payload) VALUES(?,"admin","",?) ON CONFLICT(person_id,audience,branch_id) DO UPDATE SET payload=excluded.payload',(admin['person_id'],json.dumps(normalized)))
         return self.admin_preferences(username)
 
@@ -1002,6 +1039,10 @@ class IdentityService:
                 raise ValueError('Сначала свяжите аккаунт с профилем администратора')
             if not isinstance(events,list) or any(not isinstance(e,str) or e not in current['events'] for e in events):
                 raise ValueError('Выберите доступные события')
+            saved_push = self.saved_push_choices(db,current['person_id'])
+            for event, channels in current['events'].items():
+                if event not in saved_push:
+                    channels.pop('push',None)
             payload = {'events':current['events'], 'active_events':list(dict.fromkeys(events))}
             db.execute('INSERT OR REPLACE INTO notification_preferences VALUES(?,"admin","",?)',
                        (current['person_id'], json.dumps(payload)))

@@ -142,6 +142,12 @@ def create_blueprint(provider):
     def admin_preferences_save():
         username,admin=actor();return jsonify(status='success',preferences=svc().save_admin_preferences(username,body()))
 
+    @bp.post('/admin/api/browser-push/<action>')
+    def browser_push(action):
+        from office_web import handle_push
+        actor()
+        return handle_push(services()['pwa'].office, action, desktop=True)
+
     @bp.get('/admin/api/identity/notification-settings')
     def admin_preferences_status():
         username,admin=actor();return jsonify(preferences=svc().admin_preferences(username))

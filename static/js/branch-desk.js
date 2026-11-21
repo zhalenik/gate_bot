@@ -58,6 +58,48 @@
         const dialog=get('dialog'), shareForm=get('share-form'), linkBox=get('link'), input=linkBox.querySelector('input');
         const noPhone=get('no-phone'), phone=get('guest-phone'), deliver=get('deliver');
         let canDeliver=false, shareKey=null;
+        const awaitingPass=client.hasAttribute('data-awaiting-pass');
+        let checking=false, leaving=false, queuedAfterChat=false, checkTimer;
+        function renderCurrentPass(granted=false){
+            if(leaving)return;
+            if(granted&&dialog.open&&!get('chat').hidden&&get('compose').querySelector('textarea').value.trim()){
+                status('Пропуск выдан. Ворота доступны после закрытия чата.');
+                if(!queuedAfterChat){
+                    queuedAfterChat=true;
+                    dialog.addEventListener('close',()=>{queuedAfterChat=false;checkPass();},{once:true});
+                }
+                return;
+            }
+            leaving=true;
+            clearTimeout(checkTimer);
+            location.reload();
+        }
+        async function checkPass(){
+            clearTimeout(checkTimer);
+            if(!awaitingPass||checking||leaving||document.hidden||navigator.onLine===false)return;
+            checking=true;
+            let delay=3000;
+            try{
+                const response=await fetch('/api/access/status',{method:'POST',credentials:'same-origin',cache:'no-store',
+                    headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},
+                    body:JSON.stringify({token:client.dataset.clientDesk,pass_only:true})});
+                const state=await response.json();
+                if(!document.hidden){
+                    if(response.ok&&state.active)renderCurrentPass(true);
+                    else if([404,410].includes(response.status)||state.code==='csrf_expired')renderCurrentPass();
+                }
+            }catch{delay=10000;}
+            finally{
+                checking=false;
+                if(!leaving&&!document.hidden&&navigator.onLine!==false)checkTimer=setTimeout(checkPass,delay);
+            }
+        }
+        if(awaitingPass){
+            document.addEventListener('visibilitychange',checkPass);
+            addEventListener('pageshow',checkPass);
+            addEventListener('online',checkPass);
+            checkPass();
+        }
         function shareOptions(){
             phone.disabled=noPhone.checked;phone.required=!noPhone.checked;
             get('send-option').hidden=noPhone.checked||!canDeliver||phone.value.replace(/\D/g,'').length<7;
@@ -65,11 +107,10 @@
         }
         const showClient=view=>{
             showMessages(view.messages);get('request').hidden=view.active||view.messages.some(m=>m.kind==='request'&&!m.approved);
-            if(!get('share')&&view.active&&!root.querySelector('[data-entry-link]')){const back=button('Перейти к воротам',()=>location.reload());get('actions').prepend(back);back.dataset.entryLink='';}
+            if(awaitingPass&&view.active&&!document.hidden)renderCurrentPass(true);
         };
         const refresh=async()=>{
             const view=await api(base+'/desk');
-            if(root.querySelector('[data-entry-link]'))root.querySelector('[data-entry-link]').remove();
             if(!shareForm.hidden){
                 canDeliver=view.share_delivery;shareOptions();
                 shareForm.querySelector('button[type=submit]').disabled=!view.active;
@@ -84,11 +125,17 @@
         }
         get('open').onclick=()=>open('actions');
         get('open-chat').onclick=()=>open('chat');
-        if(location.hash==='#messages')open('chat');
+        const openMessages=()=>{if(location.hash==='#messages')open('chat');};
+        addEventListener('hashchange',openMessages);
+        openMessages();
         if(get('share'))get('share').onclick=()=>open('share');
         get('close').onclick=()=>dialog.close();
         compose(async(body,key)=>showClient(await api(base+'/desk',{body,key,kind:'message'})));
-        get('request').onclick=()=>perform(get('request'),async()=>{const view=await api(base+'/desk',{kind:'request',key:newKey()});showClient(view);status(view.active?'Разовый пропуск выдан.':'Запрос отправлен.');});
+        get('request').onclick=()=>perform(get('request'),async()=>{
+            const view=await api(base+'/desk',{kind:'request',key:newKey()});
+            showClient(view);status(view.active?'Разовый пропуск выдан.':'Запрос отправлен.');
+            if(view.active&&!awaitingPass)document.dispatchEvent(new Event('gatebot:pass-granted'));
+        });
         get('actions').addEventListener('click',event=>{
             const contact=event.target.closest('a[data-desk-phone]');
             if(contact)fetch('/api/access/contact',{method:'POST',keepalive:true,credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:JSON.stringify({token:client.dataset.clientDesk,button_id:contact.dataset.deskPhone})}).catch(()=>{});

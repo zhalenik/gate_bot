@@ -18,10 +18,110 @@
  if(boot.kind==='invitations'){
   description.textContent='Приглашение действует один час. Права появятся после подтверждения телефона.';
   const f=form(),invitationBranch=branch(f);field(f,'Телефон','phone','tel',false);field(f,'Email','email','email',false);const inviteChannel=select(f,'Отправить через','channel',Object.entries(labels).filter(([k])=>!['telegram','max'].includes(k)));
-  function invitationChannels(){const standalone=boot.branches.find(b=>String(b.id)===invitationBranch.value)?.yclients_enabled===false;for(const option of inviteChannel.options)if(option.value==='chatpush'){option.hidden=standalone;option.disabled=standalone;}if(standalone&&inviteChannel.value==='chatpush')inviteChannel.value='sms';}invitationBranch.addEventListener('change',invitationChannels);invitationChannels();
-  submit(f,'Создать приглашение',async values=>{const result=await post('/admin/invitations/new',values);tell(delivery(result));const block=element('div','panel');block.append(element('p','',result.text));action(block,'Скопировать приглашение',()=>copyToClipboard(result.text));root.append(block);});
-  action(root,'Показать приглашения',async()=>{const result=await api('/admin/api/identity/invitations?branch_id='+encodeURIComponent(f.elements.branch_id.value));let list=document.getElementById('invitationList');if(!list){list=element('div','panel');list.id='invitationList';root.append(list);}list.replaceChildren();for(const row of result.invitations){const item=element('div','form-group');item.append(element('p','',(row.phone || row.email)+' · '+row.state+' · '+new Date(row.expires*1000).toLocaleString()));if(row.state==='pending')action(item,'Отозвать',async()=>{await post('/admin/api/identity/invitations/'+row.id+'/revoke',{});item.remove();});list.append(item);}});
-  action(root,'Администраторы филиала',async()=>{const selected=f.elements.branch_id.value,result=await api('/admin/api/identity/admins?branch_id='+encodeURIComponent(selected));let list=document.getElementById('adminMemberList');if(!list){list=element('div','panel');list.id='adminMemberList';root.append(list);}list.replaceChildren(element('h2','','Администраторы'));for(const row of result.admins){const item=element('div','form-group');item.append(element('p','',row.name+' · '+(row.phone||'')+' · '+(row.status==='active'?'Активен':'Права отозваны')));if(row.status==='active')action(item,'Отозвать права',async()=>{if(!confirm('Отозвать права администратора этого филиала?'))return;await post('/admin/api/identity/admins/revoke',{person_id:row.person_id,branch_id:selected});item.remove();tell('Права отозваны. Обычный пропуск сохранён.');});list.append(item);}});
+  const copied=element('div','invitation-copy');
+  if(boot.is_super)invitationBranch.setAttribute('aria-label','Филиал');
+  root.append(copied);
+  const admins=document.getElementById('adminMemberList'), invites=document.getElementById('invitationList');
+  const inviteStates={pending:'Ожидает регистрации',accepted:'Принято',expired:'Срок истёк',revoked:'Отозвано'};
+  const dateFormat=new Intl.DateTimeFormat('ru-RU',{dateStyle:'short',timeStyle:'short'});
+  let revision=0, selection=0;
+
+  function tableStatus(body,message){
+   const status=document.getElementById(body.id+'Status');
+   status.textContent=message;
+   status.hidden=!message;
+  }
+  function appendRow(body,values){
+   const row=body.insertRow(),headings=body.closest('table').tHead.rows[0].cells;
+   for(const [i,value] of values.entries()){
+    const cell=row.insertCell();
+    cell.dataset.label=headings[i].textContent;
+    cell.textContent=value || '—';
+   }
+   const actions=row.insertCell();
+   actions.dataset.label='Действие';
+   return actions;
+  }
+  async function changeRole(url,payload){
+   const original=selection;
+   try{await post(url,payload);}
+   catch(error){if(original===selection)tell(error.message,true);return false;}
+   if(original!==selection)return false;
+   await refresh();
+   return original===selection;
+  }
+  function displayAdmins(rows,selected){
+   admins.replaceChildren();
+   tableStatus(admins,rows.length?'':'В филиале пока нет администраторов.');
+   const canRevoke=rows.filter(row=>row.status==='active').length>1;
+   for(const row of rows){
+    const active=row.status==='active';
+    const actions=appendRow(admins,[row.name,row.phone,active?'Активен':'Права отозваны']);
+    if(!active)continue;
+    if(!canRevoke){actions.textContent='Единственный администратор';continue;}
+    action(actions,'Отозвать права',async()=>{
+     if(!confirm('Отозвать права администратора этого филиала?'))return;
+     if(await changeRole('/admin/api/identity/admins/revoke',{person_id:row.person_id,branch_id:selected}))
+      tell('Права отозваны. Обычный пропуск сохранён.');
+    });
+   }
+  }
+  function displayInvitations(rows){
+   invites.replaceChildren();
+   tableStatus(invites,rows.length?'':'Приглашений пока нет.');
+   for(const row of rows){
+    const actions=appendRow(invites,[row.phone,row.email,dateFormat.format(row.expires*1000),inviteStates[row.state] || row.state]);
+    if(row.state==='pending')action(actions,'Отозвать',async()=>{
+     if(await changeRole('/admin/api/identity/invitations/'+encodeURIComponent(row.id)+'/revoke',{}) && copied.dataset.id===row.id)
+      copied.replaceChildren();
+    });
+   }
+  }
+  async function refresh(){
+   const serial=++revision,selected=invitationBranch.value;
+   if(!selected)return;
+   async function load(body,path,paint){
+    try{
+     const result=await api('/admin/api/identity/'+path+'?branch_id='+encodeURIComponent(selected));
+     if(serial===revision)paint(result[path],selected);
+    }catch(error){
+     if(serial===revision)tableStatus(body,error.message);
+    }
+   }
+   await Promise.all([load(admins,'admins',displayAdmins),load(invites,'invitations',displayInvitations)]);
+  }
+  function selectBranch(){
+   selection++;
+   notice.hidden=true;
+   copied.replaceChildren();
+   for(const body of [admins,invites]){
+    body.replaceChildren();
+    tableStatus(body,invitationBranch.value?'Загрузка…':'Сначала создайте филиал.');
+   }
+   const standalone=boot.branches.find(b=>String(b.id)===invitationBranch.value)?.yclients_enabled===false;
+   const chatpush=inviteChannel.querySelector('option[value=chatpush]');
+   chatpush.hidden=chatpush.disabled=standalone;
+   if(standalone&&inviteChannel.value==='chatpush')inviteChannel.value='sms';
+   create.disabled=!invitationBranch.value;
+   refresh();
+  }
+  const create=submit(f,'Создать приглашение',async values=>{
+   const original=selection;
+   let result;
+   try{result=await post('/admin/invitations/new',values);}
+   catch(error){if(original===selection)tell(error.message,true);return;}
+   if(original!==selection)return;
+   tell(delivery(result));
+   copied.dataset.id=result.invitation_id;
+   copied.replaceChildren(element('p','',result.text));
+   action(copied,'Скопировать приглашение',()=>copyToClipboard(result.text));
+   await refresh();
+  });
+  invitationBranch.addEventListener('change',selectBranch);
+  selectBranch();
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+  const refreshTimer=setInterval(()=>{if(!document.hidden)refresh();},60000);
+  window.addEventListener('pagehide',()=>clearInterval(refreshTimer),{once:true});
  } else if(boot.kind==='accept'||boot.kind==='register'){
   const registration=boot.kind==='register';description.textContent=registration?'Создайте аккаунт администратора филиала.':'Филиал: '+data.branch_name;
   const initial=data.initial||{},f=form();f.autocomplete='off';let registrationMode=null,companyId=null;
@@ -164,16 +264,30 @@
   addEventListener('focus',refresh);addEventListener('pageshow',event=>{if(event.persisted)refresh();});document.addEventListener('visibilitychange',refresh);paint();
   addEventListener('gatebot:pwa-change',event=>{if(event.detail?.reason==='subscribed'&&event.detail.preferences)prefs=event.detail.preferences;paint();});
  } else if(boot.kind==='admin_preferences'){
-  const prefs=data.preferences;if(prefs.requires_phone){root.append(element('p','','Сначала свяжите аккаунт с телефоном через консоль: admin.py --link-person --username LOGIN --phone PHONE'));return;}
+  const prefs=data.preferences;
+  if(prefs.requires_phone){
+   if(boot.is_super){
+    root.append(element('h2','','Привяжите телефон аккаунта'),element('p','','В каталоге GateBot выполните команду. Замените LOGIN на свой логин, а PHONE на номер с кодом страны. Затем обновите страницу.'));
+    const command=element('pre');command.append(element('code','','python admin.py --link-person --username LOGIN --phone PHONE'));root.append(command);
+   }else root.append(element('p','','Для настройки уведомлений обратитесь в поддержку GateBot и укажите номер телефона вашего аккаунта.'));
+   return;
+  }
   description.textContent=prefs.is_super?'Подключите нужные каналы и выберите события для каждого из них.':'Email берётся из вашей карточки клиента. Подключите нужные каналы и выберите события для каждого из них.';
-  const channels=['email','telegram','max'],connections=element('div','stat-grid'),cards={},controls={};
+  const channelLabels={...labels,push:'Push'};
+  const channels=['email','telegram','max','push'],connections=element('div','stat-grid'),cards={},controls={};
   connections.id='adminNotificationChannels';let connectionVersion=0,pendingSaves=0;
   for(const channel of channels){
    const card=element('section','stat-card'),status=element('p'),detail=element('p','page-description');
    card.dataset.channel=channel;status.id='adminChannelStatus-'+channel;status.setAttribute('role','status');
-   card.append(element('h3','',labels[channel]),status,detail);connections.append(card);cards[channel]={card,status,detail};
-   if(channel!=='email')cards[channel].connect=action(card,'Подключить '+labels[channel],async()=>{const result=await post('/admin/api/identity/bot-link',{platform:channel});location.assign(result.link);});
+   card.append(element('h3','',channelLabels[channel]),status,detail);connections.append(card);cards[channel]={card,status,detail};
+   if(['telegram','max'].includes(channel))cards[channel].connect=action(card,'Подключить '+labels[channel],async()=>{const result=await post('/admin/api/identity/bot-link',{platform:channel});location.assign(result.link);});
   }
+  const push=window.GateBotAdminPush,pushCard=cards.push;
+  let pushDevice=null;
+  pushCard.card.dataset.officePush='';
+  const pushEnable=action(pushCard.card,'Подключить Push',async()=>{await push.connect();await refreshPush(true);});
+  const pushDisable=action(pushCard.card,'Отключить на этом устройстве',async()=>{await push.disconnect();await refreshPush(true);});
+  pushEnable.hidden=pushDisable.hidden=true;
   root.append(connections);
   const emailForm=element('form','admin-form notification-channel-editor');emailForm.id='adminNotificationEmailForm';emailForm.hidden=true;
   const emailInput=field(emailForm,'Email','email','email',false,prefs.email);emailInput.autocomplete='email';emailInput.maxLength=254;
@@ -189,38 +303,43 @@
    }finally{pendingSaves--;savePreferences.disabled=false;emailInput.disabled=false;emailCancel.disabled=false;}
   });
   const emailCancel=action(emailForm,'Отмена',()=>{emailForm.hidden=true;emailEdit.hidden=false;emailEdit.focus();});cards.email.card.append(emailForm);
-  const eventMenu=element('details','panel'),eventForm=element('form','admin-form'),eventControls={};
-  eventMenu.append(element('summary','','Получаемые события'),eventForm);root.append(eventMenu);
-  for(const event of data.events)eventControls[event]=check(eventForm,events[event]||event,event,prefs.active_events.includes(event));
-  submit(eventForm,'Сохранить события',async()=>{
-   const selected=data.events.filter(event=>eventControls[event].checked);
-   const result=await post('/admin/api/identity/notification-events',{events:selected});
-   Object.assign(prefs,result.preferences);paintConnections();
-   tell('Список событий сохранён');
-  });
-  const f=form(),table=element('table','users-table'),head=element('tr'),eventRows={};
-  for(const title of ['Событие','Email','Telegram','MAX'])head.append(element('th','',title));table.append(head);
+  const f=form(),table=element('table','users-table admin-event-matrix'),head=element('tr'),eventControls={};
+  f.append(element('h2','','События и каналы'),element('p','page-description','Отметьте события для ленты и выберите, куда присылать уведомления.'));
+  for(const title of ['Событие','Email','Telegram','MAX','Push'])head.append(element('th','',title));table.append(head);
   for(const event of data.events){
-   const row=element('tr');eventRows[event]=row;row.append(element('td','',events[event]||event));controls[event]={};
+   const row=element('tr'),eventCell=element('th');
+   eventCell.scope='row';
+   eventControls[event]=check(eventCell,events[event]||event,event,prefs.active_events.includes(event));
+   eventControls[event].onchange=()=>paintConnections();
+   row.append(eventCell);controls[event]={};
    for(const channel of channels){
     const cell=element('td'),input=check(cell,'',event+'_'+channel,prefs.events[event]?.[channel]);controls[event][channel]=input;
-    input.setAttribute('aria-label',(events[event]||event)+' '+labels[channel]);input.setAttribute('aria-describedby','adminChannelStatus-'+channel);row.append(cell);
+    cell.dataset.channel=channelLabels[channel];
+    input.setAttribute('aria-label',(events[event]||event)+' '+channelLabels[channel]);input.setAttribute('aria-describedby','adminChannelStatus-'+channel);row.append(cell);
    }
    table.append(row);
   }
   const tableScroll=element('div','users-table-container');tableScroll.append(table);f.append(tableScroll);
   const unavailable=element('p','page-description');unavailable.id='adminNotificationUnavailable';unavailable.setAttribute('role','status');f.append(unavailable);
-  function refreshUnavailable(){const pending=channels.filter(channel=>!prefs.channels?.[channel]&&prefs.active_events.some(event=>controls[event]?.[channel].checked));unavailable.hidden=!pending.length;unavailable.textContent=pending.length?'Не будут отправляться уведомления через '+pending.map(channel=>labels[channel]).join(', ')+': завершите подключение канала. Выбранные события сохранятся.':'';return pending.length;}
+  function refreshUnavailable(){const pending=channels.filter(channel=>!prefs.channels?.[channel]&&data.events.some(event=>eventControls[event].checked&&controls[event][channel].checked));unavailable.hidden=!pending.length;unavailable.textContent=pending.length?'Для доставки через '+pending.map(channel=>channelLabels[channel]).join(', ')+' завершите подключение канала. Выбранные события сохранятся.':'';return pending.length;}
   function paintConnections(){
-   for(const [event,row] of Object.entries(eventRows))row.hidden=!prefs.active_events.includes(event);
    for(const channel of channels){
     const connected=Boolean(prefs.channels?.[channel]),card=cards[channel];
     card.status.className='badge '+(connected?'success':'warning');
+    if(channel==='push'){
+     const blocked=window.Notification?.permission==='denied';
+     card.status.className='badge '+(pushDevice?.connected?'success':'warning');
+     card.status.textContent=pushDevice?.connected?'Уведомления подключены.':pushDevice?.unsupported?'Недоступно в этом браузере':blocked?'Заблокировано браузером':pushDevice?'Не подключено на этом устройстве':'Проверяем браузер…';
+     card.detail.textContent=blocked?'Разрешите уведомления в настройках сайта.':pushDevice?.unsupported?'На iPhone откройте установленный мобильный кабинет.':connected&&!pushDevice?.connected?'Подключено другое устройство.':'';
+     pushEnable.hidden=!pushDevice||pushDevice.unsupported||blocked||pushDevice.connected;
+     pushDisable.hidden=!pushDevice?.connected;
+    }else{
     card.status.textContent=connected?(channel==='email'?'Адрес подключён':'Аккаунт подключён'):(channel==='email'?'Адрес не указан':'Аккаунт не подключён');
     card.detail.textContent=channel==='email'?(prefs.email||'Добавьте email в карточку клиента или подключите его здесь.'):(connected?'':'Подключите бота по персональной ссылке, даже если уже пользовались им как клиент.');
+    }
     card.detail.hidden=!card.detail.textContent;
     if(card.connect)card.connect.hidden=connected;
-    for(const row of Object.values(controls)){row[channel].disabled=!connected;row[channel].title=connected?'':'Сначала подключите '+labels[channel]+' в блоке выше';}
+    for(const [event,row] of Object.entries(controls)){row[channel].disabled=!connected||!eventControls[event].checked;row[channel].title=connected?'':'Сначала подключите '+channelLabels[channel];}
    }
    emailEdit.textContent=prefs.email?'Изменить email':'Подключить Email';emailEdit.hidden=!emailForm.hidden;refreshUnavailable();
   }
@@ -228,17 +347,30 @@
   const savePreferences=submit(f,'Сохранить',async()=>{
    const version=++connectionVersion;pendingSaves++;emailEdit.disabled=true;emailInput.disabled=true;emailSave.disabled=true;emailCancel.disabled=true;
    try{
-    const result=await post('/admin/api/identity/notification-settings',{events:Object.fromEntries(Object.entries(controls).map(([event,choices])=>[event,Object.fromEntries(Object.entries(choices).map(([channel,input])=>[channel,input.checked]))]))});
+    const selected=data.events.filter(event=>eventControls[event].checked);
+    const matrix=Object.fromEntries(Object.entries(controls).map(([event,choices])=>[event,Object.fromEntries(
+     Object.entries(choices).filter(([channel])=>channel!=='push'||prefs.channels.push||'push' in prefs.events[event]).map(([channel,input])=>[channel,input.checked]))]));
+    const result=await post('/admin/api/identity/notification-settings',{events:matrix,active_events:selected});
     if(version===connectionVersion){Object.assign(prefs,result.preferences);paintConnections();}
     tell(refreshUnavailable()?'Настройки сохранены. Для выбранных неподключённых каналов нужно завершить подключение.':'Настройки сохранены');
    }finally{pendingSaves--;emailEdit.disabled=false;emailInput.disabled=false;emailSave.disabled=false;emailCancel.disabled=false;}
   });paintConnections();
+  async function refreshPush(changed=false){
+   pushDevice=await push.inspect();
+   if(changed){
+    const result=await api('/admin/api/identity/notification-settings');
+    Object.assign(prefs,result.preferences);
+    for(const event of data.events)controls[event].push.checked=Boolean(prefs.events[event]?.push);
+   }
+   paintConnections();
+  }
+  refreshPush().catch(error=>{pushCard.status.textContent=error.message;});
   async function refreshConnections(){
    if(document.hidden||pendingSaves)return;const version=++connectionVersion;
    try{const result=await api('/admin/api/identity/notification-settings');if(version===connectionVersion){Object.assign(prefs,result.preferences);paintConnections();}}catch{}
   }
   addEventListener('focus',refreshConnections);addEventListener('pageshow',event=>{if(event.persisted)refreshConnections();});
-  action(root,'Последние уведомления',async()=>{const result=await api('/admin/api/notification-inbox');let list=document.getElementById('notificationInbox');if(!list){list=element('div','panel');list.id='notificationInbox';root.append(list);}list.replaceChildren(element('h2','','Уведомления'));if(!result.items.length)list.append(element('p','','Новых событий пока нет'));for(const row of result.items){const item=element('div','form-group');item.append(element('h3','',events[row.event]||row.event),element('p','',new Date(row.created*1000).toLocaleString()));if(row.text)item.append(element('p','',row.text));if(!row.read)action(item,'Прочитано',async()=>{await post('/admin/api/notification-inbox/'+row.id+'/read',{});item.classList.add('muted');});list.append(item);}});
+  const inbox=element('a','btn-action','Открыть ленту уведомлений');inbox.href=document.body.hasAttribute('data-office')?'/office/notifications':'/admin/notifications';root.append(inbox);
  } else if(boot.kind==='email_verify'){
   description.textContent='Подтвердите, что хотите получать уведомления на этот адрес.';action(root,'Подтвердить email',async()=>{await post('/verify-email/'+data.token,{});tell('Email подтверждён');});
 

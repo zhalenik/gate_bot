@@ -43,6 +43,7 @@ def test_client_table_actions_filters_sorting_and_shared_layout(web,browser_ui,t
     migrate_legacy(tmp_path,activate=True)
     monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
     identity=web.module.product_services().identity
+    monkeypatch.setattr('storage.config.CLIENT_OUTBOUND_ENABLED',True)
     web.links.bind_identity('telegram','81001',token=web.token_a)
     identity.save_prefs_for_token(web.token_a,{'enabled':True,'channels':{'telegram':True}})
     web.links.update_user(web.token_a,{'id_ycl':1234})
@@ -107,6 +108,37 @@ def test_branch_admin_table_remains_scoped_and_controls_survive_mobile(web,brows
     expect(page.locator('#usersTableBody .btn-pass')).to_have_text('Постоянный')
     page.locator('#usersTableBody .btn-pass').click();page.get_by_role('button',name='Запретить',exact=True).click()
     expect(page.locator('#usersTableBody .btn-pass')).to_have_text('Запрещен')
+
+
+def test_guest_expiry_and_mobile_cabinet_navigation(web,browser_ui,tmp_path,monkeypatch):
+    from storage.sql_documents import DocumentStore,migrate_legacy
+    migrate_legacy(tmp_path,activate=True)
+    monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
+    web.module.product_services().identity.attach_console_account('tenant-a','+15550100901')
+    web.links.create_link({'phone':'+15550100902','branch_id':12,'user_name':'Short visit','is_temporary':True,'gate_access':True},expires_days=1)
+    page,origin,expect,errors=browser_ui
+    sign_in(page,origin,'tenant-a')
+    row=page.locator('#usersTableBody tr').filter(has_text='Short visit')
+    expect(row.locator('[data-label="Истекает"] time')).to_be_visible()
+    expect(row.get_by_title('Назначить администратором')).to_have_count(0)
+    expect(row.get_by_title('Копировать ссылку').locator('svg path')).to_have_count(1)
+    page.set_viewport_size({'width':390,'height':844})
+    page.set_extra_http_headers({'Sec-CH-UA-Mobile':'?1'})
+    page.add_init_script("Object.defineProperty(navigator,'userAgent',{get:()=> 'Android Mobile'});")
+    page.goto(origin+'/admin/users')
+    expect(page).to_have_url(origin+'/office/clients')
+    expect(page.locator('.office-nav > a')).to_have_count(3)
+    expect(page.locator('[data-install-hint]')).to_be_visible()
+    page.locator('[data-install-hint] [data-install-office]').click()
+    expect(page.locator('[data-office-install-dialog]')).to_be_visible()
+    page.get_by_role('button',name='Готово').click()
+    page.locator('.office-menu summary').click()
+    page.get_by_role('link',name='Подписка',exact=True).click()
+    expect(page).to_have_url(origin+'/office/billing')
+    page.locator('.office-menu summary').click()
+    page.get_by_role('link',name='Полная версия').click()
+    expect(page.locator('[data-shared-header]')).to_be_visible()
+    assert not errors
 
 
 def test_client_access_cooldown_expiry_and_no_second_command(web,browser_ui,tmp_path):

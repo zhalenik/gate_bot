@@ -8,17 +8,31 @@
 <div class="page-heading"><div><p class="page-eyebrow">GATEBOT</p><h1>{{ title }}</h1><p class="page-description" id="identityDescription"></p></div></div>
 <div id="identityNotice" role="status" class="panel" hidden></div>
 {% if kind == 'messenger_only' and branches %}<input type="hidden" id="integrationBranch" value="{{ branches[0].id }}">{% endif %}
-{% if office %}{% include 'components/office_push.html' %}{% endif %}
 <div id="identityContent" class="{% if kind == 'integrations' %}integration-workspace{% else %}panel{% endif %}"></div>
+{% if kind == 'invitations' %}
+<div class="invitation-tables">
+  {% for table_id,heading,columns in [('adminMemberList','Администраторы филиала',['Имя','Телефон','Статус','Действие']),('invitationList','Приглашения',['Телефон','Email','Действует до','Статус','Действие'])] %}
+  <section class="panel">
+    <h2 id="{{ table_id }}Heading">{{ heading }}</h2>
+    <div class="users-table-container"><table class="users-table" aria-labelledby="{{ table_id }}Heading">
+      <thead><tr>{% for column in columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+      <tbody id="{{ table_id }}"></tbody>
+    </table></div>
+    <p id="{{ table_id }}Status" class="form-hint" role="status">Загрузка…</p>
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
 {% if kind == 'preferences' %}<div data-client-pwa-tools></div>{% include 'components/client_footer.html' %}{% endif %}
 {% if kind == 'integrations' and branches %}
-<details class="panel integration-guide">
-  <summary>Два способа подключения YCLIENTS</summary>
+<template id="yclientsGuide"><details class="integration-guide">
+  <summary aria-label="Два способа подключения YCLIENTS" title="Два способа подключения YCLIENTS"><span aria-hidden="true">i</span></summary>
+  <div class="integration-help-content"><strong>Два способа подключения YCLIENTS</strong>
   <p><strong>Учётная запись YCLIENTS.</strong> При регистрации на сайте укажите ID филиала. Затем в «Интеграциях» войдите с логином и паролем пользователя YCLIENTS, у которого есть доступ к этому филиалу. После подключения здесь появятся его имя и контакты.</p>
   <p><strong>Приложение YCLIENTS Marketplace.</strong> Откройте карточку GateBot в маркетплейсе, нажмите «Подключить» и выберите филиал. При первой регистрации проверьте данные, подтвердите телефон по SMS и задайте пароль GateBot. Если у вас уже есть кабинет этого филиала, войдите с действующим паролем.</p>
   <p>Для автоматических пропусков нужен доступ к записям всех сотрудников и телефонам клиентов в журнале записи. Для поиска ID и email нужен доступ к клиентской базе, а для отправки через YCLIENTS нужны права на рассылку. «Проверить доступ» покажет текущие права подключения.</p>
-</details>
-<details class="panel integration-guide"><summary>Каналы сообщений клиентам</summary><p>В блоке «Сообщения клиентам» можно выбрать подключённый сервис или автоматическую отправку. При автоматическом выборе клиент с ID YCLIENTS получает сообщение через рассылку YCLIENTS. Для остальных клиентов используется ChatPush по номеру телефона, затем разрешённые СМС из квоты филиала.</p></details>
+</div></details></template>
+<template id="messengerGuide"><details class="integration-guide"><summary aria-label="Каналы сообщений клиентам" title="Каналы сообщений клиентам"><span aria-hidden="true">i</span></summary><div class="integration-help-content"><strong>Каналы сообщений клиентам</strong><p>В блоке «Сообщения клиентам» можно выбрать подключённый сервис или автоматическую отправку. При автоматическом выборе клиент с ID YCLIENTS получает сообщение через рассылку YCLIENTS. Для остальных клиентов используется ChatPush по номеру телефона, затем разрешённые СМС из квоты филиала.</p></div></details></template>
 {% endif %}
 {% if not admin_page and not client_page %}<p><a href="/admin/login">Вход в кабинет</a></p>{% endif %}
 </section></main>

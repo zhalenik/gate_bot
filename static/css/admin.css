@@ -83,3 +83,39 @@
  #clientDirectory .table-export-btn{right:0;top:0}
  #clientDirectory .filter-section{flex-wrap:wrap}#clientDirectory .filter-section input[type=search]{flex:1 1 100%;min-width:0}
 }
+
+.settings-workspace .admin-content, #systemSettingsGroups {display:grid;gap:20px}
+.settings-workspace .admin-content > *, #systemSettingsGroups > .panel {margin-block:0;min-width:0}
+.system-settings-editor {min-width:0}
+.system-settings-editor .settings-toolbar {margin-bottom:16px}
+.system-settings-group > details.panel {margin:18px 0 0}
+.system-settings-group[hidden], .system-settings-field[hidden], .system-settings-group > details[hidden] {display:none}
+.client-directory-title {font-size:clamp(1.45rem,2.7vw,2rem);font-weight:700;line-height:1.15;overflow-wrap:anywhere;margin:.25em 0 .6em}
+
+.app-bar .brand-scope {font-size:clamp(.77rem,1.2vw,1rem);font-weight:650;color:var(--ink);max-width:clamp(160px,24vw,310px)}
+#adminNotificationChannels{grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:14px;margin-bottom:24px}
+#identityPage[data-kind=admin_preferences] .admin-form:has(.admin-event-matrix){display:grid;gap:14px;max-width:none;margin-bottom:22px}
+#identityPage .admin-event-matrix{min-width:0;width:100%}
+#identityPage .admin-event-matrix th:first-child{text-align:left}
+#identityPage .admin-event-matrix td,#identityPage .admin-event-matrix thead th{text-align:center}
+#identityPage .admin-event-matrix .checkbox-label{display:inline-flex;align-items:center;gap:8px;min-height:32px;margin:0;text-align:left}
+#identityPage .admin-event-matrix input[type=checkbox]{width:18px;height:18px;flex:none}
+.admin-push-offer{width:min(calc(100% - 32px),1100px);margin:12px auto;display:flex;gap:14px;align-items:center;padding:12px 16px;border:1px solid var(--line);background:var(--surface);border-radius:16px;box-sizing:border-box}
+.admin-push-offer div,.notification-tools{display:flex;align-items:center;gap:8px}
+.admin-push-offer strong{flex:1}.admin-push-offer [role=status]:empty,.admin-push-offer[hidden]{display:none}
+.notification-toolbar{gap:10px;flex-wrap:wrap}
+.invitation-tables{display:grid;gap:20px;margin-top:20px}
+.invitation-tables .panel{margin:0;min-width:0}
+.invitation-tables h2{font-size:1.25rem;margin:0 0 16px}
+.invitation-tables td,.invitation-copy p{overflow-wrap:anywhere}
+.invitation-tables [role=status]{margin:12px 0 0}
+.invitation-copy:not(:empty){margin-top:16px}
+@media(max-width:650px){
+  .admin-push-offer{flex-wrap:wrap}
+  #identityPage .admin-event-matrix,#identityPage .admin-event-matrix tbody{display:block}
+  #identityPage .admin-event-matrix tr{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:10px 4px;border-bottom:1px solid var(--line)}
+  #identityPage .admin-event-matrix tr:first-child:has(th:nth-child(2)){display:none}
+  #identityPage .admin-event-matrix th,#identityPage .admin-event-matrix td{border:0;padding:4px;white-space:normal}
+  #identityPage .admin-event-matrix th[scope=row]{grid-column:1/-1}
+  #identityPage .admin-event-matrix td::before{content:attr(data-channel);display:block;font-size:.75rem;color:var(--muted)}
+}

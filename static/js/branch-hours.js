@@ -9,7 +9,7 @@
   const days=el('div','','branch-hours-days');form.append(days);
   const hint=el('p','Время в часовом поясе филиала. Конец раньше начала — доступ до следующего дня. 00:00–24:00 означает весь день; день без интервалов закрыт.','form-hint');form.append(hint);
   const status=el('p','','form-hint');status.setAttribute('role','status');
-  const save=el('button','Сохранить расписание','btn-primary');save.type='submit';form.append(save,status);panel.append(form);settingsForm.after(panel);
+  const save=el('button','Сохранить расписание','btn-primary');save.type='submit';form.append(save,status);panel.append(form);document.getElementById('branchScheduleHost').append(panel);
   const names=['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];let branch=null,generation=0,busy=false,dirty=false,loaded=false;
   const rows=[];
   function interval(row,value={start:'09:00',end:'18:00'}){

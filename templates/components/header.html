@@ -16,7 +16,7 @@
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
   </summary><div class="dropdown">
     <div class="menu-heading">Управление</div>
-    {% if not is_super %}<a href="/office/">Мобильный кабинет</a>{% endif %}
+    {% if not is_super %}<a href="/office/?view=mobile">Мобильный кабинет</a>{% endif %}
     <a href="/admin/client-messages">Переписка с клиентами</a>
     <a href="/admin/client-notices">Уведомления клиентов</a>
     <a href="/admin/add-user">Добавить клиента</a><a href="/admin/invitations">Администраторы</a>
@@ -27,5 +27,5 @@
     <a href="/admin/help">Помощь</a>
     <form method="POST" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Выйти</button></form>
   </div></details>
-  {% elif not client_page | default(false) and not hide_admin_signin | default(false) %}<a class="header-signin" href="/admin/login">Для администратора <span aria-hidden="true">↗</span></a>{% endif %}
+  {% endif %}
 </header>

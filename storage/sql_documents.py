@@ -3,7 +3,7 @@
 JSON remains authoritative until explicit runtime-owned migration activates SQL.
 After activation, old JSON files are immutable recovery copies, never dual-written.
 """
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from contextvars import ContextVar
 import hashlib
 import json
@@ -73,6 +73,21 @@ class DocumentStore:
             return self.legacy.read()
         with self.product().connect() as db:
             return read_document(db, self.path.name)
+
+    def read_entry(self, key):
+        """Read a single object from a document without acquiring a writer lock."""
+        if not is_sql_active(self.path.parent):
+            return self.legacy.read().get(str(key))
+        path = (self.path.parent / 'application.sqlite3').resolve()
+        query = 'SELECT json_extract(payload, ?) FROM documents WHERE name=?'
+        params = ('$.' + json.dumps(str(key)), self.path.name)
+        transaction = ProductStore.connection_for(path)
+        if transaction is not None:
+            row = transaction.execute(query, params).fetchone()
+        else:
+            with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
+                row = db.execute(query, params).fetchone()
+        return json.loads(row[0]) if row and row[0] is not None else None
 
     def replace(self, value):
         if not isinstance(value, dict):

@@ -2,9 +2,19 @@
   {% for path,label,icon in [
    ('clients','Клиенты','M16 20v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M20 20v-2a4 4 0 0 0-3-3.9'),
    ('messages','Сообщения','M4 4h16v12H9l-5 4V4 M8 8h8 M8 12h5'),
-   ('notifications','События','M4 17h16l-2-3V9a6 6 0 1 0-12 0v5l-2 3 M10 20h4'),
-   ('billing','Подписка','M3 5h18v14H3z M3 10h18 M7 15h4')] %}
-  <a href="/office/{{ path }}" {% if office_section==path or (path=='clients' and office_section in ['new-client','guest']) or (path=='notifications' and office_section=='settings') %}aria-current="page"{% endif %}>
+   ('notifications','События','M4 17h16l-2-3V9a6 6 0 1 0-12 0v5l-2 3 M10 20h4')] %}
+  <a href="/office/{{ path }}" {% if office_section==path or (path=='clients' and office_section in ['new-client','guest']) %}aria-current="page"{% endif %}>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ icon }}"/></svg>{{ label }}
   </a>{% endfor %}
+  <details class="office-menu"><summary {% if office_section in ['billing','settings','help'] %}class="office-menu-current"{% endif %}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Меню</summary>
+    <div class="office-menu-items">
+      <a href="/office/new-client">Новый клиент</a><a href="/office/guest">Разовый пропуск</a>
+      <a href="/office/billing">Подписка</a>
+      <a href="/office/settings">Настройки уведомлений</a><a href="/office/help">Помощь</a>
+      <a href="/admin/users?view=desktop">Полная версия</a>
+      <button type="button" data-install-office>Установить кабинет</button>
+      <form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="mobile_office" value="1"><button type="submit">Выйти</button></form>
+    </div>
+  </details>
 </nav>

@@ -186,7 +186,7 @@ class ProductNotifications:
                     continue
                 if not admin_receives_event(admin, branch_id, event) or not self.identity.event_selected(db,row['person_id'],event):
                     continue
-                if self.pwa and branch_id is not None:
+                if self.pwa:
                     for device in self.pwa.office.targets(db, admin, event):
                         self._enqueue(json.dumps([event,event_id,device]),'office',event,branch_id,'office_push',device,
                                       {'text':'Новое событие в кабинете филиала',**desk_context},db)

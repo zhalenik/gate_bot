@@ -7,7 +7,7 @@
         <div class="guest-card">
             <span class="guest-symbol" aria-hidden="true">↗</span>
             <h1 class="error-title">Доступ невозможен</h1>
-            <p class="page-description">Ссылка недействительна, срок пропуска истёк или действие не разрешено. Обновите страницу; если проблема сохраняется, обратитесь к администратору своего филиала.</p>
+            <p class="page-description">{% if contact_token %}Сейчас у вас нет действующего пропуска. Вы можете обратиться к администратору филиала.{% else %}Ссылка недействительна или доступ закрыт. Обратитесь к администратору своего филиала.{% endif %}</p>
             {% if contact_token %}
             {% include 'components/branch_contact.html' %}
             {% elif admin_contacts %}

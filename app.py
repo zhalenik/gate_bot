@@ -94,7 +94,7 @@ def inject_context():
     return {"BASE_URL": config.BASE_URL, "csrf_token": _csrf_token,
             'branding': BrandingSettings(product_services().identity).public_view(),
             'client_pwa': pwa, 'public_site_url': config.PUBLIC_SITE_URL if config.PUBLIC_SITE_URL.startswith(('http://','https://')) else '',
-            'client_page': request.path.startswith(('/opn/', '/gate/', '/join/', '/preferences/', '/pwa/', '/verify-email/', '/unsubscribe')),
+            'client_page': request.path.split('/', 2)[1] in {'opn','gate','join','preferences','pwa','verify-email','unsubscribe','shared'},
             'admin_yclients_enabled': bool((admin or {}).get('is_super') or (active_branch and active_branch.yclients_enabled)),
             'admin_sms_enabled': bool(active_branch and getattr(active_branch,'sms_notifications_enabled',False)),
             'admin_branch_choices': choices, 'active_branch_id': str((admin or {}).get('branch_id') or '')}
@@ -343,11 +343,11 @@ def _admin_template(template, **context):
 def open_barrier(token):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", token):
         abort(403)
-    user = link_manager.verify_token(token)
-    if not user:
+    user = link_manager.get_link(token)
+    if not user or not access_is_active(user):
         # An expired known pass still identifies its own branch for support.
         # This lookup grants no access and never falls back to another branch.
-        known_user = link_manager.load_links().get(token)
+        known_user = user
         if link_manager.guest_pass_removed(token, known_user):
             return render_template('guest_removed.html', client_page=True), 410
         branch = branch_manager.get_branch(known_user.get("branch_id")) if isinstance(known_user, dict) else None
@@ -461,12 +461,25 @@ def open_gate():
 
 @app.post('/api/access/status')
 def access_status():
-    token = _token(_json_body().get('token'))
-    user = link_manager.load_links().get(token)
-    branch = branch_manager.get_branch(user.get('branch_id')) if user else None
-    if not user or not branch:
+    data = _json_body()
+    token = _token(data.get('token'))
+    user = link_manager.get_link(token)
+    if not user:
         abort(404)
-    active = access_is_active(user) and branch.enabled
+    if link_manager.guest_pass_removed(token, user):
+        abort(410)
+    active = access_is_active(user)
+    # The waiting screen only needs to know when to render the pass page again.
+    # A pending request should never read conversations or advance billing state.
+    pass_only = data.get('pass_only') is True
+    if pass_only and not active:
+        return jsonify(active=False)
+    branch = branch_manager.get_branch(user.get('branch_id'))
+    if not branch:
+        abort(404)
+    active = active and branch.enabled
+    if pass_only:
+        return jsonify(active=active)
     if getattr(access_service, 'billing', None):
         active = active and access_service.billing.subscription_view(branch.branch_id)['available']
     remaining = access_service.cooldown_remaining(user)
@@ -865,6 +878,7 @@ def _public_branch_settings(branch, *, include_modems=False):
         "enabled": branch.enabled, "logo": branch.logo,
         "yclients_enabled": branch.yclients_enabled, "id_origin": branch.id_origin,
         "sms_notifications_enabled": getattr(branch,'sms_notifications_enabled',False),
+        "client_notifications_enabled": raw.get('client_notifications_enabled', True),
         "hardware_routes_verified": raw.get('hardware_routes_verified', True),
         **({'modem_ids': raw.get('modem_ids')} if include_modems else {}),
         "pass_duration_hours": branch.pass_duration_hours,
@@ -888,6 +902,28 @@ def _logo_url(value):
     return value
 
 
+_BRANCH_NOTIFICATION_SWITCHES = {
+    'client_notifications_enabled': 'Уведомления клиентам',
+    'sms_notifications_enabled': 'SMS-уведомления',
+    'auto_approve_pass_requests': 'Автоматическая выдача пропуска',
+}
+
+
+@app.post('/admin/api/branches/<int:branch_id>/notification-settings')
+@admin_auth.require_auth
+def update_branch_notification_settings(branch_id):
+    _choose_branch(branch_id)
+    data = _json_body()
+    if len(data) != 1 or not data.keys() <= _BRANCH_NOTIFICATION_SWITCHES.keys():
+        abort(400, description='Выберите одну настройку уведомлений или запросов')
+    field, value = next(iter(data.items()))
+    value = _boolean(value, _BRANCH_NOTIFICATION_SWITCHES[field])
+    if not branch_manager.update_settings(branch_id, {field: value}):
+        abort(404, description='Филиал не найден')
+    _audit('BRANCH_SETTINGS_UPDATED', branch_id, changed_fields=[field])
+    return jsonify(status='success', **{field: value})
+
+
 @app.route("/admin/api/branch-settings", methods=["GET", "POST"])
 @admin_auth.require_auth
 def api_branch_settings():
@@ -899,8 +935,8 @@ def api_branch_settings():
         branch = _choose_branch(value)
         return jsonify(settings=_public_branch_settings(branch, include_modems=scope is None))
     data = _json_body()
-    allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons", "yclients_enabled", "sms_notifications_enabled"}
-    allowed.update({'pass_duration_hours', 'auto_approve_pass_requests'})
+    allowed = {"branch_id", "create", "name", "timezone", "enabled", "logo", "buttons",
+               "yclients_enabled", "pass_duration_hours", *_BRANCH_NOTIFICATION_SWITCHES}
     if 'modem_ids' in data and scope is not None:
         abort(403, description='Настройка модемов доступна только администрации сервиса')
     if set(data) - (allowed | {'modem_ids'}):
@@ -952,9 +988,10 @@ def api_branch_settings():
                 "timezone": zone, "enabled": _boolean(data.get("enabled"), "Филиал активен"),
                 "logo": _logo_url(data.get("logo")), "buttons": validated_buttons,
                 "yclients_enabled": yclients_enabled,
-                "pass_duration_hours": hours,
-                "auto_approve_pass_requests": _boolean(data.get('auto_approve_pass_requests',raw_branch.get('auto_approve_pass_requests',False)), 'Автоматически выдавать пропуск'),
-                "sms_notifications_enabled": _boolean(data.get('sms_notifications_enabled',raw_branch.get('sms_notifications_enabled',False)), 'Разрешить SMS-уведомления')}
+                "pass_duration_hours": hours}
+    for field, label in _BRANCH_NOTIFICATION_SWITCHES.items():
+        if field in data:
+            settings[field] = _boolean(data[field], label)
     if 'modem_ids' in data:
         settings['modem_ids'] = data['modem_ids']
     try:

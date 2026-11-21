@@ -26,3 +26,13 @@
 .yclients-sync-panel progress { display: block; width: 100%; max-width: 720px; height: 8px; accent-color: var(--blue); margin: 16px 0; }
 .yclients-sync-panel [hidden] { display: none !important; }
 #integrationTestStatus { overflow-wrap: anywhere; }
+
+#yclientsIntegration, #branchMessengerSettings{position:relative}
+#yclientsIntegration > h2, #branchMessengerSettings > h2{padding-right:44px}
+.integration-guide > summary{position:absolute;right:16px;top:16px;display:grid;place-items:center;width:36px;height:36px;list-style:none;color:var(--ink)}
+.integration-guide > summary::-webkit-details-marker{display:none}
+.integration-guide > summary span{display:grid;place-items:center;border:1.5px solid currentColor;border-radius:50%;font:700 15px Georgia,serif;width:21px;height:21px}
+.integration-guide[open] > summary span{background:var(--ink);color:var(--surface)}
+.integration-help-content{padding:16px;border-radius:12px;background:var(--surface-alt,var(--surface));border:1px solid var(--line);margin:12px 0}
+.integration-help-content p{margin:10px 0 0}
+#yclientsIntegration .yclients-sync-panel{margin-top:20px;padding:18px 0 0;border-top:1px solid var(--line)}

@@ -1,4 +1,22 @@
-.branch-hours-panel{margin-top:24px}
+.branch-settings-page [hidden]{display:none!important}
+.branch-settings-page .admin-content{min-width:0}
+.branch-settings-page .page-heading h1{font-size:clamp(1.9rem,4vw,3rem);letter-spacing:-.035em;overflow-wrap:anywhere}
+.branch-tabs{display:flex;gap:6px;max-width:100%;overflow-x:auto;padding:5px;margin-block:20px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
+.branch-tabs button{border:0;background:var(--gb-color-branch-hours-background-3467656fd825, transparent);color:var(--muted);padding:11px 16px;border-radius:11px;white-space:nowrap;cursor:pointer;font:inherit;font-size:.9rem;font-weight:600}
+.branch-tabs button[aria-selected="true"]{background:var(--lavender);color:var(--ink)}
+.branch-tabs button:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.branch-settings-page #branchSettingsForm{display:grid;gap:16px;min-width:0}
+.branch-settings-page #saveSettingsButton,.branch-settings-gates #addSettingsButton{justify-self:start}
+.branch-settings-page .panel{margin:0;min-width:0}
+.branch-settings-fields,.branch-settings-gates{display:grid;gap:20px}
+.branch-settings-fields>.form-group{max-width:640px;margin:0}
+.branch-settings-fields .form-hint{display:block}
+.branch-gates-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.branch-gates-heading h2{margin:0;font-size:1.25rem}
+.branch-settings-page #branchModems{margin:0;padding:12px;border:1px solid var(--line);border-radius:12px}
+.branch-settings-page #branchScheduleHost,.branch-settings-page #branchDeletionPanel{margin-top:24px}
+.branch-settings-page #branchSwitchStatus:empty{display:none}
+@media(max-width:600px){.branch-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.branch-tabs button{white-space:normal;padding:9px 6px;min-height:42px}}
 .branch-hours-panel>.admin-form{max-width:900px}
 .branch-hours-days{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin:18px 0}
 .branch-hours-day{border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0}

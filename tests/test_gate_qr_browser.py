@@ -25,6 +25,7 @@ def test_printed_gate_qr_phone_verification_device_and_revocation(web, browser_u
     sign_in(page, origin)
     page.goto(origin + '/admin/settings')
     page.locator('#settingsBranch').select_option('12')
+    page.get_by_role('tab', name='Ворота и QR').click()
     expect(page.get_by_role('button', name='QR-код', exact=True)).to_be_visible()
     page.get_by_role('button', name='QR-код', exact=True).click()
     expect(page.get_by_role('button', name='Создать QR-код', exact=True)).to_be_visible()

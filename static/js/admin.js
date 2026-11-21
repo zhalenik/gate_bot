@@ -77,7 +77,7 @@ function fullLink(path) {
 }
 
 const ICONS = {
-    copy: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2" stroke="#272b2e" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="#272b2e" stroke-width="2"/></svg>',
+    link: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .2l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.2l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
     edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 17v4h4L20 8l-4-4L3 17z" stroke="#272b2e" stroke-width="2"/></svg>',
     delete: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3h6M4 6h16M6 6l1 14h10l1-14M10 10v8M14 10v8" stroke="#272b2e" stroke-width="2"/></svg>',
     admin: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7l-9-4Z"/><path d="M12 8v7m-3-4h6"/></svg>'
@@ -155,11 +155,25 @@ async function loadUsers() {
 function passChangedAge(value,current=Date.now()) {
     const changed=Date.parse(value);
     if(!Number.isFinite(changed))return '—';
-    const minutes=Math.max(1,Math.floor((current-changed)/60000));
+    return shortDuration(current-changed);
+}
+
+function shortDuration(milliseconds) {
+    const minutes=Math.max(1,Math.floor(milliseconds/60000));
     return minutes<60?minutes+'м':minutes<1440?Math.floor(minutes/60)+'ч':Math.floor(minutes/1440)+'д';
 }
 
+function passExpiry(user) {
+    return user.gate_access && !user.admin_role_active && !user.admin_role?.is_admin && !user.admin_role?.is_super ? user.access_expires : null;
+}
+
+function remainingTime(value) {
+    const remaining=Date.parse(value)-Date.now();
+    return remaining>0 ? shortDuration(remaining) : 'Истёк';
+}
+
 function refreshPassAges(){
+    document.querySelectorAll('[data-pass-expires]').forEach(node=>{node.textContent=remainingTime(node.dateTime);});
     document.querySelectorAll('[data-pass-changed-at]').forEach(node=>{node.textContent=passChangedAge(node.dataset.passChangedAt);});
 }
 
@@ -199,14 +213,20 @@ function displayUsers(users) {
             changed.title='Пропуск изменён: '+new Date(user.pass_changed_at).toLocaleString('ru-RU');
             changedCell.append(changed);
         }else changedCell.textContent='—';
+        const expires=passExpiry(user),expiryCell=cell('Истекает','—');
+        if(expires && Number.isFinite(Date.parse(expires))){
+            const time=element('time','',remainingTime(expires));
+            time.dateTime=expires;time.dataset.passExpires='';time.title=new Date(expires).toLocaleString('ru-RU');
+            expiryCell.replaceChildren(time);
+        }
         cell('Боты', [user.has_telegram ? 'TG' : '', user.has_max ? 'MAX' : ''].filter(Boolean).join(' · ') || '—');
         cell('YCLIENTS', user.has_yclients ? '✓' : '').hidden=hideCrm;
         cell('Уведомления').append(clientNotificationStatusButton(user));
         const actions = cell('Действия');
         actions.style.whiteSpace = 'nowrap';
         actions.style.textAlign = 'right';
-        actions.append(iconButton('Копировать ссылку', 'copy', () => onCopyUserLink(user.token)),iconButton('Редактировать', 'edit', () => openEditUserModal(user.token)));
-        if(!role.is_admin&&!role.is_super)actions.append(iconButton('Назначить администратором', 'admin', () => inviteAdministrator(user)));
+        actions.append(iconButton('Копировать ссылку', 'link', () => onCopyUserLink(user.token)),iconButton('Редактировать', 'edit', () => openEditUserModal(user.token)));
+        if(!user.is_temporary&&!role.is_admin&&!role.is_super)actions.append(iconButton('Назначить администратором', 'admin', () => inviteAdministrator(user)));
         const remove=iconButton('Удалить', 'delete', () => onDeleteUser(user.token));
         if(role.can_delete===false){remove.disabled=true;remove.title=role.reason||'Удаление недоступно';}
         actions.append(remove);
@@ -224,8 +244,9 @@ function filterUsers() {
     });
     if (sortState.key) {
         users = [...users].sort((a, b) => {
-            if(sortState.key==='pass_changed_at'){
-                const left=Date.parse(a.pass_changed_at),right=Date.parse(b.pass_changed_at);
+            if(['pass_changed_at','access_expires'].includes(sortState.key)){
+                const date=user=>Date.parse(sortState.key==='access_expires'?passExpiry(user):user.pass_changed_at);
+                const left=date(a),right=date(b);
                 if(!Number.isFinite(left))return Number.isFinite(right)?1:0;
                 if(!Number.isFinite(right))return -1;
                 return (left-right)*(sortState.asc?1:-1);
@@ -257,7 +278,7 @@ function inviteAdministrator(user) {
     const send=button('Создать приглашение',async()=>{
         send.disabled=true;
         try{const result=await post('/admin/invitations/new',{client_token:user.token,branch_id:user.branch_id,channel:select.value});view.close();
-            const resultView=createModal('Приглашение создано'),box=element('div','link-box'),input=element('input');input.value=result.link;input.readOnly=true;box.append(input,iconButton('Копировать приглашение','copy',()=>copyToClipboard(result.link)));resultView.body.append(box,element('p','form-hint','Ссылка действует один час. Регистрация требует кода из SMS.'));
+            const resultView=createModal('Приглашение создано'),box=element('div','link-box'),input=element('input');input.value=result.link;input.readOnly=true;box.append(input,iconButton('Копировать приглашение','link',()=>copyToClipboard(result.link)));resultView.body.append(box,element('p','form-hint','Ссылка действует один час. Регистрация требует кода из SMS.'));
             if(result.delivery?.message)resultView.body.append(element('p','form-hint',result.delivery.message));
             resultView.actions.append(button('Закрыть',resultView.close));
         }catch(error){showAlert(error.message,'error');}finally{send.disabled=false;}
@@ -432,7 +453,7 @@ function showLinkModal(title, token, link, delivery = null) {
     input.type = 'text';
     input.value = link;
     input.readOnly = true;
-    box.append(input, iconButton('Копировать ссылку', 'copy', () => copyToClipboard(link)));
+    box.append(input, iconButton('Копировать ссылку', 'link', () => copyToClipboard(link)));
     view.body.append(box);
     if (delivery && !['sent', 'not_requested'].includes(delivery.status)) {
         view.body.append(element('p', 'alert alert-info', 'Пропуск создан. Ссылка не отправлена: ' + delivery.message));
@@ -566,10 +587,73 @@ async function initializeBranchSettings() {
     const logoPreview = document.getElementById('settingsLogoPreview');
     const logoRemove = document.getElementById('settingsLogoRemove');
     const logoStatus = document.getElementById('settingsLogoStatus');
+    const save = document.getElementById('saveSettingsButton');
+    const tabs = Array.from(document.querySelectorAll('[data-branch-tab]'));
+    const panels = document.querySelectorAll('[data-branch-panel]');
+    const switches = Array.from(form.querySelectorAll('[data-branch-switch]'));
+    const switchStatus = document.getElementById('branchSwitchStatus');
     let creating = false;
     let internalId = false;
     let loadSerial = 0;
     form.dataset.ready = 'false';
+    function showTab(key) {
+        const current = tabs.find(tab => tab.dataset.branchTab === key) || tabs[0];
+        for (const tab of tabs) {
+            tab.setAttribute('aria-selected', String(tab === current));
+            tab.tabIndex = tab === current ? 0 : -1;
+        }
+        for (const panel of panels) panel.hidden = panel.dataset.branchPanel !== current.dataset.branchTab;
+        save.hidden = !creating && current.dataset.branchTab === 'notifications';
+    }
+    function selectTab(tab) {
+        history.replaceState(history.state, '', '#' + tab.dataset.branchTab);
+        showTab(tab.dataset.branchTab);
+    }
+    tabs.forEach((tab, i) => {
+        tab.addEventListener('click', () => selectTab(tab));
+        tab.addEventListener('keydown', event => {
+            const targets = {ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1};
+            if (!(event.key in targets)) return;
+            event.preventDefault();
+            const next = tabs[targets[event.key]];
+            selectTab(next);
+            next.focus();
+        });
+    });
+    window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+    showTab(location.hash.slice(1));
+    form.addEventListener('invalid', event => {
+        const panel = event.target.closest('[data-branch-panel]');
+        const firstInvalid = form.querySelector(':invalid');
+        if (panel?.hidden && event.target === firstInvalid) {
+            selectTab(tabs.find(tab => tab.dataset.branchTab === panel.dataset.branchPanel));
+        }
+    }, true);
+    for (const input of switches) {
+        input.addEventListener('change', async () => {
+            if (creating || form.dataset.ready !== 'true') return;
+            const field = input.dataset.branchSwitch;
+            const selected = input.checked;
+            const serial = loadSerial;
+            switches.forEach(control => { control.disabled = true; });
+            save.disabled = true;
+            switchStatus.textContent = 'Сохранение…';
+            try {
+                await post('/admin/api/branches/' + encodeURIComponent(branchId.value) + '/notification-settings', {[field]: selected});
+                if (serial === loadSerial) switchStatus.textContent = 'Настройка сохранена.';
+            } catch (error) {
+                if (serial === loadSerial) {
+                    input.checked = !selected;
+                    switchStatus.textContent = error.message;
+                }
+            } finally {
+                if (serial === loadSerial) {
+                    switches.forEach(control => { control.disabled = false; });
+                    save.disabled = false;
+                }
+            }
+        });
+    }
     function showBranchMode() {
         const crm=crmMode.value==='true';
         crmMode.disabled=!window.IS_SUPER||(!creating&&internalId);
@@ -672,6 +756,7 @@ async function initializeBranchSettings() {
         crmMode.value=value.yclients_enabled===false?'false':'true';
         showBranchMode();
         document.getElementById('settingsName').value = value.name || '';
+        document.getElementById('branchSettingsTitle').textContent = creating ? 'Новый филиал' : value.name || 'Филиал';
         document.getElementById('settingsTimezone').value = value.timezone || 'Europe/Moscow';
         showLogo(value.logo || '');
         logoUpload.value = '';
@@ -681,20 +766,30 @@ async function initializeBranchSettings() {
             input.checked = !Array.isArray(value.modem_ids) || value.modem_ids.includes(input.value);
         }
         document.getElementById('settingsEnabled').checked = value.enabled === true;
+        document.getElementById('settingsClientNotifications').checked = value.client_notifications_enabled !== false;
         document.getElementById('settingsSmsNotifications').checked = value.sms_notifications_enabled === true;
         document.getElementById('settingsPassHours').value = value.pass_duration_hours ?? 8;
         document.getElementById('settingsAutoApprove').checked = value.auto_approve_pass_requests === true;
+        switchStatus.textContent = '';
+        switches.forEach(control => { control.disabled = false; });
+        showTab(location.hash.slice(1));
         rows.replaceChildren();
         (value.buttons || []).forEach(addRow);
         rows.querySelectorAll('input,select,button').forEach(control=>control.disabled=false);
         document.getElementById('addSettingsButton').disabled=false;
         document.getElementById('saveSettingsButton').textContent = creating ? 'Создать филиал' : 'Сохранить настройки';
         form.dataset.ready = 'true';
+        form.inert = false;
         document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:value.branch_id,buttons:value.buttons||[]}}));
     }
     async function load(id) {
         const serial = ++loadSerial;
         form.dataset.ready = 'false';
+        form.inert = true;
+        if (String(id) !== branchId.value) {
+            document.dispatchEvent(new CustomEvent('gatebot:branch-settings-loaded',{detail:{branchId:null,buttons:[]}}));
+        }
+        switches.forEach(control => { control.disabled = true; });
         document.getElementById('saveSettingsButton').disabled = true;
         try {
             creating = false;
@@ -706,7 +801,9 @@ async function initializeBranchSettings() {
     }
     async function refreshBranches(selectedId) {
         if (!selector) return;
+        const serial = loadSerial;
         const result = await api('/admin/api/branches');
+        if (serial !== loadSerial) return;
         selector.replaceChildren();
         (result.branches || []).forEach(value => {
             const option = element('option', '', value.name);
@@ -719,8 +816,8 @@ async function initializeBranchSettings() {
         loadSerial += 1;
         creating = true;
         if (selector) selector.value = '';
+        selectTab(tabs[0]);
         fill({ name: '', timezone: 'Europe/Moscow', enabled: false, buttons: [] });
-        addRow();
         document.getElementById('saveSettingsButton').disabled = false;
         branchId.focus();
     }
@@ -730,8 +827,9 @@ async function initializeBranchSettings() {
     form.addEventListener('submit', async event => {
         event.preventDefault();
         if (form.dataset.ready !== 'true') { showAlert('Сначала загрузите настройки филиала', 'info'); return; }
-        const save = document.getElementById('saveSettingsButton');
+        const serial = loadSerial;
         save.disabled = true;
+        switches.forEach(control => { control.disabled = true; });
         try {
             const buttons = Array.from(rows.children).map(row => ({
                 type: row.querySelector('[data-field="type"]').value,
@@ -746,21 +844,27 @@ async function initializeBranchSettings() {
                 name: document.getElementById('settingsName').value,
                 timezone: document.getElementById('settingsTimezone').value,
                 enabled: document.getElementById('settingsEnabled').checked,
-                sms_notifications_enabled:document.getElementById('settingsSmsNotifications').checked,
+                ...(creating ? Object.fromEntries(switches.map(input => [input.dataset.branchSwitch, input.checked])) : {}),
                 pass_duration_hours:Number(document.getElementById('settingsPassHours').value),
-                auto_approve_pass_requests:document.getElementById('settingsAutoApprove').checked,
                 logo: document.getElementById('settingsLogo').value, buttons
             });
+            if (serial !== loadSerial) return;
             creating = false;
             fill(result.settings);
             await refreshBranches(result.settings.branch_id);
             showAlert('Настройки филиала сохранены', 'success');
         } catch (error) { showAlert(error.message, 'error'); }
-        finally { save.disabled = false; }
+        finally {
+            if (serial === loadSerial) {
+                save.disabled = false;
+                switches.forEach(control => { control.disabled = false; });
+            }
+        }
     });
     try {
         if (selector) {
             await refreshBranches();
+            if (creating) return;
             if (selector.value) await load(selector.value); else startNew();
         } else {
             await load(window.DEFAULT_BRANCH_ID);

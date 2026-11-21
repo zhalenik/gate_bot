@@ -68,6 +68,8 @@ class BranchManager:
             raise ValueError('yclients_enabled must be boolean')
         if type(data.get('sms_notifications_enabled',False)) is not bool:
             raise ValueError('sms_notifications_enabled must be boolean')
+        if type(data.get('client_notifications_enabled', True)) is not bool:
+            raise ValueError('client_notifications_enabled must be boolean')
         if type(data.get('auto_approve_pass_requests', False)) is not bool:
             raise ValueError('Выберите режим подтверждения запросов')
         hours = data.get('pass_duration_hours', 8)
@@ -148,7 +150,7 @@ class BranchManager:
 
     def update_settings(self, branch_id, settings, create=False):
         allowed = {'name', 'timezone', 'enabled', 'buttons', 'logo', 'yclients_enabled', 'sms_notifications_enabled'}
-        allowed.update({'pass_duration_hours', 'auto_approve_pass_requests'})
+        allowed.update({'pass_duration_hours', 'auto_approve_pass_requests', 'client_notifications_enabled'})
         if set(settings) - (allowed | {'modem_ids'}):
             raise ValueError('Unsupported branch settings')
         key = str(branch_id)

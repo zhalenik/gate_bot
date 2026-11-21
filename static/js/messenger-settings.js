@@ -6,7 +6,7 @@
   if (!branch) return;
   const el = (tag, text = '', cls = '') => { const n = document.createElement(tag); n.textContent = text; n.className = cls; return n; };
   const panel = el('section', '', 'panel'); panel.id = 'branchMessengerSettings';
-  if(boot.kind==='integrations')panel.append(el('h2', 'Сообщения клиентам'));
+  if(boot.kind==='integrations') panel.append(el('h2','Сообщения клиентам'),document.getElementById('messengerGuide').content.cloneNode(true));
   const form = el('form', '', 'admin-form'), label = el('label', 'Способ отправки', 'form-group'), select = el('select');
   select.name = 'messenger_provider';
   const providers = {auto:'Автоматически',yclients:'Сервис рассылки в YCLIENTS',chatpush:'ChatPush напрямую',sms:'СМС филиала'};

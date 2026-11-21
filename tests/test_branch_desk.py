@@ -108,7 +108,7 @@ def test_browser_client_branch_and_guest_boundaries(web):
     for url in (share,'/pwa/'+guest+'/gate'):
         page=stranger.get(url)
         assert page.status_code==410 and 'Пропуск удален' in page.get_data(as_text=True)
-        assert b'data-client-desk' not in page.data and b'<button' not in page.data
+        assert b'data-client-desk' not in page.data and b'<button' not in page.data and b'/admin/login' not in page.data
 
 
 def test_new_pass_token_skips_existing_and_retired_guest_urls(product, monkeypatch):
@@ -267,15 +267,49 @@ def test_guest_chat_and_approval_in_browser(web,browser_ui):
     page.get_by_role('button',name='Запросить пропуск').click()
     page.get_by_role('button',name='Написать в чат').click()
     expect(page.locator('[data-desk-history]')).to_contain_text('Прошу предоставить пропуск')
-    sign_in(page,origin,'tenant-a')
-    page.goto(origin+'/admin/client-messages')
-    page.locator('[data-desk-threads] button').first.click()
-    page.get_by_role('button',name='Выдать разовый пропуск').click()
-    expect(page.locator('[data-desk-history]')).to_contain_text('Пропуск разрешён')
-    page.get_by_label('Ответ клиенту').fill('Пожалуйста, проезжайте')
-    page.get_by_role('button',name='Отправить',exact=True).click()
+    page.get_by_role('button',name='Закрыть',exact=True).click()
+    admin=page.context.browser.new_page()
+    try:
+        sign_in(admin,origin,'tenant-a')
+        admin.goto(origin+'/admin/client-messages')
+        admin.locator('[data-desk-threads] button').first.click()
+        admin.get_by_role('button',name='Выдать разовый пропуск').click()
+        expect(admin.locator('[data-desk-history]')).to_contain_text('Пропуск разрешён')
+        expect(page.locator('.button-gate').first).to_be_visible(timeout=6000)
+        admin.get_by_label('Ответ клиенту').fill('Пожалуйста, проезжайте')
+        admin.get_by_role('button',name='Отправить',exact=True).click()
+        expect(admin.locator('[data-desk-history]')).to_contain_text('Пожалуйста, проезжайте')
+    finally:
+        admin.close()
     page.goto(origin+'/pwa/'+web.token_a+'/gate#messages')
     expect(page.locator('[data-desk-history]')).to_contain_text('Пожалуйста, проезжайте')
+
+
+@pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in headless browser')
+def test_mobile_browser_chat_size_and_instant_approval(web,browser_ui):
+    page,origin,expect,_=browser_ui
+    migrate_legacy(web.links.store.path.parent,activate=True)
+    web.module.product_services().attach(web.module.access_service)
+    web.branches.update_settings(12,{'auto_approve_pass_requests':True})
+    web.links.revoke_link(web.token_a)
+    page.set_viewport_size({'width':360,'height':740})
+    page.goto(origin+'/opn/'+web.token_a)
+    page.get_by_role('button',name='Обратиться к администратору').click()
+    page.get_by_role('button',name='Написать в чат').click()
+    field=page.get_by_label('Сообщение администратору').bounding_box()
+    send=page.get_by_role('button',name='Отправить',exact=True).bounding_box()
+    assert field['width']>150 and 40<=send['width']<=48 and field['x']+field['width']<=send['x']
+    page.get_by_role('button',name='Закрыть',exact=True).click()
+    page.get_by_role('button',name='Обратиться к администратору').click()
+    page.get_by_role('button',name='Запросить пропуск').click()
+    expect(page.locator('.button-gate').first).to_be_visible()
+    # The tab may have been suspended while an administrator deletes the client.
+    page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))")
+    web.links.delete_link(web.token_a)
+    page.evaluate("delete document.hidden;document.dispatchEvent(new Event('visibilitychange'))")
+    expect(page.get_by_role('heading',name='Доступ невозможен')).to_be_visible(timeout=6500)
+    expect(page.locator('a[href*="/admin"]')).to_have_count(0)
+    assert web.calls==[]
 
 
 @pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in headless browser')

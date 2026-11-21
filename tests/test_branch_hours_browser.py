@@ -16,6 +16,9 @@ def test_weekly_settings_save_overnight_and_mobile(hours_web,browser_ui,tmp_path
     before=web.links.load_links()
     sign_in(page,origin,'tenant-a')
     page.goto(origin+'/admin/settings')
+    expect(page.get_by_role('heading',name='Branch 12',exact=True)).to_be_visible()
+    expect(page.get_by_role('tab')).to_have_count(4)
+    page.get_by_role('tab',name='Доступ по пропускам').click()
     expect(page.locator('#branchHoursPanel')).to_be_visible()
     expect(page.locator('#branchHoursEnabled')).to_be_enabled()
     page.locator('#branchHoursEnabled').check()
@@ -37,6 +40,31 @@ def test_weekly_settings_save_overnight_and_mobile(hours_web,browser_ui,tmp_path
     assert page.locator('#branchHoursPanel').evaluate('(panel)=>panel.scrollWidth<=panel.clientWidth')
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
     assert web.links.load_links()==before and web.calls==[] and not errors
+
+
+def test_branch_switches_persist_on_click_and_share_the_journal_setting(hours_web, browser_ui):
+    web=hours_web
+    page,origin,expect,_=browser_ui
+    sign_in(page,origin,'tenant-a')
+    page.goto(origin+'/admin/settings')
+    page.get_by_role('tab',name='Уведомления и запросы').click()
+    expect(page.locator('#saveSettingsButton')).to_be_hidden()
+    for switch,selected in (('settingsAutoApprove',True),('settingsClientNotifications',False),('settingsSmsNotifications',True)):
+        with page.expect_response('**/branches/12/notification-settings') as saved:
+            page.locator('#'+switch).set_checked(selected)
+        assert saved.value.status==200
+    page.reload()
+    expect(page.locator('#branch-tab-notifications')).to_have_attribute('aria-selected','true')
+    expect(page.locator('#settingsAutoApprove')).to_be_checked()
+    expect(page.locator('#settingsClientNotifications')).not_to_be_checked()
+    expect(page.locator('#settingsSmsNotifications')).to_be_checked()
+    page.goto(origin+'/admin/client-notices')
+    journal_switch=page.get_by_role('switch')
+    expect(journal_switch).to_have_attribute('aria-checked','false')
+    journal_switch.click()
+    page.goto(origin+'/admin/settings#notifications')
+    expect(page.locator('#settingsClientNotifications')).to_be_checked()
+    assert web.branches.get_branch(12).auto_approve_pass_requests is True
 
 
 def test_web_and_qr_closed_immediately_without_phone_or_sms(hours_web,browser_ui,tmp_path):

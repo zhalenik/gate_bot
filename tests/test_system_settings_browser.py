@@ -18,9 +18,10 @@ def test_system_settings_edit_restart_status_secret_retention_and_mobile(system_
     assert page.goto(origin+'/admin/system-settings').status==200
     expect(page.locator('[data-shared-header]')).to_have_count(1)
     expect(page.locator('#systemSettingsSave')).to_be_enabled()
-    form=page.locator('#systemSettingsForm')
+    form=page.locator('.system-settings-editor')
+    assert page.locator('#systemSettingsGroups > details > summary').all_text_contents() == ['Уведомления','Аппаратные средства','Чат-боты','CRM','Разработка']
     assert abs(form.bounding_box()['width']-page.locator('.settings-workspace .admin-content').evaluate("e=>e.clientWidth-parseFloat(getComputedStyle(e).paddingLeft)-parseFloat(getComputedStyle(e).paddingRight)")) < 2
-    page.locator('#systemSettingsGroups').evaluate("groups=>groups.querySelectorAll('details').forEach(el=>el.open=true)")
+    page.locator('#systemSettingsGroups').evaluate("groups=>groups.querySelectorAll(':scope > details').forEach(el=>el.open=true)")
     page.locator('#setting-PORT').scroll_into_view_if_needed()
     expect(page.locator('#systemSettingsSave')).to_be_in_viewport()
     page.get_by_label('Порт веб-сервера',exact=True).fill('6799')

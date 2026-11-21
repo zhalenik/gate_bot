@@ -69,6 +69,57 @@ def test_office_device_event_and_revalidation(identities,monkeypatch):
     assert pwa.office.deliver(saved,{'event':'pass_requested','branch_id':'11'})['status']=='skipped'
 
 
+def test_desktop_push_global_event_role_and_changed_preferences(identities,monkeypatch):
+    state = identities
+    monkeypatch.setattr(config,'BASE_URL','https://example.invalid')
+    monkeypatch.setattr(config,'OUTBOUND_ENABLED',True)
+    network = Mock(return_value={'status':'accepted'})
+    pwa = PwaService(state.service,transport=network)
+    out = ProductNotifications(state.service,state.links,state.branches,state.billing,pwa=pwa)
+    pwa.office.subscribe('owner',subscription('global'),None,True,desktop=True)
+    pwa.office.subscribe('north',subscription('branch'),None,True,desktop=True)
+    state.service.save_admin_preferences('owner',{'active_events':['sms_received'],'events':{'sms_received':{'push':True}}})
+    out.event('sms_received',None,{'event_id':'first'})
+    out.process_once()
+    network.assert_called_once()
+    assert network.call_args.args[1]['url']=='/admin/notifications'
+    out.event('sms_received',None,{'event_id':'second'})
+    state.service.save_admin_preferences('owner',{'events':{'sms_received':{'push':False}}})
+    # A previously open version of the device form still posts its own selection.
+    device=subscription('global')
+    pwa.office.subscribe('owner',device,['sms_received'],True,desktop=True)
+    assert 'sms_received' not in pwa.office.settings('owner',device['endpoint'],desktop=True)['selected']
+    out.process_once()
+    network.assert_called_once()
+
+
+@pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in browser acceptance')
+def test_desktop_admin_can_connect_browser_and_choose_events(web,tmp_path,monkeypatch,browser_ui):
+    from test_client_pwa_browser import mock_push
+    migrate_legacy(tmp_path,activate=True)
+    monkeypatch.setattr(web.auth,'store',DocumentStore(tmp_path/'admins.json'))
+    services=web.module.product_services()
+    services.identity.attach_console_account('super','+15550100901')
+    page,origin,expect,errors=browser_ui
+    mock_push(page)
+    sign_in(page,origin)
+    offer=page.locator('[data-admin-push-offer]')
+    expect(offer).to_be_visible()
+    assert page.evaluate('fakePermissionCalls')==0
+    offer.get_by_role('button',name='Включить').click()
+    expect(offer).to_be_hidden()
+    assert page.evaluate('fakePermissionCalls')==1
+    page.goto(origin+'/admin/notification-settings')
+    expect(page.locator('[data-office-push] [role=status]')).to_have_text('Уведомления подключены.')
+    page.locator('[name=sms_received_push]').check()
+    page.get_by_role('button',name='Сохранить',exact=True).click()
+    expect(page.locator('#identityNotice')).to_contain_text('сохранены')
+    assert services.identity.admin_preferences('super')['events']['sms_received']['push']
+    page.get_by_role('button',name='Отключить на этом устройстве').click()
+    expect(page.locator('[name=sms_received_push]')).to_be_disabled()
+    assert not errors and not web.calls
+
+
 @pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in browser acceptance')
 def test_mobile_office_install_scope_push_and_offline(web,tmp_path,monkeypatch,browser_ui):
     from test_client_pwa_browser import mock_push

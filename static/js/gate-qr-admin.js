@@ -27,9 +27,9 @@
     const heading = make('div', '', 'qr-dialog-heading'), title = make('h2', gateId ? 'QR-код ворот' : 'QR-код регистрации в филиале'), close = make('button', '×', 'icon-button');
     close.type = 'button'; close.setAttribute('aria-label', 'Закрыть'); close.addEventListener('click', () => dialog.close());
     heading.append(title, close);
-    const description = make('p', gateId ? 'Разместите код у ворот. Клиент введёт свой телефон и подтвердит его по SMS. Открытие доступно только с действующим пропуском этого филиала.' : 'Разместите код в салоне. Посетители смогут подтвердить телефон и зарегистрироваться в вашем филиале.');
+    const description = make('p', gateId ? 'Разместите код у ворот. Клиент подтвердит номер телефона и сможет открыть ворота с действующим пропуском этого филиала.' : 'Разместите код в салоне. Посетители смогут подтвердить телефон и зарегистрироваться в вашем филиале.');
     const picture = make('img'); picture.alt = title.textContent; picture.hidden = true;
-    const link = make('input'); link.readOnly = true; link.setAttribute('aria-label', 'Постоянная ссылка'); link.hidden = true;
+    const link = make('input'); link.readOnly = true; link.setAttribute('aria-label', gateId ? 'Постоянная ссылка ворот' : 'Постоянная ссылка регистрации в филиале'); link.hidden = true;
     const actions = make('div', '', 'qr-dialog-actions'), status = make('p'); status.dataset.role = 'status'; status.setAttribute('role', 'status');
     dialog.append(heading, description, picture, link, actions, status);
     document.body.append(dialog); dialog.showModal();
@@ -43,7 +43,7 @@
       }); actions.append(button);
     }
     function render(data) {
-      title.textContent = data.gate_label || 'QR-код ворот'; actions.replaceChildren();
+      title.textContent = data.gate_label || (gateId ? 'QR-код ворот' : 'QR-код регистрации в филиале'); actions.replaceChildren();
       picture.hidden = link.hidden = !data.enabled;
       if (data.enabled) {
         picture.src = endpoint + '.svg?v=' + Date.now(); link.value = data.url;

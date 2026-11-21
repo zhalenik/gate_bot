@@ -11,7 +11,7 @@
     }
     function fail(text){$('notificationError').textContent=text;$('notificationError').hidden=false;}
     function render(){
-        $('readAllNotifications').hidden=!unreadTotal;
+        $('readAllNotifications').disabled=!unreadTotal;
         const count=unreadTotal;$('notificationCount').textContent=count;$('notificationCount').hidden=!count;
         $('showAllNotifications').setAttribute('aria-pressed',String(!unreadOnly));$('showUnreadNotifications').setAttribute('aria-pressed',String(unreadOnly));
         list.replaceChildren();const visible=items.filter(item=>!unreadOnly||!item.read).sort((a,b)=>b.created-a.created);
@@ -50,7 +50,7 @@
             const result=await fetch('/admin/api/notification-inbox/read-all',{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content}});
             if(!result.ok)throw Error('Не удалось обновить уведомления');
             await refresh();
-        }catch(error){fail(error.message);}finally{button.disabled=false;}
+        }catch(error){fail(error.message);}finally{button.disabled=!unreadTotal;}
     };
     refresh();setInterval(()=>{if(!document.hidden)refresh();},30000);
 })();

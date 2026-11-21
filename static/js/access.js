@@ -48,7 +48,7 @@
     }
     async function refresh(){
         if(statusBusy||navigator.onLine===false||window.GateBotPWA?.online===false)return;statusBusy=true;
-        try{const {response,data}=await request('/api/access/status',{token:config.token});if(response.ok){if(connectionError){$('statusMessage').textContent='';connectionError=false;}applyState(data);}else{active=false;render();}}
+        try{const {response,data}=await request('/api/access/status',{token:config.token});if(response.ok){if(connectionError){$('statusMessage').textContent='';connectionError=false;}applyState(data);}else{active=false;render();if([404,410].includes(response.status)||data.code==='csrf_expired')location.reload();}}
         catch{connectionError=true;active=false;render();$('statusMessage').textContent='Не удалось обновить пропуск. Проверяем соединение…';$('statusMessage').className='status-message error';}
         finally{statusBusy=false;}
     }
@@ -69,4 +69,5 @@
     }
     applyButtons(config.buttons);expires=config.expires_at?new Date(config.expires_at).getTime():0;render();refresh();setInterval(render,250);setInterval(()=>{if(!document.hidden)refresh();},5000);
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+    document.addEventListener('gatebot:pass-granted',refresh);
 })();

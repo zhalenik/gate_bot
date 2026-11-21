@@ -61,6 +61,10 @@ class ProductStore:
             db.close()
 
     def current_connection(self):
-        return getattr(_connections, 'active', {}).get(self.path)
+        return self.connection_for(self.path)
+
+    @staticmethod
+    def connection_for(path):
+        return getattr(_connections, 'active', {}).get(str(path))
 
     transaction = connect

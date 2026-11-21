@@ -9,15 +9,21 @@
  async function api(data){const options={credentials:'same-origin',cache:'no-store'};if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content};options.body=JSON.stringify(data);}const response=await fetch('/admin/api/system-settings',options);let result;try{result=await response.json();}catch{throw Error('Не удалось прочитать настройки');}if(!response.ok)throw Error(result.message||'Не удалось сохранить настройки');return result.settings;}
  function display(value){return typeof value==='boolean'?(value?'Включено':'Выключено'):String(value??'')||'Не задано';}
  function paint(settings){
-  snapshot=settings;fields.clear();groups.replaceChildren();const containers={};
-  for(const [key,title] of Object.entries(settings.groups)){
-   const section=node('details','','panel system-settings-group');section.dataset.group=key;section.open=key==='service';section.append(node('summary',title));
+  snapshot=settings;fields.clear();
+  const extras=[...document.querySelectorAll('[data-settings-extra], #modemSettings')];
+  const expanded=new Set([...groups.children].filter(section=>section.open).map(section=>section.dataset.group));
+  if (!groups.children.length) expanded.add('delivery');
+  groups.replaceChildren();const containers={};
+  for(const key of settings.group_order){
+   const title=settings.groups[key];
+   const section=node('details','','panel system-settings-group');section.dataset.group=key;section.open=expanded.has(key);section.append(node('summary',title));
    const body=node('div','','system-settings-grid');section.append(body);groups.append(section);containers[key]=body;
   }
+  for(const extra of extras) containers[extra.dataset.settingsExtra || 'hardware'].parentElement.append(extra);
   for(const field of settings.fields){
    const row=node('div','','form-group system-settings-field');row.dataset.key=field.key;
    const invalidTyped=!!field.validation_error&&['bool','int','float'].includes(field.kind);
-   const label=node('label',field.label),input=document.createElement(field.kind==='select'?'select':field.kind==='template'?'textarea':'input');input.name=field.key;input.id='setting-'+field.key;label.htmlFor=input.id;
+   const label=node('label',field.label),input=document.createElement(field.kind==='select'?'select':field.kind==='template'?'textarea':'input');input.name=field.key;input.setAttribute('form',form.id);input.id='setting-'+field.key;label.htmlFor=input.id;
    if(field.kind==='select'){if(field.validation_error){const previous=node('option','Текущее значение: '+display(field.value));previous.value=field.value;input.append(previous);}for(const value of field.options){const option=node('option',value);option.value=value;input.append(option);}input.value=field.value;}
    else if(field.kind==='bool'&&!invalidTyped){input.type='checkbox';input.checked=field.value;label.className='checkbox-label';}
    else if(field.kind==='template'){input.value=field.value;input.rows=3;input.maxLength=1024;}
@@ -38,7 +44,20 @@
   document.getElementById('systemSettingsState').textContent=settings.invalid_keys?.length?'Проверьте параметры: '+settings.invalid_keys.length+'. Исправьте отмеченные поля и сохраните.':settings.restart_required?'Сохранены изменения: '+settings.restart_keys.length+'. Для применения перезапустите сервис.':'Сохранённые параметры соответствуют текущему запуску.';
   save.disabled=false;restart.disabled=false;resetAll.disabled=!settings.fields.some(field=>field.overridden);filter();
  }
- function filter(){const text=search.value.toLocaleLowerCase().trim();for(const model of fields.values()){model.row.hidden=!([model.field.key,model.field.label,model.field.help].join(' ').toLocaleLowerCase().includes(text));}for(const section of groups.children){section.hidden=![...section.querySelectorAll('.system-settings-field')].some(row=>!row.hidden);if(text&&!section.hidden)section.open=true;}}
+ function filter(){
+  const query=search.value.trim().toLocaleLowerCase();
+  for(const section of groups.children){
+   const matchesGroup=section.querySelector('summary').textContent.toLocaleLowerCase().includes(query);
+   for(const row of section.querySelectorAll('.system-settings-field')){
+    const {field}=fields.get(row.dataset.key);
+    row.hidden=!matchesGroup && ![field.key,field.label,field.help].join(' ').toLocaleLowerCase().includes(query);
+   }
+   const extras=[...section.querySelectorAll(':scope > details')];
+   for(const extra of extras) extra.hidden=!matchesGroup && !extra.textContent.toLocaleLowerCase().includes(query);
+   section.hidden=!section.querySelector('.system-settings-field:not([hidden])') && !extras.some(extra=>!extra.hidden);
+   if(query && !section.hidden) section.open=true;
+  }
+ }
  search.addEventListener('input',filter);
  function changes(){const payload={revision:snapshot.revision,values:{},reset:[],clear:[]};for(const [key,model] of fields){if(model.resetPending){payload.reset.push(key);continue;}if(model.clear?.checked){payload.clear.push(key);continue;}const value=model.input.type==='checkbox'?model.input.checked:model.input.type==='number'?Number(model.input.value):model.input.value;if(model.field.secret){if(value)payload.values[key]=value;}else if(value!==model.field.value)payload.values[key]=value;}return payload;}
  async function perform(callback){if(busy)return;busy=true;save.disabled=true;resetAll.disabled=true;try{await callback();}catch(error){tell(error.message,true);}finally{busy=false;if(snapshot){save.disabled=false;resetAll.disabled=!snapshot.fields.some(field=>field.overridden);}}}

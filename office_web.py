@@ -2,7 +2,7 @@
 from pathlib import Path
 import re
 
-from flask import Blueprint, abort, jsonify, redirect, render_template, request, send_file, session
+from flask import Blueprint, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 
 from branding import BrandingSettings
 from identity_service import ADMIN_EVENTS
@@ -12,9 +12,59 @@ PAGES = {'clients':'admin/users.html','new-client':'admin/create-link.html','gue
          'notifications':'admin/notifications.html','settings':'identity/page.html','billing':'office/page.html',
          'messages':'office/page.html','help':'office/page.html'}
 
+def handle_push(office, action, *, desktop=False):
+    data = request.get_json(silent=True)
+    if not isinstance(data,dict):
+        abort(400)
+    name = session['admin_username']
+    if action=='state':
+        state = office.settings(name,data.get('endpoint'),desktop=desktop)
+        device = state.pop('device')
+        if device:
+            session['office_push_device'] = device
+        return jsonify(state)
+    if action=='subscribe':
+        session['office_push_device'] = office.subscribe(name,data.get('subscription'),data.get('events'),
+                                                          data.get('consent'),desktop=desktop)
+    elif action=='unsubscribe':
+        office.disable(name,endpoint=data.get('endpoint'))
+        session.pop('office_push_device',None)
+    else:
+        abort(404)
+    return jsonify(saved=True)
+
 
 def create_blueprint(provider):
     bp = Blueprint('office', __name__,url_prefix='/office')
+
+    mobile_sections = {
+        '/admin/users':'clients', '/admin/add-user':'new-client', '/admin/create-link':'new-client',
+        '/admin/temp-link':'guest', '/admin/client-messages':'messages', '/admin/notifications':'notifications',
+        '/admin/notification-settings':'settings', '/admin/subscription':'billing', '/admin/help':'help',
+    }
+
+    @bp.before_app_request
+    def mobile_cabinet():
+        if request.method != 'GET':
+            return
+        if request.path == '/office/' and request.args.get('view') == 'mobile':
+            session.pop('desktop_cabinet', None)
+        section = mobile_sections.get(request.path)
+        if not section or not (request.headers.get('Sec-CH-UA-Mobile') == '?1' or
+                re.search(r'Android|iPhone|iPad|iPod|Mobile', request.user_agent.string, re.I)):
+            return
+        services = provider()
+        admin = services['auth'].get_current_admin()
+        if not admin or admin.get('is_super'):
+            return
+        if request.args.get('view') == 'desktop':
+            session['desktop_cabinet'] = True
+        if not session.get('desktop_cabinet'):
+            # Older console accounts can use the full cabinet before attaching a phone.
+            if not admin.get('person_id') and not services['service'].web_admin(session['admin_username']).get('person_id'):
+                return
+            params = {key:request.args[key] for key in ('thread','page','resource') if key in request.args}
+            return redirect(url_for('office.page', section=section, **params))
 
     @bp.get('/manifest.webmanifest')
     def manifest():
@@ -83,17 +133,6 @@ def create_blueprint(provider):
 
     @bp.post('/push/<action>')
     def push(action):
-        data=request.get_json(silent=True)
-        if not isinstance(data,dict):abort(400)
-        office=provider()['pwa'].office
-        name=session['admin_username']
-        if action=='state':return jsonify(office.settings(name,data.get('endpoint')))
-        if action=='subscribe':
-            session['office_push_device']=office.subscribe(name,data.get('subscription'),data.get('events'),data.get('consent'))
-        elif action=='unsubscribe':
-            office.disable(name,endpoint=data.get('endpoint'))
-            session.pop('office_push_device',None)
-        else:abort(404)
-        return jsonify(saved=True)
+        return handle_push(provider()['pwa'].office, action)
 
     return bp

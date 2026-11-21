@@ -72,6 +72,48 @@ def test_branch_delete_requires_super_csrf_confirmation_and_unchanged_preview(ro
 
 
 @pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in browser acceptance')
+def test_invitation_tables_follow_branch_and_actions(roles_web,browser_ui):
+    web,identity=roles_web
+    page,origin,expect,_=browser_ui
+    identity.sender=lambda *_:{'status':'queued'}
+    with web.auth.store.transaction() as admins:
+        admins['additional']={'name':'Additional','password_hash':admins['tenant-a']['password_hash'],
+                              'branch_id':12,'is_super':False,'session_version':1}
+    identity.attach_console_account('additional','+15550100333')
+    sign_in(page,origin)
+    page.goto(origin+'/admin/invitations')
+    admin_table=page.get_by_role('table', name='Администраторы филиала')
+    invite_table=page.get_by_role('table', name='Приглашения')
+    expect(admin_table).to_contain_text('+15550100333')
+    expect(invite_table).to_be_visible()
+    email='invited@example.invalid'
+    page.get_by_label('Email',exact=True).fill(email)
+    page.get_by_role('button',name='Создать приглашение',exact=True).click()
+    invited=invite_table.get_by_role('row').filter(has_text=email)
+    expect(invited).to_contain_text('Ожидает регистрации')
+    invited.get_by_role('button',name='Отозвать',exact=True).click()
+    expect(invited).to_contain_text('Отозвано')
+    page.once('dialog',lambda dialog: dialog.accept())
+    member=admin_table.get_by_role('row').filter(has_text='+15550100333')
+    member.get_by_role('button', name='Отозвать права').click()
+    expect(member).to_contain_text('Права отозваны')
+    expect(admin_table).to_contain_text('Единственный администратор')
+    pending=[]
+    page.route('**/admin/api/identity/admins?branch_id=123',lambda route:pending.append(route))
+    branch_select=page.locator('#identityContent').get_by_role('combobox',name='Филиал',exact=True)
+    with page.expect_request('**/identity/admins?branch_id=123'):
+        branch_select.select_option('123')
+    expect(invited).to_have_count(0)
+    branch_select.select_option('12')
+    expect(member).to_be_visible()
+    assert len(pending)==1
+    with page.expect_response('**/identity/admins?branch_id=123'):
+        pending[0].fulfill(json={'admins':[{'name':'Other branch','status':'active'}]})
+    expect(invited).to_contain_text('Отозвано')
+    expect(admin_table).not_to_contain_text('Other branch')
+
+
+@pytest.mark.skipif(os.environ.get('GATEBOT_BROWSER_TESTS')!='1',reason='Opt-in browser acceptance')
 def test_super_deletes_branch_from_reviewable_browser_dialog(roles_web,browser_ui):
     web,identity=roles_web;page,origin,expect,errors=browser_ui
     sign_in(page,origin)

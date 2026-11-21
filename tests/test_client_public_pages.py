@@ -4,7 +4,8 @@ import pytest
 from test_web_security import web
 
 
-@pytest.mark.parametrize('path,status', [('/opn/unknown-example-token', 403), ('/opn/invalid!token', 403), ('/unsubscribe/unknown-example-token', 404)])
+@pytest.mark.parametrize('path,status', [('/opn/unknown-example-token', 403), ('/opn/invalid!token', 403),
+    ('/unsubscribe/unknown-example-token', 404), ('/shared/', 404), ('/pwa/old-client/gate', 403), ('/opn', 404)])
 def test_unknown_client_link_has_no_admin_or_home_navigation(web, path, status):
     response = web.app.test_client().get(path)
     assert response.status_code == status

@@ -15,7 +15,7 @@
 .desk-threads [data-desk-threads]{display:grid;gap:.35rem}.desk-threads button{display:block;text-align:left}.desk-threads button[aria-pressed=true]{background:var(--lavender);color:var(--ink)}
 .desk-conversation{align-content:start}
 .desk-actions{display:grid;gap:.7rem}.desk-actions:empty{display:none}.desk-actions>a,.desk-actions>button{text-align:center}
-.desk-panel .desk-compose{position:relative}.desk-compose textarea{padding-right:3.4rem;min-height:3.3rem}
-.desk-compose button{position:absolute;bottom:.5rem;right:.5rem;display:grid;place-items:center;width:2.4rem;height:2.4rem;min-height:0;padding:0;border-radius:50%}
+.desk-panel .desk-compose{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.45rem;margin:0}.desk-compose textarea{min-height:3.3rem}
+.desk-compose .desk-send{box-sizing:border-box;display:grid;place-items:center;width:44px;height:44px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--accent);color:var(--surface);cursor:pointer}.desk-send:disabled{opacity:.55}
 .desk-panel label.desk-check{display:flex;align-items:center;gap:.55rem}.desk-panel .desk-check input{width:auto}
 @media(max-width:680px){.desk-layout{grid-template-columns:1fr}.desk-threads [data-desk-threads]{max-height:25dvh;overflow:auto}}

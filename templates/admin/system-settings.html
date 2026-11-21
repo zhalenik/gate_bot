@@ -10,11 +10,12 @@
     <p class="page-description">Изменения в разделах ниже применяются после перезапуска сервиса. Текущие соединения продолжают работать с прежними параметрами. Почтовые настройки в разделе SMTP применяются сразу.</p>
     <label class="form-group">Найти параметр<input id="systemSettingsSearch" type="search" autocomplete="off" placeholder="Название или имя переменной"></label>
   </section>
-  <form id="systemSettingsForm" class="admin-form">
-    <div class="settings-toolbar"><button class="btn-primary" id="systemSettingsSave" type="submit" disabled>Сохранить</button><button class="btn-action" id="systemSettingsRestart" type="submit" disabled>Сохранить и перезапустить</button></div>
+  <div class="system-settings-editor">
+    <form id="systemSettingsForm"></form>
+    <div class="settings-toolbar"><button class="btn-primary" id="systemSettingsSave" type="submit" form="systemSettingsForm" disabled>Сохранить</button><button class="btn-action" id="systemSettingsRestart" type="submit" form="systemSettingsForm" disabled>Сохранить и перезапустить</button></div>
     <div id="systemSettingsGroups"></div>
-  </form>
-  <details class="panel"><summary><strong>Перенос и восстановление настроек</strong></summary>
+  </div>
+  <details class="panel" data-settings-extra="development"><summary><strong>Перенос и восстановление настроек</strong></summary>
     <div class="settings-transfer">
       <label>Пароль файла JSON<input id="transferPassword" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="От 8 символов"></label>
       <p class="form-hint">Файл содержит общие настройки, SMTP и модемы. Токены и пароли защищены паролем файла.</p>
@@ -24,7 +25,7 @@
       <div class="settings-reset"><button class="btn-action" id="systemSettingsReset" type="button" disabled>Вернуть настройки окружения</button></div>
     </div>
   </details>
-  <details class="panel"><summary><strong>Контейнер TrueNAS · YAML</strong></summary>
+  <details class="panel" data-settings-extra="development"><summary><strong>Контейнер TrueNAS · YAML</strong></summary>
     <form class="settings-export" id="composePreview" method="get" action="/admin/api/system-settings/compose.yaml">
       <label>Каталог GateBot на NAS<input required name="root" value="/mnt/ssd-pool/apps-data/gatebot"></label>
       <label>Внешний порт<input required type="number" min="1" max="65535" name="port" value="31500"></label>
@@ -35,7 +36,7 @@
     </form>
   </details>
   {% include 'components/modem-cards.html' %}
-  <details class="panel" id="systemSmtp"><summary><strong>SMTP · Отправка email</strong></summary><p class="page-description">Один почтовый сервер для всех филиалов. Сохранение и проверка используют существующие настройки SMTP.</p>
+  <details class="panel" id="systemSmtp" data-settings-extra="delivery"><summary><strong>SMTP · Отправка email</strong></summary><p class="page-description">Один почтовый сервер для всех филиалов. Сохранение и проверка используют существующие настройки SMTP.</p>
     {% include 'components/smtp-form.html' %}
   </details>
 </section></main>

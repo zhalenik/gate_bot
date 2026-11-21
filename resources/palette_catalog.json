@@ -1,5 +1,5 @@
 {
-  "catalog_version": "46e76bbadeadfe51c192741c07cb183f86f07868c72d7e2ec37a78afe326f716",
+  "catalog_version": "31488189df536bdf9a480066603118ff66fc2f1ca89ccfeca04d7142feb4995a",
   "entries": [
     {
       "id": "theme-sidebar-0e4ee20f4ddc",
@@ -141,6 +141,13 @@
           "selector": "#clientDirectory .card-sort-controls",
           "property": "color",
           "context": "@media(max-width:759px)"
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 120,
+          "selector": "#identityPage .admin-event-matrix td::before",
+          "property": "color",
+          "context": "@media(max-width:650px)"
         },
         {
           "file": "static/css/billing.css",
@@ -290,6 +297,13 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-hours.css",
+          "line": 5,
+          "selector": ".branch-tabs button",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/branding.css",
           "line": 1,
           "selector": ".branding-panel>p",
@@ -425,7 +439,7 @@
         {
           "file": "static/css/office.css",
           "line": 8,
-          "selector": ".office-nav a",
+          "selector": ".office-nav > a,.office-menu > summary",
           "property": "color",
           "context": ""
         },
@@ -433,6 +447,20 @@
           "file": "static/css/office.css",
           "line": 10,
           "selector": ".office-ledger time,.office-ledger small",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 19,
+          "selector": ".office-install-hint p",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 20,
+          "selector": ".office-dismiss",
           "property": "color",
           "context": ""
         },
@@ -928,6 +956,13 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-hours.css",
+          "line": 6,
+          "selector": ".branch-tabs button[aria-selected=\"true\"]",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/help.css",
           "line": 6,
           "selector": ".help-category[aria-pressed=true]",
@@ -944,7 +979,7 @@
         {
           "file": "static/css/office.css",
           "line": 8,
-          "selector": ".office-nav a[aria-current]",
+          "selector": ".office-nav > a[aria-current],.office-menu-current",
           "property": "background",
           "context": ""
         },
@@ -1364,6 +1399,13 @@
           "context": ""
         },
         {
+          "file": "static/css/admin.css",
+          "line": 95,
+          "selector": ".app-bar .brand-scope",
+          "property": "color",
+          "context": ""
+        },
+        {
           "file": "static/css/billing.css",
           "line": 1,
           "selector": ".billing-nav a[aria-current]",
@@ -1476,6 +1518,20 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-hours.css",
+          "line": 6,
+          "selector": ".branch-tabs button[aria-selected=\"true\"]",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-hours.css",
+          "line": 7,
+          "selector": ".branch-tabs button:focus-visible",
+          "property": "outline",
+          "context": ""
+        },
+        {
           "file": "static/css/client-preferences.css",
           "line": 2,
           "selector": ".client-preferences .preference-state",
@@ -1560,6 +1616,20 @@
           "context": ""
         },
         {
+          "file": "static/css/integrations.css",
+          "line": 32,
+          "selector": ".integration-guide > summary",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/integrations.css",
+          "line": 35,
+          "selector": ".integration-guide[open] > summary span",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-product-dot",
@@ -1583,14 +1653,14 @@
         {
           "file": "static/css/office.css",
           "line": 6,
-          "selector": ".office-menu nav a,.office-menu nav button",
+          "selector": ".office-menu-items a,.office-menu-items button",
           "property": "color",
           "context": ""
         },
         {
           "file": "static/css/office.css",
           "line": 8,
-          "selector": ".office-nav a[aria-current]",
+          "selector": ".office-nav > a[aria-current],.office-menu-current",
           "property": "color",
           "context": ""
         },
@@ -1915,6 +1985,13 @@
           "line": 1,
           "selector": ".billing-check input[type=checkbox],.billing-choice input[type=radio]",
           "property": "accent-color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-desk.css",
+          "line": 19,
+          "selector": ".desk-compose .desk-send",
+          "property": "background",
           "context": ""
         },
         {
@@ -2495,6 +2572,13 @@
           "context": "@media(max-width:759px)"
         },
         {
+          "file": "static/css/admin.css",
+          "line": 103,
+          "selector": ".admin-push-offer",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/billing.css",
           "line": 1,
           "selector": ".billing-nav",
@@ -2572,6 +2656,20 @@
           "context": ""
         },
         {
+          "file": "static/css/branch-desk.css",
+          "line": 19,
+          "selector": ".desk-compose .desk-send",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-hours.css",
+          "line": 4,
+          "selector": ".branch-tabs",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/branding.css",
           "line": 1,
           "selector": ".branding-panel",
@@ -2635,6 +2733,20 @@
           "context": ""
         },
         {
+          "file": "static/css/integrations.css",
+          "line": 35,
+          "selector": ".integration-guide[open] > summary span",
+          "property": "color",
+          "context": ""
+        },
+        {
+          "file": "static/css/integrations.css",
+          "line": 36,
+          "selector": ".integration-help-content",
+          "property": "background",
+          "context": ""
+        },
+        {
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-page",
@@ -2658,7 +2770,7 @@
         {
           "file": "static/css/office.css",
           "line": 5,
-          "selector": ".office-menu nav",
+          "selector": ".office-menu-items",
           "property": "background",
           "context": ""
         },
@@ -2666,6 +2778,13 @@
           "file": "static/css/office.css",
           "line": 7,
           "selector": ".office-nav",
+          "property": "background",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 18,
+          "selector": ".office-install-hint",
           "property": "background",
           "context": ""
         },
@@ -2909,6 +3028,20 @@
           "context": "@media(max-width:759px)"
         },
         {
+          "file": "static/css/admin.css",
+          "line": 103,
+          "selector": ".admin-push-offer",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/admin.css",
+          "line": 116,
+          "selector": "#identityPage .admin-event-matrix tr",
+          "property": "border-bottom",
+          "context": "@media(max-width:650px)"
+        },
+        {
           "file": "static/css/billing.css",
           "line": 1,
           "selector": ".billing-nav",
@@ -3030,6 +3163,20 @@
         {
           "file": "static/css/branch-hours.css",
           "line": 4,
+          "selector": ".branch-tabs",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-hours.css",
+          "line": 16,
+          "selector": ".branch-settings-page #branchModems",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/branch-hours.css",
+          "line": 22,
           "selector": ".branch-hours-day",
           "property": "border",
           "context": ""
@@ -3119,6 +3266,20 @@
           "context": ""
         },
         {
+          "file": "static/css/integrations.css",
+          "line": 36,
+          "selector": ".integration-help-content",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/integrations.css",
+          "line": 38,
+          "selector": "#yclientsIntegration .yclients-sync-panel",
+          "property": "border-top",
+          "context": ""
+        },
+        {
           "file": "static/css/landing.css",
           "line": 1,
           "selector": ".landing-benefits",
@@ -3135,7 +3296,7 @@
         {
           "file": "static/css/office.css",
           "line": 5,
-          "selector": ".office-menu nav",
+          "selector": ".office-menu-items",
           "property": "border",
           "context": ""
         },
@@ -3157,6 +3318,13 @@
           "file": "static/css/office.css",
           "line": 11,
           "selector": ".office-install",
+          "property": "border",
+          "context": ""
+        },
+        {
+          "file": "static/css/office.css",
+          "line": 18,
+          "selector": ".office-install-hint",
           "property": "border",
           "context": ""
         },
@@ -4093,6 +4261,28 @@
       ]
     },
     {
+      "id": "branch-hours-background-3467656fd825",
+      "css_var": "--gb-color-branch-hours-background-3467656fd825",
+      "label": "Фон · .branch-tabs button",
+      "group": "branch-hours",
+      "source_value": "transparent",
+      "default": "#00000000",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/branch-hours.css",
+          "line": 5,
+          "selector": ".branch-tabs button",
+          "property": "background",
+          "context": ""
+        }
+      ]
+    },
+    {
       "id": "client-pwa-color-97cb60e3f44a",
       "css_var": "--gb-color-client-pwa-color-97cb60e3f44a",
       "label": "Текст · #clientOfflineNotice",
@@ -4159,9 +4349,9 @@
       ]
     },
     {
-      "id": "office-box-shadow-911b66f2cada",
-      "css_var": "--gb-color-office-box-shadow-911b66f2cada",
-      "label": "Тень · .office-menu nav",
+      "id": "office-box-shadow-7b7d902c4d87",
+      "css_var": "--gb-color-office-box-shadow-7b7d902c4d87",
+      "label": "Тень · .office-menu-items",
       "group": "office",
       "source_value": "rgb(0 0 0 / .12)",
       "default": "#0000001F",
@@ -4174,8 +4364,30 @@
         {
           "file": "static/css/office.css",
           "line": 5,
-          "selector": ".office-menu nav",
+          "selector": ".office-menu-items",
           "property": "box-shadow",
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "office-background-84caae3a0db0",
+      "css_var": "--gb-color-office-background-84caae3a0db0",
+      "label": "Фон · .office-dismiss",
+      "group": "office",
+      "source_value": "transparent",
+      "default": "#00000000",
+      "editable": true,
+      "status_color": false,
+      "active": true,
+      "legacy": false,
+      "dynamic": false,
+      "locations": [
+        {
+          "file": "static/css/office.css",
+          "line": 20,
+          "selector": ".office-dismiss",
+          "property": "background",
           "context": ""
         }
       ]
@@ -4203,9 +4415,9 @@
       ]
     },
     {
-      "id": "office-background-f88891d3a8d1",
-      "css_var": "--gb-color-office-background-f88891d3a8d1",
-      "label": "Фон · .office-nav a[aria-current]",
+      "id": "office-background-fa07da9df3b1",
+      "css_var": "--gb-color-office-background-fa07da9df3b1",
+      "label": "Фон · .office-nav > a[aria-current],.office-menu-current",
       "group": "office",
       "source_value": "#C1BCDC",
       "default": "#C1BCDC",
@@ -4218,7 +4430,7 @@
         {
           "file": "static/css/office.css",
           "line": 8,
-          "selector": ".office-nav a[aria-current]",
+          "selector": ".office-nav > a[aria-current],.office-menu-current",
           "property": "background",
           "context": ""
         }
